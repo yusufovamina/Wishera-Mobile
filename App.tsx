@@ -13,7 +13,7 @@ export default function App() {
   }, [identify]);
   return (
     <SafeAreaProvider>
-      <StatusBar style="light" backgroundColor={colors.background} />
+      <StatusBar style="dark" backgroundColor={colors.background} />
       <AppNavigator />
     </SafeAreaProvider>
   );
