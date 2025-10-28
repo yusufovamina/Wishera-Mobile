@@ -3,7 +3,7 @@ import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, 
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { Button } from '../components/Button';
-import { userApi, endpoints } from '../api/client';
+import { ProfileEditModal } from '../components/ProfileEditModal';
 import { useAuthStore } from '../state/auth';
 
 const { width, height } = Dimensions.get('window');
@@ -24,6 +24,8 @@ type ProfileData = {
 export const ProfileScreen: React.FC<any> = ({ navigation }) => {
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
   const { user, logout } = useAuthStore();
   
   // Animation refs
@@ -67,9 +69,36 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
     ).start();
   }, []);
 
-  useEffect(() => {
-    fetchProfile();
-  }, []);
+  const handleUpdateProfile = async (data: any) => {
+    try {
+      setEditLoading(true);
+      await userApi.put('/api/Users/profile', {
+        username: data.username,
+        bio: data.bio || null,
+        interests: data.interests,
+        isPrivate: data.isPrivate,
+        birthday: data.birthday || null,
+        avatarUrl: data.avatarUrl || null,
+      });
+      
+      // Update local profile state
+      setProfile(prev => prev ? {
+        ...prev,
+        username: data.username,
+        bio: data.bio,
+        interests: data.interests,
+        isPrivate: data.isPrivate,
+        birthday: data.birthday,
+        avatarUrl: data.avatarUrl,
+      } : null);
+      
+      setShowEditModal(false);
+    } catch (error) {
+      console.log('Error updating profile:', error);
+    } finally {
+      setEditLoading(false);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -220,7 +249,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
               icon="Edit"
               title="Edit Profile"
               subtitle="Update your information"
-              onPress={() => console.log('Edit Profile')}
+              onPress={() => setShowEditModal(true)}
             />
             
             <MenuItem
@@ -280,6 +309,15 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
           </View>
         </Animated.View>
       </ScrollView>
+
+      {/* Profile Edit Modal */}
+      <ProfileEditModal
+        visible={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        onSubmit={handleUpdateProfile}
+        loading={editLoading}
+        profile={profile}
+      />
     </View>
   );
 };

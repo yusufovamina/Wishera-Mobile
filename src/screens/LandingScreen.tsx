@@ -247,7 +247,7 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 52,
     fontWeight: '900',
-    background: `linear-gradient(135deg, ${colors.gradientStart} 0%, ${colors.gradientMid} 50%, ${colors.gradientEnd} 100%)`,
+    backgroundColor: colors.gradientStart,
     color: colors.text,
     letterSpacing: 2,
     marginBottom: 12,

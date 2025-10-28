@@ -1,85 +1,414 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, StyleSheet, Text, FlatList, Image, TouchableOpacity, ScrollView, RefreshControl, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
-import { Card } from '../components/Card';
-import { api, endpoints } from '../api/client';
+import { GiftModal } from '../components/GiftModal';
+import { wishlistApi } from '../api/client';
 
-type Wishlist = { id: string; title: string; description?: string; items: Gift[]; likes?: number };
-type Gift = { id: string; name: string; price?: number; imageUrl?: string };
+interface WishlistDetailScreenProps {
+  route: {
+    params: {
+      wishlistId: string;
+      wishlistTitle: string;
+    };
+  };
+  navigation: any;
+}
 
-export const WishlistDetailScreen: React.FC<any> = ({ route }) => {
-  const { id } = route.params as { id: string };
-  const [data, setData] = useState<Wishlist | null>(null);
+interface Gift {
+  id: string;
+  name: string;
+  price: number;
+  category: string;
+  description?: string;
+  imageUrl?: string;
+  isReserved: boolean;
+  reservedBy?: string;
+}
+
+export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ route, navigation }) => {
+  const { wishlistId, wishlistTitle } = route.params;
+  const [gifts, setGifts] = useState<Gift[]>([]);
   const [loading, setLoading] = useState(false);
-  const [liking, setLiking] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const [showGiftModal, setShowGiftModal] = useState(false);
+  const [editingGift, setEditingGift] = useState<Gift | null>(null);
+  const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
+  const [giftLoading, setGiftLoading] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
+  useEffect(() => {
+    fetchGifts();
+  }, [wishlistId]);
+
+  const fetchGifts = async () => {
     try {
-      const res = await api.get(endpoints.wishlistById(id));
-      setData(res.data);
+      setLoading(true);
+      const res = await wishlistApi.get(`/api/Wishlists/${wishlistId}/gifts`);
+      setGifts(res.data || []);
+    } catch (error) {
+      console.log('Error fetching gifts:', error);
+      setGifts([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const like = async () => {
-    setLiking(true);
+  const onRefresh = async () => {
+    setRefreshing(true);
+    await fetchGifts();
+    setRefreshing(false);
+  };
+
+  const handleCreateGift = async (data: any) => {
     try {
-      await api.post(endpoints.wishlistLike(id));
-      await load();
+      setGiftLoading(true);
+      await wishlistApi.post(`/api/Wishlists/${wishlistId}/gifts`, {
+        name: data.name,
+        price: parseFloat(data.price),
+        category: data.category,
+        description: data.description || null,
+        imageUrl: data.imageUrl || null,
+      });
+      
+      await fetchGifts();
+      setShowGiftModal(false);
+    } catch (error) {
+      console.log('Error creating gift:', error);
     } finally {
-      setLiking(false);
+      setGiftLoading(false);
     }
   };
 
-  useEffect(() => {
-    load();
-  }, [id]);
+  const handleEditGift = async (data: any) => {
+    if (!editingGift) return;
+    
+    try {
+      setGiftLoading(true);
+      await wishlistApi.put(`/api/Gift/${editingGift.id}`, {
+        name: data.name,
+        price: parseFloat(data.price),
+        category: data.category,
+        description: data.description || null,
+        imageUrl: data.imageUrl || null,
+      });
+      
+      await fetchGifts();
+      setShowGiftModal(false);
+      setEditingGift(null);
+    } catch (error) {
+      console.log('Error editing gift:', error);
+    } finally {
+      setGiftLoading(false);
+    }
+  };
 
-  if (loading || !data) {
-    return (
-      <View style={styles.center}> 
-        <ActivityIndicator color={colors.primary} />
-      </View>
+  const handleDeleteGift = (gift: Gift) => {
+    Alert.alert(
+      'Delete Gift',
+      `Are you sure you want to delete "${gift.name}"?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await wishlistApi.delete(`/api/Gift/${gift.id}`);
+              await fetchGifts();
+            } catch (error) {
+              console.log('Error deleting gift:', error);
+            }
+          },
+        },
+      ]
     );
-  }
+  };
+
+  const handleReserveGift = async (gift: Gift) => {
+    try {
+      if (gift.isReserved) {
+        await wishlistApi.post(`/api/Gift/${gift.id}/unreserve`);
+      } else {
+        await wishlistApi.post(`/api/Gift/${gift.id}/reserve`);
+      }
+      await fetchGifts();
+    } catch (error) {
+      console.log('Error reserving gift:', error);
+    }
+  };
+
+  const openCreateModal = () => {
+    setModalMode('create');
+    setEditingGift(null);
+    setShowGiftModal(true);
+  };
+
+  const openEditModal = (gift: Gift) => {
+    setModalMode('edit');
+    setEditingGift(gift);
+    setShowGiftModal(true);
+  };
+
+  const renderGiftCard = ({ item }: { item: Gift }) => (
+    <View style={styles.giftCard}>
+      <View style={styles.giftHeader}>
+        <View style={styles.giftInfo}>
+          <Text style={styles.giftName}>{item.name}</Text>
+          <Text style={styles.giftPrice}>${item.price.toFixed(2)}</Text>
+          {item.category && (
+            <Text style={styles.giftCategory}>{item.category}</Text>
+          )}
+        </View>
+        
+        {item.imageUrl && (
+          <Image source={{ uri: item.imageUrl }} style={styles.giftImage} />
+        )}
+      </View>
+
+      {item.description && (
+        <Text style={styles.giftDescription}>{item.description}</Text>
+      )}
+
+      {item.isReserved && (
+        <View style={styles.reservedBadge}>
+          <Text style={styles.reservedText}>
+            Reserved by {item.reservedBy}
+          </Text>
+        </View>
+      )}
+
+      <View style={styles.giftActions}>
+        <TouchableOpacity
+          style={[styles.actionButton, item.isReserved ? styles.unreserveButton : styles.reserveButton]}
+          onPress={() => handleReserveGift(item)}
+        >
+          <Text style={[styles.actionButtonText, item.isReserved ? styles.unreserveButtonText : styles.reserveButtonText]}>
+            {item.isReserved ? 'Unreserve' : 'Reserve'}
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={() => openEditModal(item)}
+        >
+          <Text style={styles.actionButtonText}>Edit</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[styles.actionButton, styles.deleteButton]}
+          onPress={() => handleDeleteGift(item)}
+        >
+          <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Delete</Text>
+        </TouchableOpacity>
+      </View>
+    </View>
+  );
 
   return (
     <View style={styles.container}>
-      <Card style={{ margin: 16 }}>
-        <Text style={styles.title}>{data.title}</Text>
-        {data.description ? <Text style={styles.desc}>{data.description}</Text> : null}
-        <TouchableOpacity onPress={like} style={styles.likeBtn} disabled={liking}>
-          <Text style={styles.likeText}>{liking ? '...' : `❤ ${data.likes ?? 0}`}</Text>
+      {/* Header */}
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
+          <Text style={styles.backButtonText}>← Back</Text>
         </TouchableOpacity>
-      </Card>
+        <Text style={styles.headerTitle}>{wishlistTitle}</Text>
+        <TouchableOpacity onPress={openCreateModal} style={styles.addButton}>
+          <Text style={styles.addButtonText}>+ Add Gift</Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Gifts List */}
       <FlatList
-        data={data.items}
-        keyExtractor={(i) => i.id}
-        contentContainerStyle={{ paddingHorizontal: 16, paddingBottom: 24, gap: 12 }}
-        renderItem={({ item }) => (
-          <Card>
-            {item.imageUrl ? <Image source={{ uri: item.imageUrl }} style={styles.giftImage} /> : null}
-            <Text style={styles.itemTitle}>{item.name}</Text>
-            {item.price ? <Text style={styles.itemMeta}>{`$${item.price}`}</Text> : null}
-          </Card>
-        )}
+        data={gifts}
+        keyExtractor={(item) => item.id}
+        renderItem={renderGiftCard}
+        contentContainerStyle={styles.listContent}
+        refreshControl={
+          <RefreshControl 
+            tintColor={colors.primary} 
+            refreshing={refreshing} 
+            onRefresh={onRefresh} 
+          />
+        }
+        showsVerticalScrollIndicator={false}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No gifts in this wishlist yet</Text>
+            <TouchableOpacity onPress={openCreateModal} style={styles.emptyButton}>
+              <Text style={styles.emptyButtonText}>Add First Gift</Text>
+            </TouchableOpacity>
+          </View>
+        }
+      />
+
+      {/* Gift Modal */}
+      <GiftModal
+        visible={showGiftModal}
+        onClose={() => {
+          setShowGiftModal(false);
+          setEditingGift(null);
+        }}
+        onSubmit={modalMode === 'create' ? handleCreateGift : handleEditGift}
+        loading={giftLoading}
+        gift={editingGift}
+        mode={modalMode}
       />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.background },
-  title: { color: colors.text, fontSize: 22, fontWeight: '800' },
-  desc: { color: colors.muted, marginTop: 6 },
-  likeBtn: { position: 'absolute', right: 12, top: 12, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 10, backgroundColor: colors.surface, borderColor: colors.border, borderWidth: 1 },
-  likeText: { color: colors.text },
-  giftImage: { width: '100%', height: 140, borderRadius: 10, marginBottom: 10 },
-  itemTitle: { color: colors.text, fontWeight: '700', fontSize: 16 },
-  itemMeta: { color: colors.muted, marginTop: 4 },
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.border,
+    backgroundColor: colors.surface,
+  },
+  backButton: {
+    padding: 8,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  headerTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    flex: 1,
+    textAlign: 'center',
+  },
+  addButton: {
+    padding: 8,
+  },
+  addButtonText: {
+    fontSize: 16,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+  listContent: {
+    padding: 20,
+  },
+  giftCard: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  giftHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 12,
+  },
+  giftInfo: {
+    flex: 1,
+  },
+  giftName: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  giftPrice: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.primary,
+    marginBottom: 4,
+  },
+  giftCategory: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  giftImage: {
+    width: 60,
+    height: 60,
+    borderRadius: 8,
+    backgroundColor: colors.muted,
+  },
+  giftDescription: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    marginBottom: 12,
+    lineHeight: 20,
+  },
+  reservedBadge: {
+    backgroundColor: colors.warningLight,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    alignSelf: 'flex-start',
+    marginBottom: 12,
+  },
+  reservedText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.warning,
+  },
+  giftActions: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  actionButton: {
+    flex: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    backgroundColor: colors.muted,
+    alignItems: 'center',
+  },
+  actionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  reserveButton: {
+    backgroundColor: colors.successLight,
+  },
+  reserveButtonText: {
+    color: colors.success,
+  },
+  unreserveButton: {
+    backgroundColor: colors.warningLight,
+  },
+  unreserveButtonText: {
+    color: colors.warning,
+  },
+  deleteButton: {
+    backgroundColor: colors.dangerLight,
+  },
+  deleteButtonText: {
+    color: colors.danger,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    marginBottom: 20,
+  },
+  emptyButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    borderRadius: 12,
+  },
+  emptyButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
 });
-
-

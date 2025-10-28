@@ -4,10 +4,13 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
-import { api, wishlistApi, userApi, endpoints } from '../api/client';
+import { CreateWishlistModal } from '../components/CreateWishlistModal';
 import { useAuthStore } from '../state/auth';
+import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
 const { width, height } = Dimensions.get('window');
+
+const CATEGORIES = ['All', 'Electronics', 'Books', 'Clothing', 'Home & Garden', 'Sports', 'Beauty', 'Toys', 'Food', 'Health', 'Other'];
 
 // Mock data for development
 const mockWishlists: WishlistItem[] = [
@@ -68,6 +71,7 @@ type WishlistItem = {
   }>;
   likes: number;
   isLiked: boolean;
+  isBookmarked?: boolean;
   createdAt: string;
   user: {
     id: string;
@@ -79,10 +83,20 @@ type WishlistItem = {
 
 export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [wishlists, setWishlists] = useState<WishlistItem[]>([]);
+  const [likedWishlists, setLikedWishlists] = useState<WishlistItem[]>([]);
+  const [myWishlists, setMyWishlists] = useState<WishlistItem[]>([]);
+  const [gifts, setGifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [filteredWishlists, setFilteredWishlists] = useState<WishlistItem[]>([]);
+  const [activeTab, setActiveTab] = useState('home');
+  const [suggestedUsers, setSuggestedUsers] = useState<any[]>([]);
+  const [showSearchDropdown, setShowSearchDropdown] = useState(false);
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [createLoading, setCreateLoading] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string>('');
+  const [sortBy, setSortBy] = useState<string>('');
   const { user, logout } = useAuthStore();
   
   // Animation refs
@@ -175,23 +189,134 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   };
 
   useEffect(() => {
-    if (searchQuery.trim() === '') {
-      setFilteredWishlists(wishlists);
-    } else {
-      const filtered = wishlists.filter(w => 
+    let result = wishlists;
+    
+    // Apply search filter
+    if (searchQuery.trim()) {
+      result = result.filter(w => 
         w.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
         w.description?.toLowerCase().includes(searchQuery.toLowerCase()) ||
         w.user.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         w.user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
         w.category?.toLowerCase().includes(searchQuery.toLowerCase())
       );
-      setFilteredWishlists(filtered);
     }
-  }, [searchQuery, wishlists]);
+    
+    // Apply category filter
+    if (selectedCategory && selectedCategory !== 'All') {
+      result = result.filter(w => w.category === selectedCategory);
+    }
+    
+    // Apply sorting
+    if (sortBy === 'likes') {
+      result = [...result].sort((a, b) => b.likes - a.likes);
+    } else if (sortBy === 'recent') {
+      result = [...result].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    } else if (sortBy === 'title') {
+      result = [...result].sort((a, b) => a.title.localeCompare(b.title));
+    }
+    
+    setFilteredWishlists(result);
+  }, [searchQuery, wishlists, selectedCategory, sortBy]);
 
   useEffect(() => {
     fetchFeed();
   }, []);
+
+  // Load data based on active tab
+  useEffect(() => {
+    const loadTabData = async () => {
+      try {
+        setLoading(true);
+        switch (activeTab) {
+          case 'home':
+            await fetchFeed();
+            break;
+          case 'liked':
+            await fetchLikedWishlists();
+            break;
+          case 'my-wishlists':
+            await fetchMyWishlists();
+            break;
+          case 'my-gifts':
+            await fetchMyGifts();
+            break;
+        }
+      } catch (error) {
+        console.log('Error loading tab data:', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    
+    loadTabData();
+  }, [activeTab]);
+
+  const fetchLikedWishlists = async () => {
+    try {
+      const res = await wishlistApi.get('/api/Wishlists/liked');
+      const data = res.data || [];
+      const transformedData: WishlistItem[] = data.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        isPublic: item.isPublic,
+        gifts: item.gifts || [],
+        likes: item.likeCount || 0,
+        isLiked: item.isLiked || false,
+        createdAt: item.createdAt,
+        user: {
+          id: item.userId,
+          name: item.username,
+          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
+          username: item.username,
+        },
+      }));
+      setLikedWishlists(transformedData);
+    } catch (error) {
+      console.log('Error fetching liked wishlists:', error);
+      setLikedWishlists([]);
+    }
+  };
+
+  const fetchMyWishlists = async () => {
+    try {
+      const res = await wishlistApi.get(`/api/Wishlists/user/${user?.id}`);
+      const data = res.data || [];
+      const transformedData: WishlistItem[] = data.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        isPublic: item.isPublic,
+        gifts: item.gifts || [],
+        likes: item.likeCount || 0,
+        isLiked: item.isLiked || false,
+        createdAt: item.createdAt,
+        user: {
+          id: item.userId,
+          name: item.username,
+          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
+          username: item.username,
+        },
+      }));
+      setMyWishlists(transformedData);
+    } catch (error) {
+      console.log('Error fetching my wishlists:', error);
+      setMyWishlists([]);
+    }
+  };
+
+  const fetchMyGifts = async () => {
+    try {
+      const res = await wishlistApi.get('/api/Gift/wishlist');
+      setGifts(res.data || []);
+    } catch (error) {
+      console.log('Error fetching my gifts:', error);
+      setGifts([]);
+    }
+  };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -235,6 +360,113 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  const getCurrentData = () => {
+    switch (activeTab) {
+      case 'home':
+        return filteredWishlists;
+      case 'liked':
+        return likedWishlists;
+      case 'my-wishlists':
+        return myWishlists;
+      case 'my-gifts':
+        return gifts.map(gift => ({
+          id: gift.id,
+          title: gift.name,
+          description: `$${gift.price}`,
+          category: gift.category,
+          isPublic: true,
+          gifts: [gift],
+          likes: 0,
+          isLiked: false,
+          createdAt: new Date().toISOString(),
+          user: {
+            id: user?.id || '',
+            name: user?.username || 'You',
+            avatar: user?.avatar || '',
+            username: user?.username || 'you',
+          },
+        }));
+      default:
+        return filteredWishlists;
+    }
+  };
+
+  const getEmptyMessage = () => {
+    switch (activeTab) {
+      case 'home':
+        return searchQuery ? 'No wishlists found' : 'No wishlists yet';
+      case 'liked':
+        return 'No liked wishlists yet';
+      case 'my-wishlists':
+        return 'You haven\'t created any wishlists yet';
+      case 'my-gifts':
+        return 'No gifts in your wishlist yet';
+      default:
+        return 'No data available';
+    }
+  };
+
+  const handleEditWishlist = (wishlist: WishlistItem) => {
+    // TODO: Implement edit wishlist modal
+    console.log('Edit wishlist:', wishlist.id);
+  };
+
+  const handleDeleteWishlist = async (wishlist: WishlistItem) => {
+    try {
+      await wishlistApi.delete(`/api/Wishlists/${wishlist.id}`);
+      
+      // Remove from current data
+      setWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+      setLikedWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+      setMyWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+      
+      console.log('Wishlist deleted successfully');
+    } catch (error) {
+      console.log('Error deleting wishlist:', error);
+    }
+  };
+
+  const handleCreateWishlist = async (data: any) => {
+    try {
+      setCreateLoading(true);
+      await wishlistApi.post('/api/Wishlists', {
+        title: data.title,
+        description: data.description || null,
+        category: data.category,
+        isPublic: data.isPublic,
+      });
+      
+      // Refresh the current tab data
+      switch (activeTab) {
+        case 'home':
+          await fetchFeed();
+          break;
+        case 'my-wishlists':
+          await fetchMyWishlists();
+          break;
+      }
+      
+      setShowCreateModal(false);
+    } catch (error) {
+      console.log('Error creating wishlist:', error);
+    } finally {
+      setCreateLoading(false);
+    }
+  };
+
+  const handleBookmark = (wishlistId: string) => {
+    setWishlists(prev => prev.map(w => 
+      w.id === wishlistId ? { ...w, isBookmarked: !w.isBookmarked } : w
+    ));
+    setLikedWishlists(prev => prev.map(w => 
+      w.id === wishlistId ? { ...w, isBookmarked: !w.isBookmarked } : w
+    ));
+    setMyWishlists(prev => prev.map(w => 
+      w.id === wishlistId ? { ...w, isBookmarked: !w.isBookmarked } : w
+    ));
+    console.log('Bookmark toggled for wishlist:', wishlistId);
+  };
+
   const renderWishlistCard = ({ item }: { item: WishlistItem }) => (
     <Animated.View
       style={[
@@ -264,7 +496,13 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
 
         {/* Wishlist content */}
-        <View style={styles.cardContent}>
+        <TouchableOpacity 
+          style={styles.cardContent}
+          onPress={() => navigation.navigate('WishlistDetail', { 
+            wishlistId: item.id, 
+            wishlistTitle: item.title 
+          })}
+        >
           <Text style={styles.wishlistTitle}>{item.title}</Text>
           {item.description && (
             <Text style={styles.wishlistDescription}>{item.description}</Text>
@@ -293,7 +531,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               )}
             </View>
           )}
-        </View>
+        </TouchableOpacity>
 
         {/* Card footer with actions */}
         <View style={styles.cardFooter}>
@@ -308,14 +546,33 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               <Text style={styles.actionText}>{item.likes}</Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionIcon}>Comments</Text>
-              <Text style={styles.actionText}>0</Text>
+            <TouchableOpacity 
+              style={styles.actionButton}
+              onPress={() => handleBookmark(item.id)}
+            >
+              <Text style={styles.actionIcon}>
+                {item.isBookmarked ? 'Saved' : 'Save'}
+              </Text>
             </TouchableOpacity>
             
-            <TouchableOpacity style={styles.actionButton}>
-              <Text style={styles.actionIcon}>Share</Text>
-            </TouchableOpacity>
+            {/* Edit/Delete buttons for own wishlists */}
+            {item.user.id === user?.id && (
+              <>
+                <TouchableOpacity 
+                  style={styles.actionButton}
+                  onPress={() => handleEditWishlist(item)}
+                >
+                  <Text style={styles.actionIcon}>Edit</Text>
+                </TouchableOpacity>
+                
+                <TouchableOpacity 
+                  style={styles.actionButton}
+                  onPress={() => handleDeleteWishlist(item)}
+                >
+                  <Text style={[styles.actionIcon, { color: colors.danger }]}>Delete</Text>
+                </TouchableOpacity>
+              </>
+            )}
           </View>
           
           <Text style={styles.timestamp}>
@@ -405,16 +662,91 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             )}
           </View>
         </View>
+
+        {/* Tab Navigation */}
+        <View style={styles.tabContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabScrollContent}>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'home' && styles.activeTab]} 
+              onPress={() => setActiveTab('home')}
+            >
+              <Text style={[styles.tabText, activeTab === 'home' && styles.activeTabText]}>Home</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'my-wishlists' && styles.activeTab]} 
+              onPress={() => setActiveTab('my-wishlists')}
+            >
+              <Text style={[styles.tabText, activeTab === 'my-wishlists' && styles.activeTabText]}>My Wishlists</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'liked' && styles.activeTab]} 
+              onPress={() => setActiveTab('liked')}
+            >
+              <Text style={[styles.tabText, activeTab === 'liked' && styles.activeTabText]}>Liked</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'my-gifts' && styles.activeTab]} 
+              onPress={() => setActiveTab('my-gifts')}
+            >
+              <Text style={[styles.tabText, activeTab === 'my-gifts' && styles.activeTabText]}>My Gifts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.tab, activeTab === 'profile' && styles.activeTab]} 
+              onPress={() => setActiveTab('profile')}
+            >
+              <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>Profile</Text>
+            </TouchableOpacity>
+          </ScrollView>
+        </View>
+
+        {/* Filter & Sort Controls */}
+        <View style={styles.filtersContainer}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollContent}>
+            {CATEGORIES.map((category) => (
+              <TouchableOpacity
+                key={category}
+                style={[styles.filterChip, selectedCategory === category && styles.filterChipActive]}
+                onPress={() => setSelectedCategory(category === selectedCategory ? '' : category)}
+              >
+                <Text style={[styles.filterChipText, selectedCategory === category && styles.filterChipTextActive]}>
+                  {category}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          
+          <View style={styles.sortContainer}>
+            <Text style={styles.sortLabel}>Sort:</Text>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'recent' && styles.sortButtonActive]}
+              onPress={() => setSortBy(sortBy === 'recent' ? '' : 'recent')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'recent' && styles.sortButtonTextActive]}>Recent</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'likes' && styles.sortButtonActive]}
+              onPress={() => setSortBy(sortBy === 'likes' ? '' : 'likes')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'likes' && styles.sortButtonTextActive]}>Popular</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.sortButton, sortBy === 'title' && styles.sortButtonActive]}
+              onPress={() => setSortBy(sortBy === 'title' ? '' : 'title')}
+            >
+              <Text style={[styles.sortButtonText, sortBy === 'title' && styles.sortButtonTextActive]}>A-Z</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
       </View>
     </Animated.View>
-  ), [user, fadeIn, slideUp, floatY]);
+  ), [user, fadeIn, slideUp, floatY, activeTab, selectedCategory, sortBy]);
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
       <FlatList
-        data={filteredWishlists}
+        data={getCurrentData()}
         keyExtractor={(item) => item.id}
         renderItem={renderWishlistCard}
         contentContainerStyle={styles.listContent}
@@ -430,7 +762,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyText}>
-              {searchQuery ? 'No wishlists found' : 'No wishlists yet'}
+              {getEmptyMessage()}
             </Text>
           </View>
         }
@@ -439,7 +771,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       {/* Floating Action Button */}
       <TouchableOpacity 
         style={styles.fab}
-        onPress={() => navigation.navigate('CreateWishlist')}
+        onPress={() => setShowCreateModal(true)}
       >
         <LinearGradient
           colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
@@ -448,6 +780,14 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           <Text style={styles.fabIcon}>+</Text>
         </LinearGradient>
       </TouchableOpacity>
+
+      {/* Create Wishlist Modal */}
+      <CreateWishlistModal
+        visible={showCreateModal}
+        onClose={() => setShowCreateModal(false)}
+        onSubmit={handleCreateWishlist}
+        loading={createLoading}
+      />
     </View>
   );
 };
@@ -577,6 +917,91 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: colors.textSecondary,
     fontWeight: '700',
+  },
+
+  // Tab Navigation styles
+  tabContainer: {
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  tabScrollContent: {
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  tab: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: colors.muted,
+  },
+  activeTab: {
+    backgroundColor: colors.primary,
+  },
+  tabText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.textSecondary,
+  },
+  activeTabText: {
+    color: 'white',
+  },
+
+  // Filter & Sort styles
+  filtersContainer: {
+    paddingHorizontal: 20,
+    marginTop: 12,
+  },
+  filterScrollContent: {
+    gap: 8,
+    marginBottom: 12,
+  },
+  filterChip: {
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.muted,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  filterChipActive: {
+    backgroundColor: colors.primary,
+    borderColor: colors.primary,
+  },
+  filterChipText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  filterChipTextActive: {
+    color: 'white',
+  },
+  sortContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sortLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginRight: 4,
+  },
+  sortButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    backgroundColor: colors.muted,
+  },
+  sortButtonActive: {
+    backgroundColor: colors.primary,
+  },
+  sortButtonText: {
+    fontSize: 13,
+    fontWeight: '500',
+    color: colors.textSecondary,
+  },
+  sortButtonTextActive: {
+    color: 'white',
   },
 
   // List styles
@@ -771,5 +1196,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-
-

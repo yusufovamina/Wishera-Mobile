@@ -4,12 +4,14 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, StyleSheet } from 'react-native';
 import { colors } from '../theme/colors';
+import { LandingScreen } from '../screens/LandingScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { WishlistDetailScreen } from '../screens/WishlistDetailScreen';
+import { NotificationsScreen } from '../screens/NotificationsScreen';
+import { ChatScreen } from '../screens/ChatScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
-import { LandingScreen } from '../screens/LandingScreen';
 import { useAuthStore } from '../state/auth';
 
 const Stack = createNativeStackNavigator();
@@ -19,7 +21,7 @@ const navTheme = {
   ...DarkTheme,
   colors: {
     ...DarkTheme.colors,
-    background: colors.background,
+    backgroundColor: colors.background,
     card: colors.surface,
     text: colors.text,
     border: colors.border,
@@ -56,25 +58,6 @@ export const AppNavigator: React.FC = () => {
 };
 
 // Placeholder components for tabs
-const ChatsScreen = () => (
-  <View style={styles.placeholderContainer}>
-    <View style={styles.placeholderIconCircle}>
-      <Text style={styles.placeholderIconText}>Msg</Text>
-    </View>
-    <Text style={styles.placeholderTitle}>Chats</Text>
-    <Text style={styles.placeholderSubtitle}>Connect with friends and family</Text>
-  </View>
-);
-
-const NotificationsScreen = () => (
-  <View style={styles.placeholderContainer}>
-    <View style={styles.placeholderIconCircle}>
-      <Text style={styles.placeholderIconText}>Ntf</Text>
-    </View>
-    <Text style={styles.placeholderTitle}>Notifications</Text>
-    <Text style={styles.placeholderSubtitle}>Stay updated with activity</Text>
-  </View>
-);
 
 // Custom tab bar icon component
 const TabIcon = ({ icon, focused, label }: { icon: string; focused: boolean; label: string }) => (
@@ -108,7 +91,7 @@ const TabsNavigator: React.FC = () => {
       />
       <Tabs.Screen 
         name="Chats" 
-        component={ChatsScreen} 
+        component={ChatScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
             <TabIcon icon="C" focused={focused} label="Chats" />
@@ -138,39 +121,6 @@ const TabsNavigator: React.FC = () => {
 };
 
 const styles = StyleSheet.create({
-  placeholderContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: colors.background,
-    paddingHorizontal: 40,
-  },
-  placeholderIconCircle: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-  },
-  placeholderIconText: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: 'white',
-  },
-  placeholderTitle: {
-    fontSize: 24,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  placeholderSubtitle: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    textAlign: 'center',
-    lineHeight: 22,
-  },
   tabBar: {
     backgroundColor: colors.surface,
     borderTopColor: colors.border,

@@ -24,11 +24,13 @@ const baseUrl = getBaseUrl();
 const authServiceUrl = `${baseUrl}:5219`;  // Auth service
 const userServiceUrl = `${baseUrl}:5001`;  // User service
 const wishlistServiceUrl = `${baseUrl}:5003`; // Gift/wishlist service
+const chatServiceUrl = `${baseUrl}:5002`;  // Chat service
 
 console.log('Platform:', Platform.OS);
 console.log('Auth Service URL:', authServiceUrl);
 console.log('User Service URL:', userServiceUrl);
 console.log('Wishlist Service URL:', wishlistServiceUrl);
+console.log('Chat Service URL:', chatServiceUrl);
 
 // Auth API client
 export const api = axios.create({ baseURL: authServiceUrl });
@@ -38,6 +40,9 @@ export const userApi = axios.create({ baseURL: userServiceUrl });
 
 // Wishlist API client
 export const wishlistApi = axios.create({ baseURL: wishlistServiceUrl });
+
+// Chat API client
+export const chatApi = axios.create({ baseURL: chatServiceUrl });
 
 // Add error handler for debugging
 api.interceptors.response.use(
@@ -70,6 +75,16 @@ wishlistApi.interceptors.response.use(
   }
 );
 
+chatApi.interceptors.response.use(
+  response => response,
+  error => {
+    console.error('Chat API Error:', error.message);
+    console.error('Request URL:', error.config?.url);
+    console.error('Response:', error.response?.data);
+    return Promise.reject(error);
+  }
+);
+
 // Add auth token to all API requests
 const addAuthToken = async (config: any) => {
   const token = await AsyncStorage.getItem('auth_token');
@@ -83,6 +98,7 @@ const addAuthToken = async (config: any) => {
 api.interceptors.request.use(addAuthToken);
 userApi.interceptors.request.use(addAuthToken);
 wishlistApi.interceptors.request.use(addAuthToken);
+chatApi.interceptors.request.use(addAuthToken);
 
 export const endpoints = {
   login: '/api/Auth/login',
@@ -92,16 +108,25 @@ export const endpoints = {
   wishlistById: (id: string) => `/api/Wishlists/${id}`,
   wishlistLike: (id: string) => `/api/Wishlists/${id}/like`,
   giftsForUser: '/api/Gift/wishlist',
+  // Chat endpoints
+  chatHistory: (userId: string, peerUserId: string, page: number = 1, pageSize: number = 50) => 
+    `/api/chat/history/${userId}/${peerUserId}?page=${page}&pageSize=${pageSize}`,
+  searchUsers: (query: string, page: number = 1, pageSize: number = 10) => 
+    `/api/users/search?query=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`,
+  getFollowing: (userId: string, page: number = 1, pageSize: number = 50) => 
+    `/api/users/${userId}/following?page=${page}&pageSize=${pageSize}`,
 };
 
 // Helper to use correct API client based on endpoint
 export const getApiClient = (endpoint: string) => {
   if (endpoint.startsWith('/api/Auth')) {
     return api;
-  } else if (endpoint.startsWith('/api/Users')) {
+  } else if (endpoint.startsWith('/api/Users') || endpoint.startsWith('/api/users')) {
     return userApi;
   } else if (endpoint.startsWith('/api/Wishlists') || endpoint.startsWith('/api/Gift')) {
     return wishlistApi;
+  } else if (endpoint.startsWith('/api/chat')) {
+    return chatApi;
   }
   return api; // default
 };
