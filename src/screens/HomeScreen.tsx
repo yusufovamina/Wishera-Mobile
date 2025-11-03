@@ -326,14 +326,28 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const handleLike = async (wishlistId: string) => {
     try {
-      const res = await wishlistApi.post(endpoints.wishlistLike(wishlistId));
+      // If already liked, do nothing (server only supports like, not unlike)
+      const target = wishlists.find(w => w.id === wishlistId);
+      if (target?.isLiked) return;
+
+      await wishlistApi.post(endpoints.wishlistLike(wishlistId));
       setWishlists(prev => prev.map(w => 
         w.id === wishlistId 
-          ? { ...w, isLiked: !w.isLiked, likes: w.isLiked ? w.likes - 1 : w.likes + 1 }
+          ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
           : w
       ));
-    } catch (error) {
-      console.log('Error liking wishlist:', error);
+    } catch (err: any) {
+      const msg = err?.response?.data || err?.message || '';
+      // Treat "already liked" from backend as idempotent success
+      if (typeof msg === 'string' && msg.toLowerCase().includes('already liked')) {
+        setWishlists(prev => prev.map(w => 
+          w.id === wishlistId 
+            ? { ...w, isLiked: true, likes: w.isLiked ? w.likes : (w.likes || 0) + 1 }
+            : w
+        ));
+        return;
+      }
+      console.log('Error liking wishlist:', err);
     }
   };
 

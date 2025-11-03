@@ -29,6 +29,7 @@ interface ChatMessage {
   imageUrl?: string;
   replyToMessageId?: string | null;
   reactions?: Record<string, string[]>;
+  read?: boolean;
 }
 
 export const ChatScreen: React.FC<any> = ({ navigation }) => {
@@ -77,6 +78,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     });
   };
 
+  // Additional state for new features
+  const [replyTo, setReplyTo] = useState<ChatMessage | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [emojiMenuForId, setEmojiMenuForId] = useState<string | null>(null);
+  const [activeUserIds, setActiveUserIds] = useState<string[]>([]);
+  const REACTIONS = ["👍","❤️","😂","🎉","👏","😮","😢","🔥","✅","❌","👌","😁","🙏","🤔","😎","💖"];
+
   // SignalR hook for real-time messaging
   const {
     connected,
@@ -90,6 +98,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     onMessageReactionUpdated,
     startTyping,
     stopTyping,
+    reactToMessage,
+    editMessage,
+    deleteMessage,
+    markMessagesRead,
+    getConnectionId,
+    addUser,
   } = useSignalRChat({
     currentUserId: user?.id,
     token: token,
@@ -169,6 +183,65 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       },
   });
 
+  // Subscribe to SignalR events for active users and reactions
+  useEffect(() => {
+    if (!connected) return;
+
+    const offActiveUsers = onReceiveActiveUsers((ids: string[]) => {
+      setActiveUserIds(ids);
+      // Update contacts online status
+      setContacts(prev => prev.map(contact => ({
+        ...contact,
+        isOnline: ids.includes(contact.id)
+      })));
+    });
+
+    const offReactions = onMessageReactionUpdated(({ id: messageId, userId, emoji, removed }) => {
+      // Update reactions in all conversations
+      setConversations(prev => {
+        const updated = { ...prev };
+        Object.keys(updated).forEach(conversationId => {
+          updated[conversationId] = updated[conversationId].map(m => {
+            if (m.id !== messageId) return m;
+            const reactions = { ...(m.reactions || {}) };
+            const current = new Set(reactions[emoji] || []);
+            if (removed) {
+              current.delete(userId);
+            } else {
+              current.add(userId);
+            }
+            reactions[emoji] = Array.from(current);
+            return { ...m, reactions };
+          });
+        });
+        return updated;
+      });
+    });
+
+    const offRead = onMessagesRead(({ byUserId, messageIds }) => {
+      // Could update UI to show read ticks per message id
+      console.log('Messages read:', messageIds);
+    });
+
+    // Register user for active tracking
+    (async () => {
+      try {
+        const cid = await getConnectionId();
+        if (cid && user?.id) {
+          await addUser(user.id, cid);
+        }
+      } catch (error) {
+        console.error('Failed to register user for active tracking:', error);
+      }
+    })();
+
+    return () => {
+      offActiveUsers?.();
+      offReactions?.();
+      offRead?.();
+    };
+  }, [connected, onReceiveActiveUsers, onMessageReactionUpdated, onMessagesRead, getConnectionId, addUser, user?.id]);
+
   useEffect(() => {
     fetchContacts();
   }, []);
@@ -240,19 +313,73 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     
     // Load messages for this conversation
     await fetchMessages(contact.id);
+    
+    // Mark messages as read after loading
+    setTimeout(async () => {
+      if (currentConversationId && user?.id && contact.id) {
+        try {
+          const unreadMessages = conversations[conversationId]?.filter(m => 
+            m.userId !== user.id && !m.read
+          ) || [];
+          
+          if (unreadMessages.length > 0) {
+            const messageIds = unreadMessages.map(m => m.id);
+            await markMessagesRead(contact.id, messageIds);
+            
+            // Update messages to mark as read locally
+            setConversations(prev => ({
+              ...prev,
+              [conversationId]: prev[conversationId]?.map(m => 
+                messageIds.includes(m.id) ? { ...m, read: true } : m
+              ) || []
+            }));
+          }
+        } catch (error) {
+          console.error('Failed to mark messages as read:', error);
+        }
+      }
+    }, 500);
   };
 
   const handleSendMessage = async () => {
     try {
-      if (!inputText.trim()) return;
+      if (!inputText.trim() && !editingId) return;
       if (!user?.id) return;
       if (!connected) {
         setError('Connection lost. Please wait for reconnection...');
         return;
       }
+
+      if (editingId) {
+        // Edit existing message
+        const newText = inputText.trim();
+        setInputText("");
+        setEditingId(null);
+        
+        // Optimistic update
+        if (currentConversationId) {
+          setConversations(prev => ({
+            ...prev,
+            [currentConversationId]: prev[currentConversationId]?.map(m => 
+              m.id === editingId ? { ...m, text: newText } : m
+            ) || []
+          }));
+        }
+        
+        try {
+          await editMessage(editingId, newText);
+          // Also try API endpoint as backup
+          await chatApi.post(endpoints.editChatMessage, { messageId: editingId, newText });
+        } catch (error) {
+          console.error('Failed to edit message:', error);
+          setError('Failed to edit message. Please try again.');
+        }
+        return;
+      }
       
       await sendText(inputText.trim());
       setInputText('');
+      setReplyTo(null);
     } catch (e: any) {
       console.error('Send message error:', e);
       setError(e?.message || 'Failed to send message');
@@ -275,6 +402,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       username: user.username || 'You',
       createdAt: new Date().toISOString(),
       messageType: 'text',
+      replyToMessageId: replyTo?.id ?? null,
     };
     
     if (currentConversationId) {
@@ -284,11 +412,54 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     if (selectedContact) {
       const targetId = selectedContact.id;
       if (targetId && typeof targetId === 'string') {
-        await sendToUserWithMeta(targetId, newMessage.text, undefined, id);
+        await sendToUserWithMeta(targetId, newMessage.text, replyTo?.id ?? undefined, id);
       } else {
         throw new Error('Invalid target user id');
       }
     }
+  };
+
+  // Handler for reacting to messages
+  const handleReactToMessage = async (messageId: string, emoji: string) => {
+    try {
+      await reactToMessage(messageId, emoji);
+    } catch (error) {
+      console.error('Failed to react to message:', error);
+    }
+    setEmojiMenuForId(null);
+  };
+
+  // Handler for deleting messages
+  const handleDeleteMessage = async (messageId: string) => {
+    Alert.alert(
+      'Delete Message',
+      'Are you sure you want to delete this message?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await deleteMessage(messageId);
+              // Also try API endpoint as backup
+              await chatApi.post(endpoints.deleteChatMessage, { messageId });
+              
+              // Remove from local state
+              if (currentConversationId) {
+                setConversations(prev => ({
+                  ...prev,
+                  [currentConversationId]: prev[currentConversationId]?.filter(m => m.id !== messageId) || []
+                }));
+              }
+            } catch (error) {
+              console.error('Failed to delete message:', error);
+              setError('Failed to delete message. Please try again.');
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleTyping = async () => {
@@ -338,16 +509,121 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isOwnMessage = item.userId === user?.id;
+    const repliedToMessage = item.replyToMessageId && currentMessages.find(m => m.id === item.replyToMessageId);
     
     return (
       <View style={[styles.messageContainer, isOwnMessage && styles.ownMessageContainer]}>
         <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble]}>
-          <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText]}>
-            {item.text}
-          </Text>
+          {/* Reply preview */}
+          {repliedToMessage && (
+            <View style={styles.replyPreview}>
+              <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
+              <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
+                {repliedToMessage.text || 'Message'}
+              </Text>
+            </View>
+          )}
+          
+          {/* Message content */}
+          {item.messageType === 'voice' && item.audioUrl ? (
+            <View style={styles.voiceMessageContainer}>
+              <Text style={[styles.voiceMessageText, isOwnMessage && styles.ownVoiceMessageText]}>
+                🎤 Voice message
+              </Text>
+              {item.audioDuration && (
+                <Text style={[styles.voiceDuration, isOwnMessage && styles.ownVoiceDuration]}>
+                  {Math.floor(item.audioDuration)}s
+                </Text>
+              )}
+            </View>
+          ) : (
+            <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText]}>
+              {item.text}
+            </Text>
+          )}
+          
+          {/* Reactions */}
+          {item.reactions && Object.keys(item.reactions).length > 0 && (
+            <View style={styles.reactionsContainer}>
+              {Object.entries(item.reactions).map(([emoji, userIds]) => {
+                if (userIds.length === 0) return null;
+                return (
+                  <TouchableOpacity
+                    key={emoji}
+                    style={[styles.reactionBadge, isOwnMessage && styles.ownReactionBadge]}
+                    onPress={() => {
+                      const hasReacted = userIds.includes(user?.id || '');
+                      if (hasReacted) {
+                        reactToMessage(item.id, emoji); // This will toggle it off
+                      } else {
+                        handleReactToMessage(item.id, emoji);
+                      }
+                    }}
+                  >
+                    <Text style={styles.reactionEmoji}>{emoji}</Text>
+                    <Text style={[styles.reactionCount, isOwnMessage && styles.ownReactionCount]}>
+                      {userIds.length}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+          
+          {/* Message time */}
           <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime]}>
             {new Date(item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
+          
+          {/* Action buttons (visible on long press or hover in future) */}
+          <View style={styles.messageActions}>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setEmojiMenuForId(emojiMenuForId === item.id ? null : item.id)}
+            >
+              <Text style={styles.actionButtonText}>😊</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => setReplyTo(item)}
+            >
+              <Text style={styles.actionButtonText}>↩️</Text>
+            </TouchableOpacity>
+            {isOwnMessage && (
+              <>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => {
+                    setEditingId(item.id);
+                    setInputText(item.text);
+                  }}
+                >
+                  <Text style={styles.actionButtonText}>✏️</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={() => handleDeleteMessage(item.id)}
+                >
+                  <Text style={styles.actionButtonText}>🗑️</Text>
+                </TouchableOpacity>
+              </>
+            )}
+          </View>
+          
+          {/* Emoji picker menu */}
+          {emojiMenuForId === item.id && (
+            <View style={[styles.emojiPicker, isOwnMessage && styles.ownEmojiPicker]}>
+              {REACTIONS.map(emoji => (
+                <TouchableOpacity
+                  key={emoji}
+                  style={styles.emojiButton}
+                  onPress={() => handleReactToMessage(item.id, emoji)}
+                >
+                  <Text style={styles.emojiButtonText}>{emoji}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
         </View>
       </View>
     );
@@ -434,12 +710,46 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         </View>
       )}
 
+      {/* Reply Preview */}
+      {replyTo && (
+        <View style={styles.replyPreviewContainer}>
+          <View style={styles.replyPreviewContent}>
+            <View style={styles.replyPreviewLine} />
+            <View style={styles.replyPreviewTextContainer}>
+              <Text style={styles.replyPreviewLabel}>Replying to:</Text>
+              <Text style={styles.replyPreviewText} numberOfLines={1}>{replyTo.text}</Text>
+            </View>
+            <TouchableOpacity
+              style={styles.replyPreviewClose}
+              onPress={() => setReplyTo(null)}
+            >
+              <Text style={styles.replyPreviewCloseText}>✕</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Edit Indicator */}
+      {editingId && (
+        <View style={styles.editIndicatorContainer}>
+          <Text style={styles.editIndicatorText}>Editing message...</Text>
+          <TouchableOpacity
+            onPress={() => {
+              setEditingId(null);
+              setInputText("");
+            }}
+          >
+            <Text style={styles.editIndicatorCancel}>Cancel</Text>
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Message Input */}
       <View style={styles.inputContainer}>
         <View style={styles.inputWrapper}>
           <TextInput
             style={styles.messageInput}
-            placeholder="Type a message..."
+            placeholder={editingId ? "Edit message..." : "Type a message..."}
             placeholderTextColor={colors.textMuted}
             value={inputText}
             onChangeText={(text) => {
@@ -455,15 +765,15 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             maxLength={1000}
           />
           <TouchableOpacity 
-            style={[styles.sendButton, !inputText.trim() && styles.sendButtonDisabled]}
+            style={[styles.sendButton, (!inputText.trim() && !editingId) && styles.sendButtonDisabled]}
             onPress={handleSendMessage}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() && !editingId}
           >
             <LinearGradient
-              colors={inputText.trim() ? [colors.gradientStart, colors.gradientMid, colors.gradientEnd] : [colors.muted, colors.muted]}
+              colors={(inputText.trim() || editingId) ? [colors.gradientStart, colors.gradientMid, colors.gradientEnd] : [colors.muted, colors.muted]}
               style={styles.sendButtonGradient}
             >
-              <Text style={styles.sendButtonText}>→</Text>
+              <Text style={styles.sendButtonText}>{editingId ? "✓" : "→"}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -737,5 +1047,187 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.warning,
     fontWeight: '500',
+  },
+
+  // Reply preview styles
+  replyPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+    paddingLeft: 8,
+    borderLeftWidth: 3,
+    borderLeftColor: colors.primary,
+  },
+  replyLine: {
+    width: 3,
+    height: 30,
+    backgroundColor: colors.primary,
+    marginRight: 8,
+    borderRadius: 2,
+  },
+  ownReplyLine: {
+    backgroundColor: 'white',
+  },
+  replyText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+    flex: 1,
+  },
+  ownReplyText: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  replyPreviewContainer: {
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  replyPreviewContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.muted,
+    borderRadius: 12,
+    padding: 12,
+  },
+  replyPreviewTextContainer: {
+    flex: 1,
+    marginLeft: 8,
+  },
+  replyPreviewLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  replyPreviewText: {
+    fontSize: 14,
+    color: colors.text,
+  },
+  replyPreviewClose: {
+    padding: 4,
+  },
+  replyPreviewCloseText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    fontWeight: '700',
+  },
+
+  // Edit indicator styles
+  editIndicatorContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    backgroundColor: colors.surface,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  editIndicatorText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontStyle: 'italic',
+  },
+  editIndicatorCancel: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+
+  // Voice message styles
+  voiceMessageContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  voiceMessageText: {
+    fontSize: 16,
+    color: colors.text,
+  },
+  ownVoiceMessageText: {
+    color: 'white',
+  },
+  voiceDuration: {
+    fontSize: 12,
+    color: colors.textMuted,
+  },
+  ownVoiceDuration: {
+    color: 'rgba(255, 255, 255, 0.7)',
+  },
+
+  // Reactions styles
+  reactionsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    marginTop: 8,
+    gap: 6,
+  },
+  reactionBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ownReactionBadge: {
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  reactionEmoji: {
+    fontSize: 14,
+    marginRight: 4,
+  },
+  reactionCount: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  ownReactionCount: {
+    color: 'rgba(255, 255, 255, 0.9)',
+  },
+
+  // Message action buttons
+  messageActions: {
+    flexDirection: 'row',
+    marginTop: 8,
+    gap: 8,
+  },
+  actionButton: {
+    padding: 4,
+  },
+  actionButtonText: {
+    fontSize: 14,
+  },
+
+  // Emoji picker styles
+  emojiPicker: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 8,
+    marginTop: 8,
+    maxWidth: 200,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  ownEmojiPicker: {
+    backgroundColor: 'rgba(0, 0, 0, 0.2)',
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  emojiButton: {
+    width: 32,
+    height: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderRadius: 8,
+  },
+  emojiButtonText: {
+    fontSize: 18,
   },
 });

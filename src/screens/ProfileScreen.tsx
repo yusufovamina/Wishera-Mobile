@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../theme/colors';
 import { Button } from '../components/Button';
 import { ProfileEditModal } from '../components/ProfileEditModal';
 import { useAuthStore } from '../state/auth';
+import { api, userApi, endpoints } from '../api/client';
 
 const { width, height } = Dimensions.get('window');
 
@@ -69,32 +70,79 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
     ).start();
   }, []);
 
-  const handleUpdateProfile = async (data: any) => {
+  useEffect(() => {
+    fetchProfile();
+  }, [user?.id]);
+
+  const handleUpdateProfile = async (data: Partial<ProfileData>) => {
     try {
       setEditLoading(true);
-      await userApi.put('/api/Users/profile', {
-        username: data.username,
-        bio: data.bio || null,
-        interests: data.interests,
-        isPrivate: data.isPrivate,
-        birthday: data.birthday || null,
-        avatarUrl: data.avatarUrl || null,
-      });
+      // Send only provided fields (partial update)
+      const payload: any = {};
+      if (typeof data.username !== 'undefined') payload.username = data.username;
+      if (typeof data.bio !== 'undefined') payload.bio = data.bio;
+      if (typeof data.interests !== 'undefined') payload.interests = data.interests;
+      if (typeof data.isPrivate !== 'undefined') payload.isPrivate = data.isPrivate;
+      if (typeof data.avatarUrl !== 'undefined') payload.avatarUrl = data.avatarUrl;
+
+      if (Object.keys(payload).length > 0) {
+        await userApi.put(endpoints.updateProfile, payload);
+      }
+
+      if (typeof data.birthday !== 'undefined' && data.birthday) {
+        try {
+          await userApi.put(endpoints.updateBirthday, { birthday: data.birthday });
+        } catch (e) {
+          console.log('Birthday update failed (non-fatal):', e);
+        }
+      }
       
       // Update local profile state
       setProfile(prev => prev ? {
         ...prev,
-        username: data.username,
-        bio: data.bio,
-        interests: data.interests,
-        isPrivate: data.isPrivate,
-        birthday: data.birthday,
-        avatarUrl: data.avatarUrl,
+        ...(typeof data.username !== 'undefined' ? { username: data.username } : {}),
+        ...(typeof data.bio !== 'undefined' ? { bio: data.bio } : {}),
+        ...(typeof data.interests !== 'undefined' ? { interests: data.interests } : {}),
+        ...(typeof data.isPrivate !== 'undefined' ? { isPrivate: data.isPrivate } : {}),
+        ...(typeof data.birthday !== 'undefined' ? { birthday: data.birthday } : {}),
+        ...(typeof data.avatarUrl !== 'undefined' ? { avatarUrl: data.avatarUrl } : {}),
       } : null);
       
       setShowEditModal(false);
     } catch (error) {
       console.log('Error updating profile:', error);
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const pickAndUploadAvatar = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow access to your photos to update avatar.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, quality: 0.8, aspect: [1, 1] });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset?.uri) return;
+
+      setEditLoading(true);
+      const form = new FormData();
+      form.append('file', {
+        uri: asset.uri,
+        name: 'avatar.jpg',
+        type: 'image/jpeg',
+      } as any);
+      const res = await userApi.post(endpoints.uploadAvatar, form, {
+        headers: { 'Content-Type': 'multipart/form-data' },
+      });
+      const newUrl = res.data?.avatarUrl || res.data?.url || asset.uri;
+      setProfile(prev => prev ? { ...prev, avatarUrl: newUrl } : prev);
+    } catch (e) {
+      console.log('Avatar upload failed:', e);
+      Alert.alert('Upload failed', 'Could not upload avatar. Please try again.');
     } finally {
       setEditLoading(false);
     }
@@ -127,6 +175,18 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
 
   const handleLogout = async () => {
     await logout();
+  };
+
+  const handleDeleteAccount = async () => {
+    try {
+      setEditLoading(true);
+      await api.delete(endpoints.deleteAccount);
+      await logout();
+    } catch (error) {
+      console.log('Error deleting account:', error);
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const MenuItem = ({ icon, title, subtitle, onPress, danger = false }: {
@@ -200,7 +260,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
                 source={{ uri: profile?.avatarUrl || 'https://api.dicebear.com/7.x/initials/svg?seed=User' }} 
                 style={styles.avatar} 
               />
-              <TouchableOpacity style={styles.editAvatarButton}>
+              <TouchableOpacity style={styles.editAvatarButton} onPress={pickAndUploadAvatar}>
                 <Text style={styles.editAvatarIcon}>Edit</Text>
               </TouchableOpacity>
             </View>
@@ -212,18 +272,18 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
             
             {/* Stats */}
             <View style={styles.statsContainer}>
-              <View style={styles.statItem}>
+            <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('UserWishlists', { userId: profile?.id })}>
                 <Text style={styles.statNumber}>{profile?.myWishlists?.length || 0}</Text>
                 <Text style={styles.statLabel}>Wishlists</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{profile?.followers?.length || 0}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('Followers', { userId: profile?.id })}>
+              <Text style={styles.statNumber}>{(profile as any)?.followersCount ?? profile?.followers?.length ?? 0}</Text>
                 <Text style={styles.statLabel}>Followers</Text>
-              </View>
-              <View style={styles.statItem}>
-                <Text style={styles.statNumber}>{profile?.following?.length || 0}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('Following', { userId: profile?.id })}>
+              <Text style={styles.statNumber}>{(profile as any)?.followingCount ?? profile?.following?.length ?? 0}</Text>
                 <Text style={styles.statLabel}>Following</Text>
-              </View>
+            </TouchableOpacity>
             </View>
           </View>
 
@@ -256,21 +316,21 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
               icon="Privacy"
               title="Privacy Settings"
               subtitle="Control your privacy"
-              onPress={() => console.log('Privacy Settings')}
+              onPress={() => setShowEditModal(true)}
             />
             
             <MenuItem
               icon="Gifts"
               title="My Wishlists"
               subtitle="Manage your wishlists"
-              onPress={() => console.log('My Wishlists')}
+              onPress={() => navigation.navigate('Home')}
             />
             
             <MenuItem
               icon="Bday"
               title="Birthday Settings"
               subtitle="Set your birthday"
-              onPress={() => console.log('Birthday Settings')}
+              onPress={() => setShowEditModal(true)}
             />
           </View>
 
@@ -299,12 +359,61 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
             />
           </View>
 
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Danger Zone</Text>
+            <MenuItem
+              icon="⚠️"
+              title="Delete Account"
+              subtitle="This action is irreversible"
+              onPress={handleDeleteAccount}
+              danger
+            />
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Activity</Text>
+            <MenuItem
+              icon="⭐"
+              title="Liked Wishlists"
+              subtitle="Your liked wishlists"
+              onPress={() => navigation.navigate('LikedWishlists')}
+            />
+            <MenuItem
+              icon="🎁"
+              title="Reserved Gifts"
+              subtitle="Gifts you reserved"
+              onPress={() => navigation.navigate('ReservedGifts')}
+            />
+            <MenuItem
+              icon="📅"
+              title="My Events"
+              subtitle="Your events"
+              onPress={() => navigation.navigate('MyEvents')}
+            />
+            <MenuItem
+              icon="✉️"
+              title="Invitations"
+              subtitle="Event invitations"
+              onPress={() => navigation.navigate('Invitations')}
+            />
+          </View>
+
           {/* Logout Button */}
           <View style={styles.logoutSection}>
             <Button
               title="Sign Out"
               onPress={handleLogout}
               style={styles.logoutButton}
+            />
+            <View style={{ height: 12 }} />
+            <Button
+              title="Liked Wishlists"
+              onPress={() => navigation.navigate('LikedWishlists')}
+            />
+            <View style={{ height: 8 }} />
+            <Button
+              title="Reserved Gifts"
+              onPress={() => navigation.navigate('ReservedGifts')}
             />
           </View>
         </Animated.View>

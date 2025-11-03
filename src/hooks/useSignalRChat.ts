@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import * as signalR from '@microsoft/signalr';
+import { chatServiceUrl } from '../api/client';
 
 interface ChatMessage {
   id: string;
@@ -43,7 +45,7 @@ export function useSignalRChat({
   const maxReconnectAttempts = 5;
 
   const hubUrl = useMemo(() => {
-    const base = 'http://localhost:5002/chat'; // Chat service URL
+    const base = `${chatServiceUrl}/chat`;
     const uid = currentUserId && currentUserId !== "" ? `userId=${encodeURIComponent(currentUserId)}` : "";
     return uid ? `${base}${base.includes("?") ? "&" : "?"}${uid}` : base;
   }, [currentUserId]);
@@ -106,10 +108,16 @@ export function useSignalRChat({
         await connectionRef.current.stop();
       }
 
-      const connection = new signalR.HubConnectionBuilder()
-        .withUrl(hubUrl, {
+      // On web, start with LongPolling to avoid browser/WebSocket constraints
+      const preferLongPolling = Platform.OS === 'web';
+      let connection = new signalR.HubConnectionBuilder()
+        .withUrl(hubUrl, preferLongPolling ? {
           accessTokenFactory: () => token,
-          transport: signalR.HttpTransportType.WebSockets,
+          skipNegotiation: true,
+          transport: signalR.HttpTransportType.LongPolling,
+        } : {
+          accessTokenFactory: () => token,
+          skipNegotiation: false,
         })
         .withAutomaticReconnect([0, 2000, 10000, 30000])
         .configureLogging(signalR.LogLevel.Information)
@@ -147,10 +155,8 @@ export function useSignalRChat({
         setConnected(false);
         setConnectionState('Disconnected');
         stopHeartbeat();
-        
-        if (error) {
-          reconnect();
-        }
+        // Always attempt to reconnect, even without an explicit error
+        reconnect();
       });
 
       connection.onreconnecting((error) => {
@@ -167,8 +173,76 @@ export function useSignalRChat({
         startHeartbeat();
       });
 
-      // Start connection
-      await connection.start();
+      // Start connection (with negotiation + fallback handled by SignalR or explicit LP)
+      try {
+        await connection.start();
+      } catch (firstError) {
+        // If WebSocket/SSE fails (common on iOS device or constrained env), force LongPolling as a fallback
+        console.warn('Primary SignalR start failed, retrying with LongPolling...', firstError);
+        try {
+          connection = new signalR.HubConnectionBuilder()
+            .withUrl(hubUrl, {
+              accessTokenFactory: () => token,
+              skipNegotiation: true,
+              transport: signalR.HttpTransportType.LongPolling,
+            })
+            .withAutomaticReconnect([0, 2000, 10000, 30000])
+            .configureLogging(signalR.LogLevel.Information)
+            .build();
+
+          // Re-register handlers on the new instance
+          connection.on("ReceiveMessage", (message: ChatMessage) => {
+            console.log('Message received:', message);
+            onMessageReceived?.(message);
+          });
+          connection.on("UserJoined", (userId: string, username: string) => {
+            console.log('User joined:', userId, username);
+            onUserJoined?.(userId, username);
+          });
+          connection.on("UserLeft", (userId: string) => {
+            console.log('User left:', userId);
+            onUserLeft?.(userId);
+          });
+          connection.on("UserTyping", (userId: string, username: string) => {
+            console.log('User typing:', userId, username);
+            onTypingStart?.(userId, username);
+          });
+          connection.on("UserStopTyping", (userId: string) => {
+            console.log('User stop typing:', userId);
+            onTypingStop?.(userId);
+          });
+
+          connection.onclose((error) => {
+            console.log('SignalR connection closed (LP):', error);
+            setConnected(false);
+            setConnectionState('Disconnected');
+            stopHeartbeat();
+            reconnect();
+          });
+          connection.onreconnecting((error) => {
+            console.log('SignalR reconnecting (LP):', error);
+            setConnectionState('Reconnecting');
+            stopHeartbeat();
+          });
+          connection.onreconnected((connectionId) => {
+            console.log('SignalR reconnected (LP):', connectionId);
+            setConnected(true);
+            setConnectionState('Connected');
+            reconnectAttemptsRef.current = 0;
+            startHeartbeat();
+          });
+
+          await connection.start();
+        } catch (fallbackError) {
+          console.error('SignalR fallback (LongPolling) failed:', fallbackError);
+          throw fallbackError;
+        }
+      }
+
+      // Tune keepalive and server timeout for unstable local networks
+      // 20s keepalive pings; 90s server timeout window
+      (connection as any).keepAliveIntervalInMilliseconds = 20000;
+      (connection as any).serverTimeoutInMilliseconds = 90000;
       console.log('SignalR connected successfully');
       
       connectionRef.current = connection;
@@ -331,6 +405,109 @@ export function useSignalRChat({
     return connectionRef.current?.invoke("StopTyping", targetUserId);
   }, []);
 
+  // React to message
+  const reactToMessage = useCallback(async (messageId: string, emoji: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("ReactToMessage", messageId, emoji);
+      return true;
+    } catch (error) {
+      console.error('Error reacting to message:', error);
+      return false;
+    }
+  }, [connected]);
+
+  // Unreact to message
+  const unreactToMessage = useCallback(async (messageId: string, emoji: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("UnreactToMessage", messageId, emoji);
+      return true;
+    } catch (error) {
+      console.error('Error unreacting to message:', error);
+      return false;
+    }
+  }, [connected]);
+
+  // Edit message
+  const editMessage = useCallback(async (messageId: string, newText: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("EditMessage", messageId, newText);
+      return true;
+    } catch (error) {
+      console.error('Error editing message:', error);
+      return false;
+    }
+  }, [connected]);
+
+  // Delete message
+  const deleteMessage = useCallback(async (messageId: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("DeleteMessage", messageId);
+      return true;
+    } catch (error) {
+      console.error('Error deleting message:', error);
+      return false;
+    }
+  }, [connected]);
+
+  // Mark messages as read
+  const markMessagesRead = useCallback(async (peerUserId: string, messageIds: string[]) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return 0;
+    }
+    try {
+      const count = await connectionRef.current.invoke<number>("MarkMessagesRead", peerUserId, messageIds);
+      return count;
+    } catch (error) {
+      console.error('Error marking messages as read:', error);
+      return 0;
+    }
+  }, [connected]);
+
+  // Get connection ID
+  const getConnectionId = useCallback(async () => {
+    if (!connectionRef.current || !connected) {
+      return null;
+    }
+    try {
+      const id = await connectionRef.current.invoke<string>("GetConnectionId");
+      return id;
+    } catch (error) {
+      console.error('Error getting connection ID:', error);
+      return null;
+    }
+  }, [connected]);
+
+  // Add user (for active users tracking)
+  const addUser = useCallback(async (userId: string, connectionId: string) => {
+    if (!connectionRef.current || !connected) {
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("AddUser", userId, connectionId);
+      return true;
+    } catch (error) {
+      console.error('Error adding user:', error);
+      return false;
+    }
+  }, [connected]);
+
   // Initialize connection
   useEffect(() => {
     if (currentUserId && token) {
@@ -357,6 +534,13 @@ export function useSignalRChat({
     onMessageReactionUpdated,
     startTyping,
     stopTyping,
+    reactToMessage,
+    unreactToMessage,
+    editMessage,
+    deleteMessage,
+    markMessagesRead,
+    getConnectionId,
+    addUser,
     connect,
     disconnect,
   };

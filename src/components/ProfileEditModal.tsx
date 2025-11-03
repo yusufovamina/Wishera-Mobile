@@ -6,7 +6,7 @@ import { colors } from '../theme/colors';
 interface ProfileEditModalProps {
   visible: boolean;
   onClose: () => void;
-  onSubmit: (data: ProfileData) => Promise<void>;
+  onSubmit: (data: Partial<ProfileData>) => Promise<void>;
   loading?: boolean;
   profile?: ProfileData | null;
 }
@@ -57,10 +57,20 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
   const handleSubmit = async () => {
     if (!validateForm()) return;
-    
     try {
-      await onSubmit(formData);
-      setFormData({ username: '', bio: '', interests: [], isPrivate: false, birthday: '', avatarUrl: '' });
+      // Compute partial update: include only fields that changed
+      const update: Partial<ProfileData> = {};
+      if (formData.username !== (profile?.username || '')) update.username = formData.username;
+      if (formData.bio !== (profile?.bio || '')) update.bio = formData.bio;
+      // Interests: compare shallow
+      const prevInterests = profile?.interests || [];
+      const interestsChanged = prevInterests.length !== formData.interests.length || prevInterests.some((i, idx) => i !== formData.interests[idx]);
+      if (interestsChanged) update.interests = formData.interests;
+      if (formData.isPrivate !== (profile?.isPrivate || false)) update.isPrivate = formData.isPrivate;
+      if (formData.birthday !== (profile?.birthday || '')) update.birthday = formData.birthday;
+      if (formData.avatarUrl !== (profile?.avatarUrl || '')) update.avatarUrl = formData.avatarUrl;
+
+      await onSubmit(update);
       setErrors({});
     } catch (error) {
       console.log('Error updating profile:', error);

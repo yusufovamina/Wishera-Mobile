@@ -12,6 +12,13 @@ import { WishlistDetailScreen } from '../screens/WishlistDetailScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
 import { ChatScreen } from '../screens/ChatScreen';
 import { ProfileScreen } from '../screens/ProfileScreen';
+import { FollowersScreen } from '../screens/FollowersScreen';
+import { FollowingScreen } from '../screens/FollowingScreen';
+import { LikedWishlistsScreen } from '../screens/LikedWishlistsScreen';
+import { ReservedGiftsScreen } from '../screens/ReservedGiftsScreen';
+import { MyEventsScreen } from '../screens/MyEventsScreen';
+import { InvitationsScreen } from '../screens/InvitationsScreen';
+import { UserWishlistsScreen } from '../screens/UserWishlistsScreen';
 import { useAuthStore } from '../state/auth';
 
 const Stack = createNativeStackNavigator();
@@ -43,6 +50,13 @@ export const AppNavigator: React.FC = () => {
           <>
             <Stack.Screen name="Tabs" component={TabsNavigator} options={{ headerShown: false }} />
             <Stack.Screen name="WishlistDetail" component={WishlistDetailScreen} options={{ title: 'Wishlist' }} />
+            <Stack.Screen name="Followers" component={FollowersScreen} options={{ title: 'Followers' }} />
+            <Stack.Screen name="Following" component={FollowingScreen} options={{ title: 'Following' }} />
+            <Stack.Screen name="LikedWishlists" component={LikedWishlistsScreen} options={{ title: 'Liked Wishlists' }} />
+            <Stack.Screen name="ReservedGifts" component={ReservedGiftsScreen} options={{ title: 'Reserved Gifts' }} />
+            <Stack.Screen name="MyEvents" component={MyEventsScreen} options={{ title: 'My Events' }} />
+            <Stack.Screen name="Invitations" component={InvitationsScreen} options={{ title: 'Invitations' }} />
+            <Stack.Screen name="UserWishlists" component={UserWishlistsScreen} options={{ title: 'My Wishlists' }} />
           </>
         ) : (
           // Not authenticated - show auth screens
@@ -108,11 +122,11 @@ const TabsNavigator: React.FC = () => {
         }}
       />
       <Tabs.Screen 
-        name="Menu" 
+        name="Profile" 
         component={ProfileScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="M" focused={focused} label="Menu" />
+            <TabIcon icon="P" focused={focused} label="Profile" />
           ),
         }}
       />

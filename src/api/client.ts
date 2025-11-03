@@ -3,18 +3,27 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Determine the correct localhost address based on the platform
+// Determine the correct base host for backend services across simulator and devices
 const getBaseUrl = () => {
-  // For iOS simulator use localhost, for Android emulator use 10.0.2.2
-  // For physical devices, replace with your actual IP address
   if (__DEV__) {
+    // Prefer packager host IP for physical devices on LAN
+    const hostUri = (Constants as any)?.expoConfig?.hostUri || (Constants as any)?.manifest?.debuggerHost || '';
+    const packagerHost = typeof hostUri === 'string' ? hostUri.split(':')[0] : '';
+
+    // Android emulator maps host to 10.0.2.2
     if (Platform.OS === 'android') {
-      return 'http://10.0.2.2'; // Android emulator
-    } else {
-      return 'http://localhost'; // iOS simulator and web
+      return 'http://10.0.2.2';
     }
+
+    // iOS simulator can use localhost; physical device must use LAN IP
+    if (Platform.OS === 'ios') {
+      return packagerHost && packagerHost !== 'localhost' ? `http://${packagerHost}` : 'http://localhost';
+    }
+
+    // Fallback for other platforms (web, etc.)
+    return packagerHost ? `http://${packagerHost}` : 'http://localhost';
   }
-  // In production, use your actual backend URL
+  // In production, use your actual backend URL (env/remote)
   return 'https://your-production-url.com';
 };
 
@@ -24,7 +33,7 @@ const baseUrl = getBaseUrl();
 const authServiceUrl = `${baseUrl}:5219`;  // Auth service
 const userServiceUrl = `${baseUrl}:5001`;  // User service
 const wishlistServiceUrl = `${baseUrl}:5003`; // Gift/wishlist service
-const chatServiceUrl = `${baseUrl}:5002`;  // Chat service
+export const chatServiceUrl = `${baseUrl}:5002`;  // Chat service
 
 console.log('Platform:', Platform.OS);
 console.log('Auth Service URL:', authServiceUrl);
@@ -78,9 +87,26 @@ wishlistApi.interceptors.response.use(
 chatApi.interceptors.response.use(
   response => response,
   error => {
-    console.error('Chat API Error:', error.message);
-    console.error('Request URL:', error.config?.url);
-    console.error('Response:', error.response?.data);
+    const url = error.config?.url || '';
+    const status = error.response?.status;
+    // Silence expected 404s for chat history by returning empty list
+    if (status === 404 && typeof url === 'string' && url.startsWith('/api/chat/history')) {
+      const fakeResponse = {
+        data: [],
+        status: 200,
+        statusText: 'OK',
+        headers: error.response?.headers ?? {},
+        config: error.config,
+      } as any;
+      return Promise.resolve(fakeResponse);
+    }
+
+    // Only log server-side issues or unexpected client errors
+    if (!status || status >= 500) {
+      console.error('Chat API Error:', error.message);
+      console.error('Request URL:', error.config?.url);
+      console.error('Response:', error.response?.data);
+    }
     return Promise.reject(error);
   }
 );
@@ -101,13 +127,33 @@ wishlistApi.interceptors.request.use(addAuthToken);
 chatApi.interceptors.request.use(addAuthToken);
 
 export const endpoints = {
-  login: '/api/Auth/login',
-  register: '/api/Auth/register',
-  identification: '/api/Users/profile', // Get current user profile
-  wishlistsFeed: '/api/Wishlists/feed', // casing based on WishlistApp
-  wishlistById: (id: string) => `/api/Wishlists/${id}`,
-  wishlistLike: (id: string) => `/api/Wishlists/${id}/like`,
-  giftsForUser: '/api/Gift/wishlist',
+  // Align to web/frontend routes (lowercase)
+  login: '/api/auth/login',
+  register: '/api/auth/register',
+  deleteAccount: '/api/auth/delete-account',
+  identification: '/api/users/profile',
+  updateProfile: '/api/users/profile',
+  uploadAvatar: '/api/users/avatar',
+  wishlistsFeed: '/api/wishlists/feed',
+  wishlistById: (id: string) => `/api/wishlists/${id}`,
+  wishlistLike: (id: string) => `/api/wishlists/${id}/like`,
+  giftsForUser: '/api/gift/wishlist',
+  // Parity with web app
+  updateBirthday: '/api/users/birthday',
+  followers: (userId: string, page: number = 1, pageSize: number = 10) => `/api/users/${userId}/followers?page=${page}&pageSize=${pageSize}`,
+  following: (userId: string, page: number = 1, pageSize: number = 10) => `/api/users/${userId}/following?page=${page}&pageSize=${pageSize}`,
+  likedWishlists: (page: number = 1, pageSize: number = 20) => `/api/wishlists/liked?page=${page}&pageSize=${pageSize}`,
+  userWishlists: (userId: string, page: number = 1, pageSize: number = 20) => `/api/wishlists/user/${userId}?page=${page}&pageSize=${pageSize}`,
+  reservedGifts: '/api/gift/reserved',
+  // Events
+  createEvent: '/api/events',
+  myEvents: (page: number = 1, pageSize: number = 10) => `/api/events/my-events?page=${page}&pageSize=${pageSize}`,
+  invitedEvents: (page: number = 1, pageSize: number = 10) => `/api/events/invited-events?page=${page}&pageSize=${pageSize}`,
+  eventById: (id: string) => `/api/events/${id}`,
+  cancelEvent: (id: string) => `/api/events/${id}/cancel`,
+  deleteEvent: (id: string) => `/api/events/${id}`,
+  myInvitations: (page: number = 1, pageSize: number = 10) => `/api/events/my-invitations?page=${page}&pageSize=${pageSize}`,
+  respondInvitation: (invitationId: string) => `/api/events/invitations/${invitationId}/respond`,
   // Chat endpoints
   chatHistory: (userId: string, peerUserId: string, page: number = 1, pageSize: number = 50) => 
     `/api/chat/history/${userId}/${peerUserId}?page=${page}&pageSize=${pageSize}`,
@@ -115,6 +161,27 @@ export const endpoints = {
     `/api/users/search?query=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`,
   getFollowing: (userId: string, page: number = 1, pageSize: number = 50) => 
     `/api/users/${userId}/following?page=${page}&pageSize=${pageSize}`,
+  // Chat message operations
+  editChatMessage: '/api/chat/message/edit',
+  deleteChatMessage: '/api/chat/message/delete',
+  // Chat pins
+  getPinnedMessages: (meUserId: string, peerUserId: string) => 
+    `/api/chat/pins?me=${encodeURIComponent(meUserId)}&peer=${encodeURIComponent(peerUserId)}`,
+  pinChatMessage: '/api/chat/pins',
+  unpinChatMessage: '/api/chat/pins',
+  // Chat wallpaper
+  getConversationWallpaper: (meUserId: string, peerUserId: string) => 
+    `/api/chat/preferences/wallpaper?me=${encodeURIComponent(meUserId)}&peer=${encodeURIComponent(peerUserId)}`,
+  setConversationWallpaper: '/api/chat/preferences/wallpaper',
+  getWallpaperCatalog: (userId?: string) => 
+    userId ? `/api/chat/wallpapers?userId=${encodeURIComponent(userId)}` : '/api/chat/wallpapers',
+  uploadCustomWallpaper: '/api/chat/upload-wallpaper',
+  getCustomWallpapers: (userId: string) => 
+    `/api/chat/custom-wallpapers?userId=${encodeURIComponent(userId)}`,
+  deleteCustomWallpaper: (wallpaperId: string, userId: string) => 
+    `/api/chat/custom-wallpapers/${encodeURIComponent(wallpaperId)}?userId=${encodeURIComponent(userId)}`,
+  // Chat media upload
+  uploadChatMedia: '/api/chat/upload-media',
 };
 
 // Helper to use correct API client based on endpoint
