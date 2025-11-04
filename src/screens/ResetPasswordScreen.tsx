@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -13,20 +13,30 @@ const { width, height } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<any>;
 
-export const LoginScreen: React.FC<Props> = ({ navigation }) => {
+export const ResetPasswordScreen: React.FC<Props> = ({ navigation, route }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
   const styles = React.useMemo(() => createStyles(), [theme]);
-  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { login, loginWithGoogle, loading, error } = useAuthStore();
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const { resetPassword, loading, error } = useAuthStore();
+  const [success, setSuccess] = useState(false);
+  
+  // Get token from route params or query string
+  const token = route?.params?.token || '';
   
   const floatY = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Floating blobs animation - smoother
+    if (!token) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.invalidResetToken', 'Invalid reset token. Please request a new password reset.'));
+      navigation.navigate('ForgotPassword');
+      return;
+    }
+
+    // Floating blobs animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatY, { 
@@ -44,7 +54,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       ])
     ).start();
 
-    // Pulse animation - smoother
+    // Pulse animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { 
@@ -69,22 +79,89 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       easing: Easing.out(Easing.cubic), 
       useNativeDriver: true 
     }).start();
-  }, [floatY, pulse, fadeIn]);
+  }, [floatY, pulse, fadeIn, token, navigation, t]);
+
+  const handleSubmit = async () => {
+    if (!password.trim()) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.passwordRequired', 'Please enter a new password'));
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.passwordsDoNotMatch', 'Passwords do not match'));
+      return;
+    }
+
+    if (password.length < 8) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.passwordTooShort', 'Password must be at least 8 characters long'));
+      return;
+    }
+
+    try {
+      await resetPassword(token, password);
+      setSuccess(true);
+    } catch (e) {
+      // Error is handled by the store
+    }
+  };
+
+  if (success) {
+    return (
+      <View style={styles.container}>
+        <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+        
+        <View style={styles.blobContainer} pointerEvents="none">
+          <Animated.View
+            style={[
+              styles.blob,
+              styles.blob1,
+              {
+                transform: [{ translateY: floatY }],
+                opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.4] })
+              }
+            ]}
+          />
+        </View>
+
+        <ScrollView 
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          showsVerticalScrollIndicator={false}
+        >
+          <Animated.View style={[styles.content, { opacity: fadeIn }]}>
+            <View style={styles.header}>
+              <Text style={styles.title}>{t('auth.passwordResetSuccess', 'Password Reset!')}</Text>
+              <Text style={styles.subtitle}>
+                {t('auth.passwordResetSuccessMessage', 'Your password has been reset successfully. You can now login with your new password.')}
+              </Text>
+            </View>
+
+            <View style={styles.card}>
+              <View style={styles.buttonContainer}>
+                <Button 
+                  title={t('auth.backToLogin', 'Back to Login')} 
+                  onPress={() => navigation.navigate('Login')} 
+                />
+              </View>
+            </View>
+          </Animated.View>
+        </ScrollView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Animated Background Blobs - Pointer events disabled to allow typing */}
+      {/* Animated Background Blobs */}
       <View style={styles.blobContainer} pointerEvents="none">
         <Animated.View
           style={[
             styles.blob,
             styles.blob1,
             {
-              transform: [
-                { translateY: floatY }
-              ],
+              transform: [{ translateY: floatY }],
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.4] })
             }
           ]}
@@ -94,9 +171,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             styles.blob,
             styles.blob2,
             {
-              transform: [
-                { translateY: floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -20] }) }
-              ],
+              transform: [{ translateY: floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -20] }) }],
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.3] })
             }
           ]}
@@ -112,27 +187,30 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]} pointerEvents="auto">
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>{t('auth.welcomeBack', 'Welcome Back')}</Text>
-            <Text style={styles.subtitle}>{t('auth.signInSubtitle', 'Sign in to your account')}</Text>
+            <Text style={styles.title}>{t('auth.resetPassword', 'Reset Password')}</Text>
+            <Text style={styles.subtitle}>
+              {t('auth.resetPasswordSubtitle', 'Enter your new password')}
+            </Text>
           </View>
 
           {/* Glassmorphism Card */}
           <View style={styles.card}>
             {/* Inputs */}
             <Input 
-              label={t('auth.emailLabel', 'EMAIL')}
-              value={username} 
-              onChangeText={setUsername} 
-              placeholder={t('auth.emailPlaceholder', 'Enter your email')} 
+              label={t('auth.passwordLabel', 'PASSWORD')}
+              value={password} 
+              onChangeText={setPassword} 
+              placeholder={t('auth.createPasswordPlaceholder', 'Create a password')}
+              secureTextEntry 
             />
             
             <View style={{ height: 20 }} />
             
             <Input 
-              label={t('auth.passwordLabel', 'PASSWORD')}
-              value={password} 
-              onChangeText={setPassword} 
-              placeholder={t('auth.passwordPlaceholder', 'Enter your password')} 
+              label={t('auth.confirmPasswordLabel', 'CONFIRM PASSWORD')}
+              value={confirmPassword} 
+              onChangeText={setConfirmPassword} 
+              placeholder={t('auth.confirmPasswordPlaceholder', 'Confirm your password')}
               secureTextEntry 
             />
 
@@ -143,43 +221,20 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             ) : null}
 
-            {/* Login Button */}
+            {/* Reset Button */}
             <View style={styles.buttonContainer}>
               <Button 
-                title={t('auth.signIn', 'SIGN IN')} 
-                onPress={() => login(username, password)} 
+                title={t('auth.resetPasswordButton', 'RESET PASSWORD')} 
+                onPress={handleSubmit} 
                 loading={loading} 
               />
             </View>
           </View>
 
-          {/* Google Sign In Button */}
-          <View style={styles.socialContainer}>
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>{t('auth.or', 'OR')}</Text>
-              <View style={styles.dividerLine} />
-            </View>
-            <Button 
-              title={t('auth.signInWithGoogle', 'Sign in with Google')} 
-              onPress={() => loginWithGoogle()} 
-              loading={loading} 
-              variant="outline"
-            />
-          </View>
-
-          {/* Footer Links */}
+          {/* Back to Login Link */}
           <View style={styles.footerLinks}>
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-              <Text style={styles.linkText}>{t('auth.forgotPassword', 'Forgot Password?')}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Register Link */}
-          <View style={styles.registerSection}>
-            <Text style={styles.registerText}>{t('auth.noAccount', "Don't have an account?")} </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLink}>{t('auth.signUp', 'Sign Up')}</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.linkText}>{t('auth.backToLogin', 'Back to Login')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -246,6 +301,7 @@ const createStyles = () => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     fontWeight: '500',
+    textAlign: 'center',
   },
   card: {
     backgroundColor: colors.surface,
@@ -284,38 +340,5 @@ const createStyles = () => StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  socialContainer: {
-    marginTop: 24,
-    marginBottom: 24,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  registerSection: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  registerText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  registerLink: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
 });
+

@@ -5,22 +5,37 @@ import { chatServiceUrl } from '../api/client';
 
 interface ChatMessage {
   id: string;
+  messageId?: string;
   text: string;
   userId: string;
+  senderId?: string;
   username: string;
+  senderName?: string;
   createdAt: string;
+  sentAt?: string;
   messageType?: 'text' | 'voice' | 'image' | 'video';
+  customData?: {
+    messageType?: string;
+    audioUrl?: string;
+    audioDuration?: number;
+    imageUrl?: string;
+    [key: string]: any;
+  };
   audioUrl?: string;
   audioDuration?: number;
   imageUrl?: string;
   replyToMessageId?: string | null;
+  clientMessageId?: string | null;
   reactions?: Record<string, string[]>;
+  read?: boolean;
+  readAt?: string;
+  deliveredAt?: string;
 }
 
 interface UseSignalRChatOptions {
   currentUserId?: string | null;
   token?: string;
-  onMessageReceived?: (message: ChatMessage) => void;
+  onMessageReceived?: (payload: any, username?: string) => void;
   onUserJoined?: (userId: string, username: string) => void;
   onUserLeft?: (userId: string) => void;
   onTypingStart?: (userId: string, username: string) => void;
@@ -108,25 +123,38 @@ export function useSignalRChat({
         await connectionRef.current.stop();
       }
 
-      // On web, start with LongPolling to avoid browser/WebSocket constraints
+      // On web, prefer LongPolling to avoid browser/WebSocket constraints
+      // For mobile, try WebSocket first, then fallback to LongPolling
       const preferLongPolling = Platform.OS === 'web';
       let connection = new signalR.HubConnectionBuilder()
         .withUrl(hubUrl, preferLongPolling ? {
           accessTokenFactory: () => token,
-          skipNegotiation: true,
+          // LongPolling requires negotiation, so don't skip it
           transport: signalR.HttpTransportType.LongPolling,
         } : {
           accessTokenFactory: () => token,
-          skipNegotiation: false,
+          // Try WebSocket first with negotiation (let SignalR handle transport negotiation)
+          // Don't use skipNegotiation unless we explicitly want WebSockets only
         })
         .withAutomaticReconnect([0, 2000, 10000, 30000])
         .configureLogging(signalR.LogLevel.Information)
         .build();
 
-      // Event handlers
-      connection.on("ReceiveMessage", (message: ChatMessage) => {
-        console.log('Message received:', message);
-        onMessageReceived?.(message);
+      // Event handlers (matching backend ChatHub events)
+      connection.on("ReceiveMessage", (message: any, username?: string) => {
+        console.log('Message received:', message, username);
+        onMessageReceived?.(message, username);
+      });
+
+      // Backend also sends MessageEdited, MessageDeleted events
+      connection.on("MessageEdited", (data: { id: string; text: string }) => {
+        console.log('Message edited:', data);
+        // Could trigger a callback here if needed
+      });
+
+      connection.on("MessageDeleted", (data: { id: string }) => {
+        console.log('Message deleted:', data);
+        // Could trigger a callback here if needed
       });
 
       connection.on("UserJoined", (userId: string, username: string) => {
@@ -180,10 +208,11 @@ export function useSignalRChat({
         // If WebSocket/SSE fails (common on iOS device or constrained env), force LongPolling as a fallback
         console.warn('Primary SignalR start failed, retrying with LongPolling...', firstError);
         try {
+          // LongPolling fallback - must allow negotiation
           connection = new signalR.HubConnectionBuilder()
             .withUrl(hubUrl, {
               accessTokenFactory: () => token,
-              skipNegotiation: true,
+              // LongPolling requires negotiation, so don't skip it
               transport: signalR.HttpTransportType.LongPolling,
             })
             .withAutomaticReconnect([0, 2000, 10000, 30000])
@@ -191,9 +220,15 @@ export function useSignalRChat({
             .build();
 
           // Re-register handlers on the new instance
-          connection.on("ReceiveMessage", (message: ChatMessage) => {
-            console.log('Message received:', message);
-            onMessageReceived?.(message);
+          connection.on("ReceiveMessage", (message: any, username?: string) => {
+            console.log('Message received:', message, username);
+            onMessageReceived?.(message, username);
+          });
+          connection.on("MessageEdited", (data: { id: string; text: string }) => {
+            console.log('Message edited:', data);
+          });
+          connection.on("MessageDeleted", (data: { id: string }) => {
+            console.log('Message deleted:', data);
           });
           connection.on("UserJoined", (userId: string, username: string) => {
             console.log('User joined:', userId, username);

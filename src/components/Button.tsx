@@ -1,23 +1,28 @@
-import React, { useRef, useEffect } from 'react';
+import React, { useRef, useEffect, useMemo } from 'react';
 import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, Animated, Easing } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../theme/colors';
+import { getColors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
 
 type ButtonProps = {
   title: string;
   onPress: () => void;
   loading?: boolean;
   style?: ViewStyle;
-  variant?: 'primary' | 'ghost';
+  variant?: 'primary' | 'ghost' | 'outline';
 };
 
 export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, variant = 'primary' }) => {
+  const { theme } = usePreferences();
+  const colors = useMemo(() => getColors(), [theme]);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const isGhost = variant === 'ghost';
+  const isOutline = variant === 'outline';
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
   useEffect(() => {
-    if (!isGhost && !loading) {
+    if (!isGhost && !isOutline && !loading) {
       Animated.loop(
         Animated.sequence([
           Animated.timing(pulseAnim, { 
@@ -35,7 +40,7 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
         ])
       ).start();
     }
-  }, [isGhost, loading, pulseAnim]);
+  }, [isGhost, isOutline, loading, pulseAnim]);
 
   const glowOpacity = pulseAnim.interpolate({ 
     inputRange: [0, 1], 
@@ -56,18 +61,18 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
     }).start();
   };
 
-  if (isGhost) {
+  if (isGhost || isOutline) {
     return (
       <TouchableOpacity 
-        style={[styles.ghostButton, style]} 
+        style={[isGhost ? styles.ghostButton : styles.outlineButton, style]} 
         onPress={onPress} 
         disabled={loading}
         activeOpacity={0.8}
       >
         {loading ? (
-          <ActivityIndicator color={colors.text} />
+          <ActivityIndicator color={colors.primary} />
         ) : (
-          <Text style={styles.ghostText}>{title}</Text>
+          <Text style={isGhost ? styles.ghostText : styles.outlineText}>{title}</Text>
         )}
       </TouchableOpacity>
     );
@@ -101,7 +106,7 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
   button: {
     paddingVertical: 16,
     paddingHorizontal: 32,
@@ -135,6 +140,19 @@ const styles = StyleSheet.create({
   },
   ghostText: { 
     color: colors.text,
+    fontWeight: '600',
+    fontSize: 15,
+  },
+  outlineButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: colors.primary,
+    paddingVertical: 14,
+    borderRadius: 14,
+    alignItems: 'center',
+  },
+  outlineText: { 
+    color: colors.primary,
     fontWeight: '600',
     fontSize: 15,
   },

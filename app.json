@@ -7,6 +7,7 @@
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
+    "scheme": "wishera",
     "extra": {
       "apiBaseUrl": "http://localhost:5219"
     },

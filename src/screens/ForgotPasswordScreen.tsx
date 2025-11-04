@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView } from 'react-native';
+import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -13,20 +13,19 @@ const { width, height } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<any>;
 
-export const LoginScreen: React.FC<Props> = ({ navigation }) => {
+export const ForgotPasswordScreen: React.FC<Props> = ({ navigation }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
   const styles = React.useMemo(() => createStyles(), [theme]);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const { login, loginWithGoogle, loading, error } = useAuthStore();
+  const [email, setEmail] = useState('');
+  const { forgotPassword, loading, error } = useAuthStore();
   
   const floatY = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Floating blobs animation - smoother
+    // Floating blobs animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatY, { 
@@ -44,7 +43,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       ])
     ).start();
 
-    // Pulse animation - smoother
+    // Pulse animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { 
@@ -71,20 +70,35 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
     }).start();
   }, [floatY, pulse, fadeIn]);
 
+  const handleSubmit = async () => {
+    if (!email.trim()) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.emailRequired', 'Please enter your email address'));
+      return;
+    }
+
+    try {
+      await forgotPassword(email);
+      // If we get here, the request was successful (even if backend returned 400 for security)
+      // Navigate to verify code screen with email
+      navigation.navigate('VerifyCode', { email });
+    } catch (e) {
+      // Error is handled by the store - only real errors will be thrown
+      console.log('Forgot password error:', e);
+    }
+  };
+
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Animated Background Blobs - Pointer events disabled to allow typing */}
+      {/* Animated Background Blobs */}
       <View style={styles.blobContainer} pointerEvents="none">
         <Animated.View
           style={[
             styles.blob,
             styles.blob1,
             {
-              transform: [
-                { translateY: floatY }
-              ],
+              transform: [{ translateY: floatY }],
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.4] })
             }
           ]}
@@ -94,9 +108,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             styles.blob,
             styles.blob2,
             {
-              transform: [
-                { translateY: floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -20] }) }
-              ],
+              transform: [{ translateY: floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -20] }) }],
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.3] })
             }
           ]}
@@ -112,74 +124,45 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]} pointerEvents="auto">
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>{t('auth.welcomeBack', 'Welcome Back')}</Text>
-            <Text style={styles.subtitle}>{t('auth.signInSubtitle', 'Sign in to your account')}</Text>
+            <Text style={styles.title}>{t('auth.forgotPasswordTitle', 'Forgot Password?')}</Text>
+            <Text style={styles.subtitle}>
+              {t('auth.forgotPasswordSubtitle', 'Enter your email and we\'ll send you a reset code')}
+            </Text>
           </View>
 
-          {/* Glassmorphism Card */}
           <View style={styles.card}>
-            {/* Inputs */}
-            <Input 
-              label={t('auth.emailLabel', 'EMAIL')}
-              value={username} 
-              onChangeText={setUsername} 
-              placeholder={t('auth.emailPlaceholder', 'Enter your email')} 
-            />
-            
-            <View style={{ height: 20 }} />
-            
-            <Input 
-              label={t('auth.passwordLabel', 'PASSWORD')}
-              value={password} 
-              onChangeText={setPassword} 
-              placeholder={t('auth.passwordPlaceholder', 'Enter your password')} 
-              secureTextEntry 
-            />
-
-            {/* Error Message */}
-            {error ? (
-              <View style={styles.errorContainer}>
-                <Text style={styles.error}>{error}</Text>
-              </View>
-            ) : null}
-
-            {/* Login Button */}
-            <View style={styles.buttonContainer}>
-              <Button 
-                title={t('auth.signIn', 'SIGN IN')} 
-                onPress={() => login(username, password)} 
-                loading={loading} 
+              {/* Input */}
+              <Input 
+                label={t('auth.emailLabel', 'EMAIL')}
+                value={email} 
+                onChangeText={setEmail} 
+                placeholder={t('auth.emailPlaceholder', 'Enter your email')}
+                keyboardType="email-address"
+                autoCapitalize="none"
+                autoComplete="email"
               />
-            </View>
-          </View>
 
-          {/* Google Sign In Button */}
-          <View style={styles.socialContainer}>
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>{t('auth.or', 'OR')}</Text>
-              <View style={styles.dividerLine} />
-            </View>
-            <Button 
-              title={t('auth.signInWithGoogle', 'Sign in with Google')} 
-              onPress={() => loginWithGoogle()} 
-              loading={loading} 
-              variant="outline"
-            />
-          </View>
+              {/* Error Message */}
+              {error ? (
+                <View style={styles.errorContainer}>
+                  <Text style={styles.error}>{error}</Text>
+                </View>
+              ) : null}
 
-          {/* Footer Links */}
+              {/* Submit Button */}
+              <View style={styles.buttonContainer}>
+                <Button 
+                  title={t('auth.sendResetLink', 'SEND RESET LINK')} 
+                  onPress={handleSubmit} 
+                  loading={loading} 
+                />
+              </View>
+            </View>
+
+          {/* Back to Login Link */}
           <View style={styles.footerLinks}>
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-              <Text style={styles.linkText}>{t('auth.forgotPassword', 'Forgot Password?')}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Register Link */}
-          <View style={styles.registerSection}>
-            <Text style={styles.registerText}>{t('auth.noAccount', "Don't have an account?")} </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLink}>{t('auth.signUp', 'Sign Up')}</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.linkText}>{t('auth.backToLogin', 'Back to Login')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -246,6 +229,7 @@ const createStyles = () => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     fontWeight: '500',
+    textAlign: 'center',
   },
   card: {
     backgroundColor: colors.surface,
@@ -272,6 +256,13 @@ const createStyles = () => StyleSheet.create({
     fontWeight: '600',
     textAlign: 'center',
   },
+  successText: {
+    color: colors.text,
+    fontSize: 16,
+    fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 24,
+  },
   buttonContainer: {
     marginTop: 24,
   },
@@ -284,38 +275,5 @@ const createStyles = () => StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  socialContainer: {
-    marginTop: 24,
-    marginBottom: 24,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  registerSection: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  registerText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  registerLink: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
 });
+

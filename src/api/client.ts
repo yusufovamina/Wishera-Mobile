@@ -30,7 +30,7 @@ const getBaseUrl = () => {
 const baseUrl = getBaseUrl();
 
 // Different services run on different ports
-const authServiceUrl = `${baseUrl}:5219`;  // Auth service
+export const authServiceUrl = `${baseUrl}:5219`;  // Auth service
 const userServiceUrl = `${baseUrl}:5001`;  // User service
 const wishlistServiceUrl = `${baseUrl}:5003`; // Gift/wishlist service
 export const chatServiceUrl = `${baseUrl}:5002`;  // Chat service
@@ -57,9 +57,19 @@ export const chatApi = axios.create({ baseURL: chatServiceUrl });
 api.interceptors.response.use(
   response => response,
   error => {
-    console.error('API Error:', error.message);
-    console.error('Request URL:', error.config?.url);
-    console.error('Response:', error.response?.data);
+    // Don't log 400 errors for forgot-password as they're handled as success cases
+    const isForgotPassword = error.config?.url?.includes('forgot-password');
+    const isSecurityResponse = error.response?.status === 400 && 
+                               error.response?.data?.message?.includes('password reset link will be sent');
+    
+    if (isForgotPassword && isSecurityResponse) {
+      // This is expected - backend returns 400 for security, but we treat it as success
+      console.log('Password reset email will be sent (security response)');
+    } else {
+      console.error('API Error:', error.message);
+      console.error('Request URL:', error.config?.url);
+      console.error('Response:', error.response?.data);
+    }
     return Promise.reject(error);
   }
 );
@@ -130,6 +140,10 @@ export const endpoints = {
   // Align to web/frontend routes (lowercase)
   login: '/api/auth/login',
   register: '/api/auth/register',
+  forgotPassword: '/api/auth/forgot-password',
+  verifyResetCode: '/api/auth/verify-reset-code',
+  resetPassword: '/api/auth/reset-password',
+  googleLogin: '/api/ExternalAuth/login/google',
   deleteAccount: '/api/auth/delete-account',
   identification: '/api/users/profile',
   updateProfile: '/api/users/profile',
@@ -161,6 +175,13 @@ export const endpoints = {
     `/api/users/search?query=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`,
   getFollowing: (userId: string, page: number = 1, pageSize: number = 50) => 
     `/api/users/${userId}/following?page=${page}&pageSize=${pageSize}`,
+  getUserProfile: (userId: string) => `/api/users/${userId}`,
+  followUser: (userId: string) => `/api/users/follow/${userId}`,
+  unfollowUser: (userId: string) => `/api/users/unfollow/${userId}`,
+  getSuggestedUsers: (page: number = 1, pageSize: number = 10) => 
+    `/api/users/suggested?page=${page}&pageSize=${pageSize}`,
+  getMyFriends: (page: number = 1, pageSize: number = 20) => 
+    `/api/users/my-friends?page=${page}&pageSize=${pageSize}`,
   // Chat message operations
   editChatMessage: '/api/chat/message/edit',
   deleteChatMessage: '/api/chat/message/delete',

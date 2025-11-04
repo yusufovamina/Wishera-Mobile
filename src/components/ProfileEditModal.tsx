@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../theme/colors';
+import { getColors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
+import { useI18n } from '../i18n';
 
 interface ProfileEditModalProps {
   visible: boolean;
@@ -11,13 +13,14 @@ interface ProfileEditModalProps {
   profile?: ProfileData | null;
 }
 
+// Match backend UpdateUserProfileDTO structure
 interface ProfileData {
-  username: string;
-  bio: string;
-  interests: string[];
+  username?: string;
+  bio?: string | null;
+  interests?: string[] | null;
   isPrivate: boolean;
-  birthday: string;
-  avatarUrl?: string;
+  birthday?: string | null;
+  avatarUrl?: string | null;
 }
 
 const INTEREST_OPTIONS = [
@@ -33,13 +36,18 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   loading = false,
   profile = null,
 }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const colors = useMemo(() => getColors(), [theme]);
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  
   const [formData, setFormData] = useState<ProfileData>({
     username: profile?.username || '',
-    bio: profile?.bio || '',
+    bio: profile?.bio ?? null,
     interests: profile?.interests || [],
-    isPrivate: profile?.isPrivate || false,
-    birthday: profile?.birthday || '',
-    avatarUrl: profile?.avatarUrl || '',
+    isPrivate: profile?.isPrivate ?? false,
+    birthday: profile?.birthday ?? null,
+    avatarUrl: profile?.avatarUrl ?? null,
   });
   const [errors, setErrors] = useState<Partial<ProfileData>>({});
   const [interestInput, setInterestInput] = useState('');
@@ -48,7 +56,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     const newErrors: Partial<ProfileData> = {};
     
     if (!formData.username.trim()) {
-      newErrors.username = 'Username is required';
+      newErrors.username = t('profile.editProfileUsernameRequired', 'Username is required');
     }
     
     setErrors(newErrors);
@@ -78,7 +86,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   };
 
   const handleClose = () => {
-    setFormData({ username: '', bio: '', interests: [], isPrivate: false, birthday: '', avatarUrl: '' });
+    setFormData({ username: '', bio: null, interests: [], isPrivate: false, birthday: null, avatarUrl: null });
     setErrors({});
     onClose();
   };
@@ -88,11 +96,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     if (!visible) return;
     setFormData({
       username: profile?.username || '',
-      bio: profile?.bio || '',
+      bio: profile?.bio ?? null,
       interests: profile?.interests || [],
-      isPrivate: profile?.isPrivate || false,
-      birthday: profile?.birthday || '',
-      avatarUrl: profile?.avatarUrl || '',
+      isPrivate: profile?.isPrivate ?? false,
+      birthday: profile?.birthday ?? null,
+      avatarUrl: profile?.avatarUrl ?? null,
     });
   }, [visible, profile?.username, profile?.bio, profile?.isPrivate, profile?.birthday, profile?.avatarUrl, (profile?.interests || []).join('|')]);
 
@@ -133,12 +141,12 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>Cancel</Text>
+            <Text style={styles.closeButtonText}>{t('common.cancel', 'Cancel')}</Text>
           </TouchableOpacity>
-          <Text style={styles.title}>Edit Profile</Text>
+          <Text style={styles.title}>{t('profile.editProfileTitle', 'Edit Profile')}</Text>
           <TouchableOpacity onPress={handleSubmit} style={styles.saveButton} disabled={loading}>
             <Text style={[styles.saveButtonText, loading && styles.saveButtonDisabled]}>
-              {loading ? 'Saving...' : 'Save'}
+              {loading ? t('profile.editProfileSaving', 'Saving...') : t('profile.editProfileSave', 'Save')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -158,16 +166,16 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
               )}
             </View>
             <TouchableOpacity style={styles.editAvatarButton}>
-              <Text style={styles.editAvatarText}>Edit Avatar</Text>
+              <Text style={styles.editAvatarText}>{t('profile.editProfileEditAvatar', 'Edit Avatar')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Username Input */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Username *</Text>
+            <Text style={styles.label}>{t('profile.editProfileUsername', 'Username *')}</Text>
             <TextInput
               style={[styles.input, errors.username && styles.inputError]}
-              placeholder="Enter username"
+              placeholder={t('profile.editProfileUsernamePlaceholder', 'Enter username')}
               placeholderTextColor={colors.textMuted}
               value={formData.username}
               onChangeText={(text) => setFormData(prev => ({ ...prev, username: text }))}
@@ -179,13 +187,13 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
           {/* Bio Input */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Bio</Text>
+            <Text style={styles.label}>{t('profile.editProfileBio', 'Bio')}</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Tell us about yourself..."
+              placeholder={t('profile.editProfileBioPlaceholder', 'Tell us about yourself...')}
               placeholderTextColor={colors.textMuted}
-              value={formData.bio}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, bio: text }))}
+              value={formData.bio || ''}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, bio: text || null }))}
               multiline
               numberOfLines={4}
               textAlignVertical="top"
@@ -194,7 +202,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
           {/* Interests */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Interests</Text>
+            <Text style={styles.label}>{t('profile.editProfileInterests', 'Interests')}</Text>
             
             {/* Current interests */}
             {formData.interests.length > 0 && (
@@ -214,7 +222,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             <View style={styles.addInterestContainer}>
               <TextInput
                 style={styles.interestInput}
-                placeholder="Add interest..."
+                placeholder={t('profile.editProfileInterestsAdd', 'Add interest...')}
                 placeholderTextColor={colors.textMuted}
                 value={interestInput}
                 onChangeText={setInterestInput}
@@ -222,12 +230,12 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 autoCapitalize="words"
               />
               <TouchableOpacity onPress={addInterest} style={styles.addInterestButton}>
-                <Text style={styles.addInterestButtonText}>Add</Text>
+                <Text style={styles.addInterestButtonText}>{t('common.add', 'Add')}</Text>
               </TouchableOpacity>
             </View>
 
             {/* Suggested interests */}
-            <Text style={styles.suggestedLabel}>Suggested:</Text>
+            <Text style={styles.suggestedLabel}>{t('profile.editProfileInterestsSuggested', 'Suggested:')}</Text>
             <View style={styles.suggestedInterests}>
               {INTEREST_OPTIONS.filter(interest => !formData.interests.includes(interest)).slice(0, 10).map((interest) => (
                 <TouchableOpacity
@@ -243,19 +251,19 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
 
           {/* Birthday */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Birthday</Text>
+            <Text style={styles.label}>{t('profile.editProfileBirthday', 'Birthday')}</Text>
             <TextInput
               style={styles.input}
               placeholder="YYYY-MM-DD"
               placeholderTextColor={colors.textMuted}
-              value={formData.birthday}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, birthday: text }))}
+              value={formData.birthday || ''}
+              onChangeText={(text) => setFormData(prev => ({ ...prev, birthday: text || null }))}
             />
           </View>
 
           {/* Privacy Setting */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Privacy</Text>
+            <Text style={styles.label}>{t('profile.editProfilePrivacy', 'Privacy')}</Text>
             <View style={styles.privacyContainer}>
               <TouchableOpacity
                 style={styles.privacyOption}
@@ -264,7 +272,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 <View style={[styles.radioButton, !formData.isPrivate && styles.radioButtonSelected]}>
                   {!formData.isPrivate && <View style={styles.radioButtonInner} />}
                 </View>
-                <Text style={styles.privacyText}>Public - Anyone can see your profile</Text>
+                <Text style={styles.privacyText}>{t('profile.editProfilePrivacyPublic', 'Public - Anyone can see your profile')}</Text>
               </TouchableOpacity>
               
               <TouchableOpacity
@@ -274,7 +282,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 <View style={[styles.radioButton, formData.isPrivate && styles.radioButtonSelected]}>
                   {formData.isPrivate && <View style={styles.radioButtonInner} />}
                 </View>
-                <Text style={styles.privacyText}>Private - Only followers can see your profile</Text>
+                <Text style={styles.privacyText}>{t('profile.editProfilePrivacyPrivate', 'Private - Only followers can see your profile')}</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -284,7 +292,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

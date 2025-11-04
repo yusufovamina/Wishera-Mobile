@@ -1,9 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
+import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView, Alert, TextInput } from 'react-native';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
-import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { useAuthStore } from '../state/auth';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -13,20 +11,29 @@ const { width, height } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<any>;
 
-export const LoginScreen: React.FC<Props> = ({ navigation }) => {
+export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
   const styles = React.useMemo(() => createStyles(), [theme]);
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const { login, loginWithGoogle, loading, error } = useAuthStore();
+  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const { verifyResetCode, loading, error } = useAuthStore();
+  const inputRefs = useRef<(TextInput | null)[]>([]);
+  
+  // Get email from route params
+  const email = route?.params?.email || '';
   
   const floatY = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
-    // Floating blobs animation - smoother
+    if (!email) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.emailRequired', 'Email is required'));
+      navigation.navigate('ForgotPassword');
+      return;
+    }
+
+    // Floating blobs animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(floatY, { 
@@ -44,7 +51,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       ])
     ).start();
 
-    // Pulse animation - smoother
+    // Pulse animation
     Animated.loop(
       Animated.sequence([
         Animated.timing(pulse, { 
@@ -69,22 +76,58 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
       easing: Easing.out(Easing.cubic), 
       useNativeDriver: true 
     }).start();
-  }, [floatY, pulse, fadeIn]);
+  }, [floatY, pulse, fadeIn, email, navigation, t]);
+
+  const handleCodeChange = (value: string, index: number) => {
+    // Only allow digits
+    const digit = value.replace(/[^0-9]/g, '');
+    if (digit.length > 1) return;
+    
+    const newCode = [...code];
+    newCode[index] = digit;
+    setCode(newCode);
+
+    // Auto-focus next input
+    if (digit && index < 5) {
+      inputRefs.current[index + 1]?.focus();
+    }
+  };
+
+  const handleKeyPress = (key: string, index: number) => {
+    if (key === 'Backspace' && !code[index] && index > 0) {
+      inputRefs.current[index - 1]?.focus();
+    }
+  };
+
+  const handleSubmit = async () => {
+    const codeString = code.join('');
+    if (codeString.length !== 6) {
+      Alert.alert(t('auth.error', 'Error'), t('auth.invalidCode', 'Please enter the complete 6-digit code'));
+      return;
+    }
+
+    try {
+      const token = await verifyResetCode(email, codeString);
+      // Navigate to reset password screen with token
+      navigation.navigate('ResetPassword', { token });
+    } catch (e) {
+      // Error is handled by the store
+      console.log('Verify code error:', e);
+    }
+  };
 
   return (
     <View style={styles.container}>
       <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
       
-      {/* Animated Background Blobs - Pointer events disabled to allow typing */}
+      {/* Animated Background Blobs */}
       <View style={styles.blobContainer} pointerEvents="none">
         <Animated.View
           style={[
             styles.blob,
             styles.blob1,
             {
-              transform: [
-                { translateY: floatY }
-              ],
+              transform: [{ translateY: floatY }],
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.25, 0.4] })
             }
           ]}
@@ -94,9 +137,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             styles.blob,
             styles.blob2,
             {
-              transform: [
-                { translateY: floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -20] }) }
-              ],
+              transform: [{ translateY: floatY.interpolate({ inputRange: [0, 1], outputRange: [0, -20] }) }],
               opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.3] })
             }
           ]}
@@ -112,29 +153,30 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]} pointerEvents="auto">
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>{t('auth.welcomeBack', 'Welcome Back')}</Text>
-            <Text style={styles.subtitle}>{t('auth.signInSubtitle', 'Sign in to your account')}</Text>
+            <Text style={styles.title}>{t('auth.verifyCode', 'Verify Code')}</Text>
+            <Text style={styles.subtitle}>
+              {t('auth.verifyCodeSubtitle', 'Enter the 6-digit code sent to your email')}
+            </Text>
+            <Text style={styles.emailText}>{email}</Text>
           </View>
 
-          {/* Glassmorphism Card */}
+          {/* Code Input */}
           <View style={styles.card}>
-            {/* Inputs */}
-            <Input 
-              label={t('auth.emailLabel', 'EMAIL')}
-              value={username} 
-              onChangeText={setUsername} 
-              placeholder={t('auth.emailPlaceholder', 'Enter your email')} 
-            />
-            
-            <View style={{ height: 20 }} />
-            
-            <Input 
-              label={t('auth.passwordLabel', 'PASSWORD')}
-              value={password} 
-              onChangeText={setPassword} 
-              placeholder={t('auth.passwordPlaceholder', 'Enter your password')} 
-              secureTextEntry 
-            />
+            <View style={styles.codeContainer}>
+              {code.map((digit, index) => (
+                <TextInput
+                  key={index}
+                  ref={(ref) => (inputRefs.current[index] = ref)}
+                  style={styles.codeInput}
+                  value={digit}
+                  onChangeText={(value) => handleCodeChange(value, index)}
+                  onKeyPress={({ nativeEvent }) => handleKeyPress(nativeEvent.key, index)}
+                  keyboardType="number-pad"
+                  maxLength={1}
+                  selectTextOnFocus
+                />
+              ))}
+            </View>
 
             {/* Error Message */}
             {error ? (
@@ -143,43 +185,30 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
               </View>
             ) : null}
 
-            {/* Login Button */}
+            {/* Submit Button */}
             <View style={styles.buttonContainer}>
               <Button 
-                title={t('auth.signIn', 'SIGN IN')} 
-                onPress={() => login(username, password)} 
+                title={t('auth.verifyCodeButton', 'VERIFY CODE')} 
+                onPress={handleSubmit} 
                 loading={loading} 
               />
             </View>
-          </View>
 
-          {/* Google Sign In Button */}
-          <View style={styles.socialContainer}>
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>{t('auth.or', 'OR')}</Text>
-              <View style={styles.dividerLine} />
+            {/* Resend Code */}
+            <View style={styles.resendContainer}>
+              <Text style={styles.resendText}>
+                {t('auth.didntReceiveCode', "Didn't receive the code?")}
+              </Text>
+              <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword', { email })}>
+                <Text style={styles.resendLink}>{t('auth.resendCode', 'Resend')}</Text>
+              </TouchableOpacity>
             </View>
-            <Button 
-              title={t('auth.signInWithGoogle', 'Sign in with Google')} 
-              onPress={() => loginWithGoogle()} 
-              loading={loading} 
-              variant="outline"
-            />
           </View>
 
-          {/* Footer Links */}
+          {/* Back to Login Link */}
           <View style={styles.footerLinks}>
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
-              <Text style={styles.linkText}>{t('auth.forgotPassword', 'Forgot Password?')}</Text>
-            </TouchableOpacity>
-          </View>
-
-          {/* Register Link */}
-          <View style={styles.registerSection}>
-            <Text style={styles.registerText}>{t('auth.noAccount', "Don't have an account?")} </Text>
-            <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLink}>{t('auth.signUp', 'Sign Up')}</Text>
+            <TouchableOpacity onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.linkText}>{t('auth.backToLogin', 'Back to Login')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -246,6 +275,14 @@ const createStyles = () => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     fontWeight: '500',
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emailText: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '600',
+    marginTop: 8,
   },
   card: {
     backgroundColor: colors.surface,
@@ -257,6 +294,23 @@ const createStyles = () => StyleSheet.create({
     shadowOpacity: 0.15,
     shadowRadius: 24,
     elevation: 8,
+  },
+  codeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 24,
+  },
+  codeInput: {
+    width: 50,
+    height: 60,
+    backgroundColor: colors.background,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    textAlign: 'center',
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: colors.text,
   },
   errorContainer: {
     marginTop: 16,
@@ -275,6 +329,22 @@ const createStyles = () => StyleSheet.create({
   buttonContainer: {
     marginTop: 24,
   },
+  resendContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 24,
+  },
+  resendText: {
+    color: colors.textSecondary,
+    fontSize: 14,
+    marginRight: 4,
+  },
+  resendLink: {
+    color: colors.primary,
+    fontSize: 14,
+    fontWeight: '600',
+  },
   footerLinks: {
     alignItems: 'center',
     marginBottom: 24,
@@ -284,38 +354,5 @@ const createStyles = () => StyleSheet.create({
     fontSize: 15,
     fontWeight: '600',
   },
-  socialContainer: {
-    marginTop: 24,
-    marginBottom: 24,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
-  },
-  registerSection: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  registerText: {
-    color: colors.textSecondary,
-    fontSize: 15,
-  },
-  registerLink: {
-    color: colors.primary,
-    fontSize: 15,
-    fontWeight: '600',
-  },
 });
+

@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { TextInput, StyleSheet, View, Text, ViewStyle, Animated } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../theme/colors';
+import { getColors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
 
 type InputProps = {
   label?: string;
@@ -13,6 +14,9 @@ type InputProps = {
 };
 
 export const Input: React.FC<InputProps> = ({ label, value, onChangeText, placeholder, secureTextEntry, style }) => {
+  const { theme } = usePreferences();
+  const colors = useMemo(() => getColors(), [theme]);
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [isFocused, setIsFocused] = useState(false);
 
   return (
@@ -49,7 +53,7 @@ export const Input: React.FC<InputProps> = ({ label, value, onChangeText, placeh
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
   container: { 
     gap: 8,
   },
