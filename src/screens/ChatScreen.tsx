@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, TextInput, KeyboardAvoidingView, Platform, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
+import { usePreferences } from '../state/preferences';
 import { userApi, chatApi, endpoints } from '../api/client';
 import { useAuthStore } from '../state/auth';
 import { useSignalRChat } from '../hooks/useSignalRChat';
@@ -33,6 +35,9 @@ interface ChatMessage {
 }
 
 export const ChatScreen: React.FC<any> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   // State management exactly like front-end
   const [conversations, setConversations] = useState<Record<string, ChatMessage[]>>({});
   const [currentConversationId, setCurrentConversationId] = useState<string | null>(null);
@@ -634,7 +639,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       <View style={styles.container}>
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.headerTitle}>Messages</Text>
+          <Text style={styles.headerTitle}>{t('chat.messages', 'Messages')}</Text>
           <TouchableOpacity style={styles.newChatButton}>
             <Text style={styles.newChatButtonText}>+</Text>
           </TouchableOpacity>
@@ -671,7 +676,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           <View style={styles.chatUserInfo}>
             <Text style={styles.chatUserName}>{selectedContact?.name}</Text>
             <Text style={styles.chatUserStatus}>
-              {selectedContact?.isOnline ? 'Online' : 'Offline'}
+              {selectedContact?.isOnline ? t('chat.online', 'Online') : t('chat.offline', 'Offline')}
             </Text>
           </View>
         </View>
@@ -705,7 +710,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       {!connected && (
         <View style={styles.connectionStatus}>
           <Text style={styles.connectionText}>
-            {connectionState === 'Reconnecting' ? 'Reconnecting...' : 'Disconnected'}
+            {connectionState === 'Reconnecting' ? t('chat.reconnecting', 'Reconnecting...') : t('chat.disconnected', 'Disconnected')}
           </Text>
         </View>
       )}
@@ -716,7 +721,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           <View style={styles.replyPreviewContent}>
             <View style={styles.replyPreviewLine} />
             <View style={styles.replyPreviewTextContainer}>
-              <Text style={styles.replyPreviewLabel}>Replying to:</Text>
+              <Text style={styles.replyPreviewLabel}>{t('chat.replyingTo', 'Replying to:')}</Text>
               <Text style={styles.replyPreviewText} numberOfLines={1}>{replyTo.text}</Text>
             </View>
             <TouchableOpacity
@@ -732,7 +737,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       {/* Edit Indicator */}
       {editingId && (
         <View style={styles.editIndicatorContainer}>
-          <Text style={styles.editIndicatorText}>Editing message...</Text>
+          <Text style={styles.editIndicatorText}>{t('chat.editing', 'Editing message...')}</Text>
           <TouchableOpacity
             onPress={() => {
               setEditingId(null);
@@ -749,7 +754,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         <View style={styles.inputWrapper}>
           <TextInput
             style={styles.messageInput}
-            placeholder={editingId ? "Edit message..." : "Type a message..."}
+            placeholder={editingId ? t('chat.editPlaceholder', 'Edit message...') : t('chat.inputPlaceholder', 'Type a message...')}
             placeholderTextColor={colors.textMuted}
             value={inputText}
             onChangeText={(text) => {
@@ -773,7 +778,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               colors={(inputText.trim() || editingId) ? [colors.gradientStart, colors.gradientMid, colors.gradientEnd] : [colors.muted, colors.muted]}
               style={styles.sendButtonGradient}
             >
-              <Text style={styles.sendButtonText}>{editingId ? "✓" : "→"}</Text>
+              <Text style={styles.sendButtonText}>{editingId ? '✓' : '→'}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </View>
@@ -782,7 +787,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

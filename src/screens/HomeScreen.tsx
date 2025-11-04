@@ -2,6 +2,8 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated, Easing, Dimensions, StatusBar, TextInput } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
+import { usePreferences } from '../state/preferences';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
@@ -82,6 +84,9 @@ type WishlistItem = {
 };
 
 export const HomeScreen: React.FC<any> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const [wishlists, setWishlists] = useState<WishlistItem[]>([]);
   const [likedWishlists, setLikedWishlists] = useState<WishlistItem[]>([]);
   const [myWishlists, setMyWishlists] = useState<WishlistItem[]>([]);
@@ -408,15 +413,15 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const getEmptyMessage = () => {
     switch (activeTab) {
       case 'home':
-        return searchQuery ? 'No wishlists found' : 'No wishlists yet';
+        return searchQuery ? t('home.emptySearch', 'No wishlists found') : t('home.empty', 'No wishlists yet');
       case 'liked':
-        return 'No liked wishlists yet';
+        return t('home.emptyLiked', 'No liked wishlists yet');
       case 'my-wishlists':
-        return 'You haven\'t created any wishlists yet';
+        return t('home.emptyMyWishlists', "You haven't created any wishlists yet");
       case 'my-gifts':
-        return 'No gifts in your wishlist yet';
+        return t('home.emptyGifts', 'No gifts in your wishlist yet');
       default:
-        return 'No data available';
+        return t('common.empty', 'No data available');
     }
   };
 
@@ -641,7 +646,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               style={styles.headerAvatar} 
             />
             <View>
-              <Text style={styles.greeting}>Welcome back!</Text>
+              <Text style={styles.greeting}>{t('home.welcomeBack', 'Welcome back!')}</Text>
               <Text style={styles.userName}>{user?.username || 'User'}</Text>
             </View>
           </View>
@@ -659,10 +664,10 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         {/* Search bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>Icon</Text>
+            <Text style={styles.searchIcon}>🔎</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder="Search wishlists..."
+              placeholder={t('home.searchPlaceholder', 'Search wishlists...')}
               placeholderTextColor={colors.textSecondary}
               value={searchQuery}
               onChangeText={setSearchQuery}
@@ -684,31 +689,31 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               style={[styles.tab, activeTab === 'home' && styles.activeTab]} 
               onPress={() => setActiveTab('home')}
             >
-              <Text style={[styles.tabText, activeTab === 'home' && styles.activeTabText]}>Home</Text>
+              <Text style={[styles.tabText, activeTab === 'home' && styles.activeTabText]}>{t('tabs.home', 'Home')}</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'my-wishlists' && styles.activeTab]} 
               onPress={() => setActiveTab('my-wishlists')}
             >
-              <Text style={[styles.tabText, activeTab === 'my-wishlists' && styles.activeTabText]}>My Wishlists</Text>
+              <Text style={[styles.tabText, activeTab === 'my-wishlists' && styles.activeTabText]}>{t('tabs.myWishlists', 'My Wishlists')}</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'liked' && styles.activeTab]} 
               onPress={() => setActiveTab('liked')}
             >
-              <Text style={[styles.tabText, activeTab === 'liked' && styles.activeTabText]}>Liked</Text>
+              <Text style={[styles.tabText, activeTab === 'liked' && styles.activeTabText]}>{t('tabs.liked', 'Liked')}</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'my-gifts' && styles.activeTab]} 
               onPress={() => setActiveTab('my-gifts')}
             >
-              <Text style={[styles.tabText, activeTab === 'my-gifts' && styles.activeTabText]}>My Gifts</Text>
+              <Text style={[styles.tabText, activeTab === 'my-gifts' && styles.activeTabText]}>{t('tabs.myGifts', 'My Gifts')}</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.tab, activeTab === 'profile' && styles.activeTab]} 
               onPress={() => setActiveTab('profile')}
             >
-              <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>Profile</Text>
+              <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>{t('tabs.profile', 'Profile')}</Text>
             </TouchableOpacity>
           </ScrollView>
         </View>
@@ -730,24 +735,24 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           </ScrollView>
           
           <View style={styles.sortContainer}>
-            <Text style={styles.sortLabel}>Sort:</Text>
+            <Text style={styles.sortLabel}>{t('home.sort', 'Sort:')}</Text>
             <TouchableOpacity
               style={[styles.sortButton, sortBy === 'recent' && styles.sortButtonActive]}
               onPress={() => setSortBy(sortBy === 'recent' ? '' : 'recent')}
             >
-              <Text style={[styles.sortButtonText, sortBy === 'recent' && styles.sortButtonTextActive]}>Recent</Text>
+              <Text style={[styles.sortButtonText, sortBy === 'recent' && styles.sortButtonTextActive]}>{t('home.sortRecent', 'Recent')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.sortButton, sortBy === 'likes' && styles.sortButtonActive]}
               onPress={() => setSortBy(sortBy === 'likes' ? '' : 'likes')}
             >
-              <Text style={[styles.sortButtonText, sortBy === 'likes' && styles.sortButtonTextActive]}>Popular</Text>
+              <Text style={[styles.sortButtonText, sortBy === 'likes' && styles.sortButtonTextActive]}>{t('home.sortPopular', 'Popular')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.sortButton, sortBy === 'title' && styles.sortButtonActive]}
               onPress={() => setSortBy(sortBy === 'title' ? '' : 'title')}
             >
-              <Text style={[styles.sortButtonText, sortBy === 'title' && styles.sortButtonTextActive]}>A-Z</Text>
+              <Text style={[styles.sortButtonText, sortBy === 'title' && styles.sortButtonTextActive]}>{t('home.sortAZ', 'A-Z')}</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -806,7 +811,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

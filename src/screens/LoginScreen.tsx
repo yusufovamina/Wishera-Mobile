@@ -2,16 +2,21 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
 import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { useAuthStore } from '../state/auth';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { usePreferences } from '../state/preferences';
 
 const { width, height } = Dimensions.get('window');
 
 type Props = NativeStackScreenProps<any>;
 
 export const LoginScreen: React.FC<Props> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const { login, loading, error } = useAuthStore();
@@ -107,27 +112,27 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]} pointerEvents="auto">
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Welcome Back</Text>
-            <Text style={styles.subtitle}>Sign in to your account</Text>
+            <Text style={styles.title}>{t('auth.welcomeBack', 'Welcome Back')}</Text>
+            <Text style={styles.subtitle}>{t('auth.signInSubtitle', 'Sign in to your account')}</Text>
           </View>
 
           {/* Glassmorphism Card */}
           <View style={styles.card}>
             {/* Inputs */}
             <Input 
-              label="EMAIL" 
+              label={t('auth.emailLabel', 'EMAIL')}
               value={username} 
               onChangeText={setUsername} 
-              placeholder="Enter your email" 
+              placeholder={t('auth.emailPlaceholder', 'Enter your email')} 
             />
             
             <View style={{ height: 20 }} />
             
             <Input 
-              label="PASSWORD" 
+              label={t('auth.passwordLabel', 'PASSWORD')}
               value={password} 
               onChangeText={setPassword} 
-              placeholder="Enter your password" 
+              placeholder={t('auth.passwordPlaceholder', 'Enter your password')} 
               secureTextEntry 
             />
 
@@ -141,7 +146,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             {/* Login Button */}
             <View style={styles.buttonContainer}>
               <Button 
-                title="SIGN IN" 
+                title={t('auth.signIn', 'SIGN IN')} 
                 onPress={() => login(username, password)} 
                 loading={loading} 
               />
@@ -151,15 +156,15 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
           {/* Footer Links */}
           <View style={styles.footerLinks}>
             <TouchableOpacity onPress={() => console.log('Forgot password')}>
-              <Text style={styles.linkText}>Forgot Password?</Text>
+              <Text style={styles.linkText}>{t('auth.forgotPassword', 'Forgot Password?')}</Text>
             </TouchableOpacity>
           </View>
 
           {/* Register Link */}
           <View style={styles.registerSection}>
-            <Text style={styles.registerText}>Don't have an account? </Text>
+            <Text style={styles.registerText}>{t('auth.noAccount', "Don't have an account?")} </Text>
             <TouchableOpacity onPress={() => navigation.navigate('Register')}>
-              <Text style={styles.registerLink}>Sign Up</Text>
+              <Text style={styles.registerLink}>{t('auth.signUp', 'Sign Up')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -168,10 +173,10 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFBFC',
+    backgroundColor: colors.background,
   },
   blobContainer: {
     position: 'absolute',

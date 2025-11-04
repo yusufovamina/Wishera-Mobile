@@ -1,11 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
 import { Button } from '../components/Button';
 import { ProfileEditModal } from '../components/ProfileEditModal';
 import { useAuthStore } from '../state/auth';
 import { api, userApi, endpoints } from '../api/client';
+import { usePreferences } from '../state/preferences';
 
 const { width, height } = Dimensions.get('window');
 
@@ -23,6 +25,9 @@ type ProfileData = {
 };
 
 export const ProfileScreen: React.FC<any> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const [profile, setProfile] = useState<ProfileData | null>(null);
   const [loading, setLoading] = useState(true);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -303,97 +308,103 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
 
           {/* Menu Items */}
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Account</Text>
+            <Text style={styles.sectionTitle}>{t('profile.account', 'Account')}</Text>
             
             <MenuItem
               icon="Edit"
-              title="Edit Profile"
-              subtitle="Update your information"
+              title={t('profile.editProfile', 'Edit Profile')}
+              subtitle={t('profile.updateInfo', 'Update your information')}
               onPress={() => setShowEditModal(true)}
             />
             
             <MenuItem
               icon="Privacy"
-              title="Privacy Settings"
-              subtitle="Control your privacy"
+              title={t('profile.privacySettings', 'Privacy Settings')}
+              subtitle={t('profile.privacySubtitle', 'Control your privacy')}
               onPress={() => setShowEditModal(true)}
             />
             
             <MenuItem
               icon="Gifts"
-              title="My Wishlists"
-              subtitle="Manage your wishlists"
-              onPress={() => navigation.navigate('Home')}
+              title={t('profile.myWishlists', 'My Wishlists')}
+              subtitle={t('profile.manageWishlists', 'Manage your wishlists')}
+              onPress={() => navigation.navigate('UserWishlists', { userId: profile?.id })}
             />
             
             <MenuItem
               icon="Bday"
-              title="Birthday Settings"
-              subtitle="Set your birthday"
+              title={t('profile.birthdaySettings', 'Birthday Settings')}
+              subtitle={t('profile.birthdaySubtitle', 'Set your birthday')}
               onPress={() => setShowEditModal(true)}
             />
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Support</Text>
+            <Text style={styles.sectionTitle}>{t('profile.support', 'Support')}</Text>
             
             <MenuItem
               icon="Help"
-              title="Help & Support"
-              subtitle="Get help and support"
-              onPress={() => console.log('Help & Support')}
+              title={t('profile.help', 'Help & Support')}
+              subtitle={t('profile.helpSubtitle', 'Get help and support')}
+              onPress={() => Linking.openURL('https://wishera.app/support')}
             />
             
             <MenuItem
               icon="Contact"
-              title="Contact Us"
-              subtitle="Send us feedback"
-              onPress={() => console.log('Contact Us')}
+              title={t('profile.contact', 'Contact Us')}
+              subtitle={t('profile.contactSubtitle', 'Send us feedback')}
+              onPress={() => Linking.openURL('mailto:support@wishera.app?subject=Mobile%20Feedback')}
             />
             
             <MenuItem
               icon="About"
-              title="About"
-              subtitle="Learn more about Wishera"
-              onPress={() => console.log('About')}
+              title={t('profile.about', 'About')}
+              subtitle={t('profile.aboutSubtitle', 'Learn more about Wishera')}
+              onPress={() => Linking.openURL('https://wishera.app/about')}
+            />
+            <MenuItem
+              icon="Settings"
+              title={t('profile.settings', 'Settings')}
+              subtitle={t('profile.settingsSubtitle', 'Theme and Language')}
+              onPress={() => navigation.navigate('Settings')}
             />
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Danger Zone</Text>
+            <Text style={styles.sectionTitle}>{t('profile.danger', 'Danger Zone')}</Text>
             <MenuItem
               icon="⚠️"
-              title="Delete Account"
-              subtitle="This action is irreversible"
+              title={t('profile.deleteAccount', 'Delete Account')}
+              subtitle={t('profile.deleteAccountSubtitle', 'This action is irreversible')}
               onPress={handleDeleteAccount}
               danger
             />
           </View>
 
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Activity</Text>
+            <Text style={styles.sectionTitle}>{t('profile.activity', 'Activity')}</Text>
             <MenuItem
               icon="⭐"
-              title="Liked Wishlists"
-              subtitle="Your liked wishlists"
+              title={t('profile.likedWishlists', 'Liked Wishlists')}
+              subtitle={t('profile.likedWishlistsSubtitle', 'Your liked wishlists')}
               onPress={() => navigation.navigate('LikedWishlists')}
             />
             <MenuItem
               icon="🎁"
-              title="Reserved Gifts"
-              subtitle="Gifts you reserved"
+              title={t('profile.reservedGifts', 'Reserved Gifts')}
+              subtitle={t('profile.reservedGiftsSubtitle', 'Gifts you reserved')}
               onPress={() => navigation.navigate('ReservedGifts')}
             />
             <MenuItem
               icon="📅"
-              title="My Events"
-              subtitle="Your events"
+              title={t('profile.myEvents', 'My Events')}
+              subtitle={t('profile.myEventsSubtitle', 'Your events')}
               onPress={() => navigation.navigate('MyEvents')}
             />
             <MenuItem
               icon="✉️"
-              title="Invitations"
-              subtitle="Event invitations"
+              title={t('profile.invitations', 'Invitations')}
+              subtitle={t('profile.invitationsSubtitle', 'Event invitations')}
               onPress={() => navigation.navigate('Invitations')}
             />
           </View>
@@ -401,7 +412,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
           {/* Logout Button */}
           <View style={styles.logoutSection}>
             <Button
-              title="Sign Out"
+              title={t('auth.signOut', 'Sign Out')}
               onPress={handleLogout}
               style={styles.logoutButton}
             />
@@ -431,7 +442,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

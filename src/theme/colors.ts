@@ -1,4 +1,4 @@
-export const colors = {
+export const lightColors = {
   // Backgrounds - Using wishera-front inspired gradients
   background: '#FAFBFC',
   surface: '#FFFFFF',
@@ -42,5 +42,48 @@ export const colors = {
   overlay: 'rgba(255, 255, 255, 0.1)',
   overlayDark: 'rgba(0, 0, 0, 0.2)',
 };
+
+export const darkColors = {
+  background: '#0B1020',
+  surface: '#111827',
+  card: 'rgba(17, 24, 39, 0.9)',
+  primary: '#8B5CF6',
+  primaryAlt: '#6366F1',
+  primaryDark: '#7C3AED',
+  accent: '#A78BFA',
+  accentLight: '#C4B5FD',
+  text: '#F8FAFC',
+  textSecondary: '#CBD5E1',
+  textMuted: '#94A3B8',
+  muted: '#1F2937',
+  border: '#334155',
+  borderDark: '#475569',
+  success: '#34D399',
+  successLight: '#10B981',
+  danger: '#F87171',
+  dangerLight: '#EF4444',
+  warning: '#FBBF24',
+  warningLight: '#F59E0B',
+  info: '#60A5FA',
+  infoLight: '#3B82F6',
+  gradientStart: '#8B5CF6',
+  gradientMid: '#6366F1',
+  gradientEnd: '#4F46E5',
+  overlay: 'rgba(0, 0, 0, 0.2)',
+  overlayDark: 'rgba(255, 255, 255, 0.12)',
+};
+
+export type Colors = typeof lightColors;
+
+let currentTheme: 'light' | 'dark' = 'light';
+export const setThemeMode = (mode: 'light' | 'dark') => { currentTheme = mode; };
+export const getColors = (): Colors => (currentTheme === 'dark' ? darkColors : lightColors);
+// Dynamic colors proxy: always reflects current theme without refactoring existing imports
+export const colors: Colors = new Proxy({} as any, {
+  get(_target, prop: string) {
+    const c = getColors() as any;
+    return c[prop];
+  },
+});
 
 

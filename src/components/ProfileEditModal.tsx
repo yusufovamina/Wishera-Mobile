@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
@@ -82,6 +82,19 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     setErrors({});
     onClose();
   };
+
+  // Sync modal form with incoming profile when opened or profile changes
+  useEffect(() => {
+    if (!visible) return;
+    setFormData({
+      username: profile?.username || '',
+      bio: profile?.bio || '',
+      interests: profile?.interests || [],
+      isPrivate: profile?.isPrivate || false,
+      birthday: profile?.birthday || '',
+      avatarUrl: profile?.avatarUrl || '',
+    });
+  }, [visible, profile?.username, profile?.bio, profile?.isPrivate, profile?.birthday, profile?.avatarUrl, (profile?.interests || []).join('|')]);
 
   const addInterest = () => {
     if (interestInput.trim() && !formData.interests.includes(interestInput.trim())) {

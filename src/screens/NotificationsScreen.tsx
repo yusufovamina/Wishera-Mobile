@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, RefreshControl } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
+import { usePreferences } from '../state/preferences';
 import { useAuthStore } from '../state/auth';
 
 interface Notification {
@@ -18,6 +20,9 @@ interface Notification {
 }
 
 export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -200,7 +205,7 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Notifications</Text>
+        <Text style={styles.headerTitle}>{t('notifications.title', 'Notifications')}</Text>
         {unreadCount > 0 && (
           <View style={styles.unreadBadge}>
             <Text style={styles.unreadBadgeText}>{unreadCount}</Text>
@@ -224,8 +229,8 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No notifications yet</Text>
-            <Text style={styles.emptySubtext}>You'll see updates about likes, follows, and messages here</Text>
+            <Text style={styles.emptyText}>{t('notifications.empty', 'No notifications yet')}</Text>
+            <Text style={styles.emptySubtext}>{t('notifications.emptyHint', "You'll see updates about likes, follows, and messages here")}</Text>
           </View>
         }
       />
@@ -233,7 +238,7 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

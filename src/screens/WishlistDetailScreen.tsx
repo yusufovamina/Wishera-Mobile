@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Text, FlatList, Image, TouchableOpacity, ScrollView, RefreshControl, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
+import { usePreferences } from '../state/preferences';
 import { GiftModal } from '../components/GiftModal';
 import { wishlistApi } from '../api/client';
 
@@ -27,6 +29,9 @@ interface Gift {
 }
 
 export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ route, navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const { wishlistId, wishlistTitle } = route.params;
   const [gifts, setGifts] = useState<Gift[]>([]);
   const [loading, setLoading] = useState(false);
@@ -43,7 +48,7 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
   const fetchGifts = async () => {
     try {
       setLoading(true);
-      const res = await wishlistApi.get(`/api/Wishlists/${wishlistId}/gifts`);
+      const res = await wishlistApi.get(`/api/wishlists/${wishlistId}/gifts`);
       setGifts(res.data || []);
     } catch (error) {
       console.log('Error fetching gifts:', error);
@@ -62,13 +67,21 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
   const handleCreateGift = async (data: any) => {
     try {
       setGiftLoading(true);
-      await wishlistApi.post(`/api/Wishlists/${wishlistId}/gifts`, {
-        name: data.name,
-        price: parseFloat(data.price),
-        category: data.category,
-        description: data.description || null,
-        imageUrl: data.imageUrl || null,
-      });
+      // Create gift aligned with web: POST /api/gift (multipart), include wishlistId
+      const form = new FormData();
+      form.append('name', data.name);
+      form.append('price', String(parseFloat(data.price)));
+      form.append('category', data.category);
+      form.append('wishlistId', wishlistId);
+      if (data.description) form.append('description', data.description);
+      if (data.fileUri) {
+        form.append('imageFile', {
+          uri: data.fileUri,
+          name: 'gift.jpg',
+          type: 'image/jpeg',
+        } as any);
+      }
+      await wishlistApi.post(`/api/gift`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
       
       await fetchGifts();
       setShowGiftModal(false);
@@ -84,13 +97,28 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
     
     try {
       setGiftLoading(true);
-      await wishlistApi.put(`/api/Gift/${editingGift.id}`, {
+      await wishlistApi.put(`/api/gift/${editingGift.id}`, {
         name: data.name,
         price: parseFloat(data.price),
         category: data.category,
         description: data.description || null,
-        imageUrl: data.imageUrl || null,
       });
+
+      if (data.fileUri) {
+        const form = new FormData();
+        form.append('imageFile', {
+          uri: data.fileUri,
+          name: 'gift.jpg',
+          type: 'image/jpeg',
+        } as any);
+        try {
+          await wishlistApi.post(`/api/gift/${editingGift.id}/upload-image`, form, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+        } catch (e) {
+          console.log('Gift image upload failed:', e);
+        }
+      }
       
       await fetchGifts();
       setShowGiftModal(false);
@@ -127,9 +155,9 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
   const handleReserveGift = async (gift: Gift) => {
     try {
       if (gift.isReserved) {
-        await wishlistApi.post(`/api/Gift/${gift.id}/unreserve`);
+        await wishlistApi.post(`/api/gift/${gift.id}/cancel-reserve`);
       } else {
-        await wishlistApi.post(`/api/Gift/${gift.id}/reserve`);
+        await wishlistApi.post(`/api/gift/${gift.id}/reserve`);
       }
       await fetchGifts();
     } catch (error) {
@@ -209,11 +237,11 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backButton}>
-          <Text style={styles.backButtonText}>← Back</Text>
+          <Text style={styles.backButtonText}>←</Text>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{wishlistTitle}</Text>
         <TouchableOpacity onPress={openCreateModal} style={styles.addButton}>
-          <Text style={styles.addButtonText}>+ Add Gift</Text>
+          <Text style={styles.addButtonText}>+ {t('gift.addGift', 'Add Gift')}</Text>
         </TouchableOpacity>
       </View>
 
@@ -233,9 +261,9 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>No gifts in this wishlist yet</Text>
+            <Text style={styles.emptyText}>{t('wishlist.empty', 'No gifts in this wishlist yet')}</Text>
             <TouchableOpacity onPress={openCreateModal} style={styles.emptyButton}>
-              <Text style={styles.emptyButtonText}>Add First Gift</Text>
+              <Text style={styles.emptyButtonText}>{t('wishlist.addFirstGift', 'Add First Gift')}</Text>
             </TouchableOpacity>
           </View>
         }
@@ -257,7 +285,7 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

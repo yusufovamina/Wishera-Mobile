@@ -3,7 +3,8 @@ import { NavigationContainer, DarkTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Text, View, StyleSheet } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, getColors, setThemeMode } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
 import { LandingScreen } from '../screens/LandingScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
@@ -19,24 +20,31 @@ import { ReservedGiftsScreen } from '../screens/ReservedGiftsScreen';
 import { MyEventsScreen } from '../screens/MyEventsScreen';
 import { InvitationsScreen } from '../screens/InvitationsScreen';
 import { UserWishlistsScreen } from '../screens/UserWishlistsScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
 import { useAuthStore } from '../state/auth';
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
 
-const navTheme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    backgroundColor: colors.background,
-    card: colors.surface,
-    text: colors.text,
-    border: colors.border,
-    primary: colors.primary,
-  },
+const buildNavTheme = () => {
+  const c = getColors();
+  return {
+    ...DarkTheme,
+    colors: {
+      ...DarkTheme.colors,
+      backgroundColor: c.background,
+      card: c.surface,
+      text: c.text,
+      border: c.border,
+      primary: c.primary,
+    },
+  } as any;
 };
 
 export const AppNavigator: React.FC = () => {
+  const { theme } = usePreferences();
+  setThemeMode(theme);
+  const navTheme = buildNavTheme();
   const { user, token } = useAuthStore();
   const isAuthenticated = !!(user && token);
   
@@ -57,6 +65,7 @@ export const AppNavigator: React.FC = () => {
             <Stack.Screen name="MyEvents" component={MyEventsScreen} options={{ title: 'My Events' }} />
             <Stack.Screen name="Invitations" component={InvitationsScreen} options={{ title: 'Invitations' }} />
             <Stack.Screen name="UserWishlists" component={UserWishlistsScreen} options={{ title: 'My Wishlists' }} />
+            <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
           </>
         ) : (
           // Not authenticated - show auth screens
@@ -99,7 +108,7 @@ const TabsNavigator: React.FC = () => {
         component={HomeScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="H" focused={focused} label="Home" />
+            <TabIcon icon="🏠" focused={focused} label="Home" />
           ),
         }}
       />
@@ -108,7 +117,7 @@ const TabsNavigator: React.FC = () => {
         component={ChatScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="C" focused={focused} label="Chats" />
+            <TabIcon icon="💬" focused={focused} label="Chats" />
           ),
         }}
       />
@@ -117,7 +126,7 @@ const TabsNavigator: React.FC = () => {
         component={NotificationsScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="N" focused={focused} label="Notifications" />
+            <TabIcon icon="🔔" focused={focused} label="Notifications" />
           ),
         }}
       />
@@ -126,7 +135,7 @@ const TabsNavigator: React.FC = () => {
         component={ProfileScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="P" focused={focused} label="Profile" />
+            <TabIcon icon="👤" focused={focused} label="Profile" />
           ),
         }}
       />

@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image } from 'react-native';
+import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image, Alert } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
 
 interface GiftModalProps {
   visible: boolean;
@@ -18,6 +20,7 @@ interface GiftData {
   category: string;
   description: string;
   imageUrl?: string;
+  fileUri?: string; // local image uri to upload
 }
 
 const GIFT_CATEGORIES = [
@@ -50,12 +53,14 @@ export const GiftModal: React.FC<GiftModalProps> = ({
   gift = null,
   mode,
 }) => {
+  const { t } = useI18n();
   const [formData, setFormData] = useState<GiftData>({
     name: gift?.name || '',
     price: gift?.price || '',
     category: gift?.category || '',
     description: gift?.description || '',
     imageUrl: gift?.imageUrl || '',
+    fileUri: undefined,
   });
   const [errors, setErrors] = useState<Partial<GiftData>>({});
 
@@ -93,9 +98,31 @@ export const GiftModal: React.FC<GiftModalProps> = ({
   };
 
   const handleClose = () => {
-    setFormData({ name: '', price: '', category: '', description: '', imageUrl: '' });
+    setFormData({ name: '', price: '', category: '', description: '', imageUrl: '', fileUri: undefined });
     setErrors({});
     onClose();
+  };
+
+  const pickImage = async () => {
+    try {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (perm.status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow photo access to attach an image.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.9,
+        aspect: [1, 1],
+      });
+      if (result.canceled) return;
+      const asset = result.assets?.[0];
+      if (!asset?.uri) return;
+      setFormData(prev => ({ ...prev, fileUri: asset.uri, imageUrl: asset.uri }));
+    } catch (e) {
+      console.log('Image pick failed:', e);
+    }
   };
 
   return (
@@ -109,14 +136,14 @@ export const GiftModal: React.FC<GiftModalProps> = ({
         {/* Header */}
         <View style={styles.header}>
           <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
-            <Text style={styles.closeButtonText}>Cancel</Text>
+          <Text style={styles.closeButtonText}>{t('common.cancel', 'Cancel')}</Text>
           </TouchableOpacity>
           <Text style={styles.title}>
-            {mode === 'create' ? 'Add Gift' : 'Edit Gift'}
+            {mode === 'create' ? t('gift.addGift', 'Add Gift') : t('gift.editGift', 'Edit Gift')}
           </Text>
           <TouchableOpacity onPress={handleSubmit} style={styles.createButton} disabled={loading}>
             <Text style={[styles.createButtonText, loading && styles.createButtonDisabled]}>
-              {loading ? 'Saving...' : mode === 'create' ? 'Add' : 'Save'}
+              {loading ? t('common.saving', 'Saving...') : mode === 'create' ? t('common.add', 'Add') : t('common.save', 'Save')}
             </Text>
           </TouchableOpacity>
         </View>
@@ -131,10 +158,10 @@ export const GiftModal: React.FC<GiftModalProps> = ({
 
           {/* Name Input */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Gift Name *</Text>
+            <Text style={styles.label}>{t('gift.nameLabel', 'Gift Name *')}</Text>
             <TextInput
               style={[styles.input, errors.name && styles.inputError]}
-              placeholder="Enter gift name"
+              placeholder={t('gift.namePlaceholder', 'Enter gift name')}
               placeholderTextColor={colors.textMuted}
               value={formData.name}
               onChangeText={(text) => setFormData(prev => ({ ...prev, name: text }))}
@@ -145,10 +172,10 @@ export const GiftModal: React.FC<GiftModalProps> = ({
 
           {/* Price Input */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Price *</Text>
+            <Text style={styles.label}>{t('gift.priceLabel', 'Price *')}</Text>
             <TextInput
               style={[styles.input, errors.price && styles.inputError]}
-              placeholder="Enter price (e.g., 25.99)"
+              placeholder={t('gift.pricePlaceholder', 'Enter price (e.g., 25.99)')}
               placeholderTextColor={colors.textMuted}
               value={formData.price}
               onChangeText={(text) => setFormData(prev => ({ ...prev, price: text }))}
@@ -159,7 +186,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
 
           {/* Category Selection */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Category *</Text>
+            <Text style={styles.label}>{t('gift.categoryLabel', 'Category *')}</Text>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.categoryScroll}>
               {GIFT_CATEGORIES.map((category) => (
                 <TouchableOpacity
@@ -184,10 +211,10 @@ export const GiftModal: React.FC<GiftModalProps> = ({
 
           {/* Description Input */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Description</Text>
+            <Text style={styles.label}>{t('gift.descriptionLabel', 'Description')}</Text>
             <TextInput
               style={[styles.input, styles.textArea]}
-              placeholder="Enter description (optional)"
+              placeholder={t('gift.descriptionPlaceholder', 'Enter description (optional)')}
               placeholderTextColor={colors.textMuted}
               value={formData.description}
               onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
@@ -197,18 +224,11 @@ export const GiftModal: React.FC<GiftModalProps> = ({
             />
           </View>
 
-          {/* Image URL Input */}
+          {/* Image Picker */}
           <View style={styles.inputGroup}>
-            <Text style={styles.label}>Image URL</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Enter image URL (optional)"
-              placeholderTextColor={colors.textMuted}
-              value={formData.imageUrl}
-              onChangeText={(text) => setFormData(prev => ({ ...prev, imageUrl: text }))}
-              autoCapitalize="none"
-              autoCorrect={false}
-            />
+            <TouchableOpacity style={styles.imagePickButton} onPress={pickImage}>
+              <Text style={styles.imagePickText}>{formData.fileUri ? t('gift.changeImage', 'Change Image') : t('gift.pickImage', 'Pick Image from Gallery')}</Text>
+            </TouchableOpacity>
           </View>
         </ScrollView>
       </View>
@@ -268,6 +288,18 @@ const styles = StyleSheet.create({
     height: 120,
     borderRadius: 12,
     backgroundColor: colors.muted,
+  },
+  imagePickButton: {
+    backgroundColor: colors.muted,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  imagePickText: {
+    color: colors.primary,
+    fontWeight: '700',
+    fontSize: 14,
   },
   inputGroup: {
     marginBottom: 24,

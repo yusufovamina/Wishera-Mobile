@@ -2,11 +2,16 @@ import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Animated, Easing, Dimensions, StatusBar, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
 import { Button } from '../components/Button';
+import { usePreferences } from '../state/preferences';
 
 const { width, height } = Dimensions.get('window');
 
 export const LandingScreen: React.FC<any> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const floatY = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -118,8 +123,8 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]}>
           {/* Logo/Title Section */}
           <View style={styles.titleContainer}>
-            <Text style={styles.title}>WISHERA</Text>
-            <Text style={styles.subtitle}>Create, Share, and Gift</Text>
+            <Text style={styles.title}>{t('landing.title', 'WISHERA')}</Text>
+            <Text style={styles.subtitle}>{t('landing.subtitle', 'Create, Share, and Gift')}</Text>
             <View style={styles.titleUnderline} />
           </View>
 
@@ -134,8 +139,8 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
               <View style={styles.giftIconContainer}>
                 <Text style={styles.giftIcon}>🎁</Text>
               </View>
-              <Text style={styles.cardTitle}>Your Wishlist</Text>
-              <Text style={styles.cardSubtitle}>Share your dreams</Text>
+              <Text style={styles.cardTitle}>{t('landing.cardTitle', 'Your Wishlist')}</Text>
+              <Text style={styles.cardSubtitle}>{t('landing.cardSubtitle', 'Share your dreams')}</Text>
             </LinearGradient>
           </View>
 
@@ -145,19 +150,19 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
               <View style={[styles.featureIcon, { backgroundColor: colors.success }]}>
                 <Text style={styles.featureIconText}>✓</Text>
               </View>
-              <Text style={styles.featureText}>Easy to use</Text>
+              <Text style={styles.featureText}>{t('landing.featureEasy', 'Easy to use')}</Text>
             </View>
             <View style={styles.feature}>
               <View style={[styles.featureIcon, { backgroundColor: colors.primary }]}>
                 <Text style={styles.featureIconText}>🔒</Text>
               </View>
-              <Text style={styles.featureText}>Secure & Private</Text>
+              <Text style={styles.featureText}>{t('landing.featureSecure', 'Secure & Private')}</Text>
             </View>
             <View style={styles.feature}>
               <View style={[styles.featureIcon, { backgroundColor: colors.warning }]}>
                 <Text style={styles.featureIconText}>🎯</Text>
               </View>
-              <Text style={styles.featureText}>Share Instantly</Text>
+              <Text style={styles.featureText}>{t('landing.featureShare', 'Share Instantly')}</Text>
             </View>
           </View>
 
@@ -173,7 +178,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
               end={{ x: 1, y: 0 }}
               style={styles.button}
             >
-              <Text style={styles.buttonText}>Get Started</Text>
+              <Text style={styles.buttonText}>{t('landing.getStarted', 'Get Started')}</Text>
             </LinearGradient>
           </TouchableOpacity>
         </Animated.View>
@@ -182,10 +187,10 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFBFC',
+    backgroundColor: colors.background,
   },
   blobContainer: {
     position: 'absolute',

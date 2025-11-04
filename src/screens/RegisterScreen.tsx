@@ -2,6 +2,8 @@ import React, { useState, useRef, useEffect } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Animated, Easing, StatusBar, Dimensions, ScrollView } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { useI18n } from '../i18n';
+import { usePreferences } from '../state/preferences';
 import { Input } from '../components/Input';
 import { Button } from '../components/Button';
 import { useAuthStore } from '../state/auth';
@@ -12,6 +14,9 @@ const { width, height } = Dimensions.get('window');
 type Props = NativeStackScreenProps<any>;
 
 export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
+  const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -109,46 +114,46 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]} pointerEvents="auto">
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>Create Account</Text>
-            <Text style={styles.subtitle}>Join us today</Text>
+            <Text style={styles.title}>{t('auth.createAccount', 'Create Account')}</Text>
+            <Text style={styles.subtitle}>{t('auth.joinUs', 'Join us today')}</Text>
           </View>
 
           {/* Glassmorphism Card */}
           <View style={styles.card}>
             {/* Inputs */}
             <Input 
-              label="USERNAME" 
+              label={t('auth.usernameLabel', 'USERNAME')}
               value={username} 
               onChangeText={setUsername} 
-              placeholder="Choose a username" 
+              placeholder={t('auth.usernamePlaceholder', 'Choose a username')} 
             />
             
             <View style={{ height: 20 }} />
             
             <Input 
-              label="EMAIL" 
+              label={t('auth.emailLabel', 'EMAIL')}
               value={email} 
               onChangeText={setEmail} 
-              placeholder="Enter your email" 
+              placeholder={t('auth.emailPlaceholder', 'Enter your email')} 
             />
             
             <View style={{ height: 20 }} />
             
             <Input 
-              label="PASSWORD" 
+              label={t('auth.passwordLabel', 'PASSWORD')}
               value={password} 
               onChangeText={setPassword} 
-              placeholder="Create a password" 
+              placeholder={t('auth.createPasswordPlaceholder', 'Create a password')} 
               secureTextEntry 
             />
             
             <View style={{ height: 20 }} />
             
             <Input 
-              label="CONFIRM PASSWORD" 
+              label={t('auth.confirmPasswordLabel', 'CONFIRM PASSWORD')}
               value={confirmPassword} 
               onChangeText={setConfirmPassword} 
-              placeholder="Confirm your password" 
+              placeholder={t('auth.confirmPasswordPlaceholder', 'Confirm your password')} 
               secureTextEntry 
             />
 
@@ -162,7 +167,7 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
             {/* Register Button */}
             <View style={styles.buttonContainer}>
               <Button 
-                title="CREATE ACCOUNT" 
+                title={t('auth.createAccountCta', 'CREATE ACCOUNT')} 
                 onPress={() => register(username, password)} 
                 loading={loading} 
               />
@@ -171,9 +176,9 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
 
           {/* Login Link */}
           <View style={styles.loginSection}>
-            <Text style={styles.loginText}>Already have an account? </Text>
+            <Text style={styles.loginText}>{t('auth.haveAccount', 'Already have an account?')} </Text>
             <TouchableOpacity onPress={() => navigation.goBack()}>
-              <Text style={styles.loginLink}>Sign In</Text>
+              <Text style={styles.loginLink}>{t('auth.signIn', 'Sign In')}</Text>
             </TouchableOpacity>
           </View>
         </Animated.View>
@@ -182,10 +187,10 @@ export const RegisterScreen: React.FC<Props> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FAFBFC',
+    backgroundColor: colors.background,
   },
   blobContainer: {
     position: 'absolute',
