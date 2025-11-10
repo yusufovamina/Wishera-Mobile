@@ -21,31 +21,17 @@ interface ChatContact {
 
 interface ChatMessage {
   id: string;
-  messageId?: string; // Backend uses messageId
   text: string;
   userId: string;
-  senderId?: string; // Backend uses senderId
   username: string;
-  senderName?: string; // Backend uses senderName
   createdAt: string;
-  sentAt?: string; // Backend uses sentAt
   messageType?: 'text' | 'voice' | 'image' | 'video';
-  customData?: {
-    messageType?: string;
-    audioUrl?: string;
-    audioDuration?: number;
-    imageUrl?: string;
-    [key: string]: any;
-  };
   audioUrl?: string;
   audioDuration?: number;
   imageUrl?: string;
   replyToMessageId?: string | null;
-  clientMessageId?: string | null; // Backend client message ID
   reactions?: Record<string, string[]>;
   read?: boolean;
-  readAt?: string; // Backend read timestamp
-  deliveredAt?: string; // Backend delivered timestamp
 }
 
 export const ChatScreen: React.FC<any> = ({ navigation }) => {
@@ -74,12 +60,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   // Get current conversation messages (exactly like front-end)
   const currentMessages = currentConversationId ? conversations[currentConversationId] || [] : [];
 
-  // Helper functions for conversation management (matches backend format)
-  // Backend uses sorted user IDs: string.Join("_", new[] { sourceUserId, userId }.OrderBy(x => x))
+  // Helper functions for conversation management (exactly like front-end)
   const getConversationId = (contactId: string) => {
-    if (!user?.id || !contactId) return '';
-    const sorted = [user.id, contactId].sort();
-    return `${sorted[0]}_${sorted[1]}`;
+    return `conv_${user?.id}_${contactId}`;
   };
 
   const updateConversationMessages = (conversationId: string, messages: ChatMessage[]) => {
@@ -131,12 +114,11 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     token: token,
     onMessageReceived: (payload: any, username?: string) => {
       const nowIso = new Date().toISOString();
-      // Backend SignalR sends: { id, senderId, text, sentAt, replyToMessageId, clientMessageId, customData }
+      // Server sends either: (userId, messageText) or ({ senderId, text }, username)
       const text = typeof payload === 'string' ? payload : (payload?.text ?? payload?.message ?? '');
-      const senderId = typeof payload === 'object' ? (payload?.senderId || payload?.senderUserId) : null;
-      const messageId = typeof payload === 'object' && payload?.id ? String(payload.id) : Date.now().toString();
+      const sender = typeof payload === 'string' ? (username || 'other') : (payload?.senderId || username || 'other');
+      const id = typeof payload === 'object' && payload?.id ? String(payload.id) : Date.now().toString();
       const replyToMessageId = typeof payload === 'object' && payload?.replyToMessageId ? String(payload.replyToMessageId) : null;
-      const clientMessageId = typeof payload === 'object' && payload?.clientMessageId ? String(payload.clientMessageId) : null;
       
       // Use server timestamp if available, otherwise use current time
       const serverTimestamp = typeof payload === 'object' && payload?.sentAt 
@@ -145,47 +127,39 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         ? payload.createdAt 
         : new Date().toISOString();
       
-      // Extract custom data (backend stores voice/image data here)
+      // Extract custom data for voice messages
       const customData = typeof payload === 'object' ? payload?.customData : null;
-      const messageType = customData?.messageType || payload?.messageType || 'text';
-      const audioUrl = customData?.audioUrl || payload?.audioUrl;
-      const audioDuration = customData?.audioDuration || payload?.audioDuration;
-      const imageUrl = customData?.imageUrl || payload?.imageUrl;
+      const messageType = customData?.messageType || 'text';
+      const audioUrl = customData?.audioUrl;
+      const audioDuration = customData?.audioDuration;
 
       const newMessage: ChatMessage = {
-        id: messageId,
-        messageId: messageId,
+        id,
         text,
-        userId: senderId || 'unknown',
-        senderId: senderId,
+        userId: sender,
         username: username || 'Unknown',
-        senderName: username,
         createdAt: serverTimestamp,
-        sentAt: serverTimestamp,
         replyToMessageId,
-        clientMessageId,
         messageType,
-        customData: customData || undefined,
         ...(audioUrl && { audioUrl }),
-        ...(audioDuration && { audioDuration }),
-        ...(imageUrl && { imageUrl }),
+        ...(audioDuration && { audioDuration })
       };
 
       // Determine which conversation this message belongs to
       // If it's from the current selected contact, add to current conversation
-      if (selectedContact && senderId === selectedContact.id) {
+      if (selectedContact && sender === selectedContact.id) {
         if (currentConversationId) {
           addMessageToConversation(currentConversationId, newMessage);
         }
-      } else if (senderId && senderId !== user?.id) {
+      } else if (sender !== user?.id) {
         // If it's from another contact, add to their conversation
-        const senderConversationId = getConversationId(senderId);
+        const senderConversationId = getConversationId(sender);
         addMessageToConversation(senderConversationId, newMessage);
         
         // Update the contact's last message in the sidebar
         const lastMessagePreview = messageType === 'voice' ? '🎤 Voice message' : text;
         setContacts(prev => prev.map(contact => 
-          contact.id === senderId 
+          contact.id === sender 
             ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: nowIso }
             : contact
         ));
@@ -308,46 +282,21 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     if (!user?.id) return;
     
     try {
-      // Load chat history from API (backend returns messages from MongoDB)
+      // Load chat history from API
       const response = await chatApi.get(endpoints.chatHistory(user.id, contactId, 1, 50));
-      const messagesData: ChatMessage[] = (response.data || []).map((msg: any) => {
-        // Backend MongoDB structure: messageId, senderUserId, recipientUserId, text, sentAt, replyToMessageId, clientMessageId, customData
-        const messageId = msg.messageId || msg.id;
-        const senderId = msg.senderUserId || msg.senderId || msg.userId;
-        const recipientId = msg.recipientUserId;
-        const customData = msg.customData || {};
-        const messageType = customData.messageType || msg.messageType || 'text';
-        
-        return {
-          id: messageId,
-          messageId: messageId,
-          text: msg.text || msg.message || '',
-          userId: senderId,
-          senderId: senderId,
-          username: msg.username || msg.senderName || 'Unknown',
-          senderName: msg.senderName,
-          createdAt: msg.sentAt || msg.createdAt || new Date().toISOString(),
-          sentAt: msg.sentAt,
-          messageType: messageType,
-          customData: customData,
-          audioUrl: customData.audioUrl || msg.audioUrl,
-          audioDuration: customData.audioDuration || msg.audioDuration,
-          imageUrl: customData.imageUrl || msg.imageUrl,
-          replyToMessageId: msg.replyToMessageId || null,
-          clientMessageId: msg.clientMessageId || null,
-          reactions: msg.reactions || {},
-          read: !!msg.readAt,
-          readAt: msg.readAt,
-          deliveredAt: msg.deliveredAt,
-        };
-      });
-      
-      // Sort messages by sentAt (oldest first)
-      messagesData.sort((a, b) => {
-        const timeA = new Date(a.sentAt || a.createdAt).getTime();
-        const timeB = new Date(b.sentAt || b.createdAt).getTime();
-        return timeA - timeB;
-      });
+      const messagesData: ChatMessage[] = response.data.map((msg: any) => ({
+        id: msg.id,
+        text: msg.text || msg.message || '',
+        userId: msg.userId || msg.senderId,
+        username: msg.username || msg.senderName || 'Unknown',
+        createdAt: msg.createdAt || msg.sentAt || new Date().toISOString(),
+        messageType: msg.messageType || 'text',
+        audioUrl: msg.audioUrl,
+        audioDuration: msg.audioDuration,
+        imageUrl: msg.imageUrl,
+        replyToMessageId: msg.replyToMessageId,
+        reactions: msg.reactions || {},
+      }));
       
       // Update conversation messages
       const conversationId = getConversationId(contactId);

@@ -5,7 +5,7 @@ import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
 import { GiftModal } from '../components/GiftModal';
-import { wishlistApi, endpoints } from '../api/client';
+import { wishlistApi } from '../api/client';
 
 interface WishlistDetailScreenProps {
   route: {
@@ -141,7 +141,7 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
           style: 'destructive',
           onPress: async () => {
             try {
-              await wishlistApi.delete(endpoints.giftUpdate(gift.id));
+              await wishlistApi.delete(`/api/Gift/${gift.id}`);
               await fetchGifts();
             } catch (error) {
               console.log('Error deleting gift:', error);

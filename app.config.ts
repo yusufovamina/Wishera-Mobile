@@ -9,6 +9,10 @@ export default ({ config }: any) => {
     extra: {
       apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5219',
     },
+    web: {
+      ...config.web,
+      bundler: 'metro',
+    },
     ios: {
       ...config.ios,
       bundleIdentifier: 'com.wishera.mobile',

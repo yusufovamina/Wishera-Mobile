@@ -43,7 +43,22 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.log('Login completed successfully');
     } catch (e: any) {
       console.log('Login error:', e?.response?.data || e.message);
-      set({ error: e?.response?.data?.message || 'Login failed' });
+      let errorMessage = 'Login failed';
+      
+      // Handle network/CORS errors
+      if (e?.message?.includes('Network Error') || e?.code === 'ERR_NETWORK' || e?.message?.includes('CORS')) {
+        if (Platform.OS === 'web') {
+          errorMessage = 'Cannot connect to backend. Make sure:\n1. Backend services are running\n2. CORS is enabled (see WEB_CORS_SETUP.md)';
+        } else {
+          errorMessage = 'Cannot connect to backend. Make sure backend services are running on ports 5219, 5001, 5003, 5002';
+        }
+      } else if (e?.response?.data?.message) {
+        errorMessage = e.response.data.message;
+      } else if (e?.message) {
+        errorMessage = e.message;
+      }
+      
+      set({ error: errorMessage });
     } finally {
       set({ loading: false });
     }
