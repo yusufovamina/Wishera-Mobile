@@ -4,6 +4,35 @@
     "theme": "Theme",
     "darkMode": "Dark Mode",
     "language": "Language"
+  },
+  "landing": {
+    "title": "WISHERA",
+    "headline": "Create, Share, and Gift",
+    "tagline": "Your Wishlist, Your Dreams, Your Way",
+    "cardTitle": "Your Wishlist",
+    "cardSubtitle": "Share your dreams with loved ones",
+    "featuresTitle": "Key Features",
+    "featureEasy": "Easy to Use",
+    "featureEasyDesc": "Intuitive interface for creating wishlists",
+    "featureSecure": "Secure & Private",
+    "featureSecureDesc": "Control your privacy settings",
+    "featureShare": "Share Instantly",
+    "featureShareDesc": "Connect with friends seamlessly",
+    "screenshotsTitle": "See Wishera in Action",
+    "screenshotsSubtitle": "Explore our key features",
+    "howItWorksTitle": "How It Works",
+    "useCasesTitle": "Perfect For Every Occasion",
+    "socialFeaturesTitle": "Stay Connected",
+    "socialFeaturesDesc": "Chat with friends, follow wishlists, and get notifications for special events",
+    "socialFeatureChat": "Real-time Chat",
+    "socialFeatureFollow": "Follow & Connect",
+    "socialFeatureNotify": "Smart Notifications",
+    "privacyTitle": "Privacy & Security",
+    "privacyDesc": "Your data is encrypted and secure. Control who sees your wishlists and profile information.",
+    "finalCTATitle": "Ready to Get Started?",
+    "finalCTADescription": "Join thousands of users sharing their dreams",
+    "getStarted": "Get Started",
+    "signUp": "Sign Up Free"
   }
 }
 

@@ -4,6 +4,35 @@
     "theme": "Тема",
     "darkMode": "Темный режим",
     "language": "Язык"
+  },
+  "landing": {
+    "title": "WISHERA",
+    "headline": "Создавайте, Делитесь и Дарите",
+    "tagline": "Ваш Вишлист, Ваши Мечты, Ваш Способ",
+    "cardTitle": "Ваш Вишлист",
+    "cardSubtitle": "Делитесь своими мечтами с близкими",
+    "featuresTitle": "Ключевые Возможности",
+    "featureEasy": "Легко использовать",
+    "featureEasyDesc": "Интуитивный интерфейс для создания вишлистов",
+    "featureSecure": "Безопасно и Приватно",
+    "featureSecureDesc": "Контролируйте настройки приватности",
+    "featureShare": "Делитесь мгновенно",
+    "featureShareDesc": "Легко общайтесь с друзьями",
+    "screenshotsTitle": "Увидьте Wishera в Действии",
+    "screenshotsSubtitle": "Изучите наши ключевые возможности",
+    "howItWorksTitle": "Как Это Работает",
+    "useCasesTitle": "Идеально Для Любого Случая",
+    "socialFeaturesTitle": "Оставайтесь На Связи",
+    "socialFeaturesDesc": "Общайтесь с друзьями, следите за вишлистами и получайте уведомления о special events",
+    "socialFeatureChat": "Чат в Реальном Времени",
+    "socialFeatureFollow": "Подписки и Связи",
+    "socialFeatureNotify": "Умные Уведомления",
+    "privacyTitle": "Конфиденциальность и Безопасность",
+    "privacyDesc": "Ваши данные зашифрованы и защищены. Контролируйте, кто видит ваши вишлисты и информацию профиля.",
+    "finalCTATitle": "Готовы Начать?",
+    "finalCTADescription": "Присоединяйтесь к тысячам пользователей, делящихся своими мечтами",
+    "getStarted": "Начать",
+    "signUp": "Зарегистрироваться Бесплатно"
   }
 }
 

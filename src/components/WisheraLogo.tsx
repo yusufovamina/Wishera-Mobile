@@ -50,24 +50,24 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
   }, []);
 
   const sizeMap = {
-    sm: 24,
-    md: 32,
-    lg: 48,
-    xl: 64,
+    sm: 32,
+    md: 48,
+    lg: 72,
+    xl: 96,
   };
 
   const iconSizeMap = {
-    sm: 14,
-    md: 18,
-    lg: 28,
-    xl: 36,
+    sm: 18,
+    md: 28,
+    lg: 42,
+    xl: 56,
   };
 
   const sparkleSizeMap = {
-    sm: 6,
-    md: 8,
-    lg: 12,
-    xl: 16,
+    sm: 8,
+    md: 12,
+    lg: 18,
+    xl: 24,
   };
 
   const logoSize = sizeMap[size];
@@ -84,13 +84,17 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
       {/* Logo Icon Container */}
       <View style={styles.logoContainer}>
         {/* Background glow effect */}
-        <View 
+        <Animated.View 
           style={[
             styles.glow,
             {
-              width: logoSize,
-              height: logoSize,
+              width: logoSize * 1.2,
+              height: logoSize * 1.2,
               borderRadius: logoSize * 0.3,
+              opacity: scaleAnim.interpolate({
+                inputRange: [0, 1],
+                outputRange: [0.2, 0.4],
+              }),
             }
           ]}
         />
@@ -105,10 +109,28 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
             {
               width: logoSize,
               height: logoSize,
-              borderRadius: logoSize * 0.3,
+              borderRadius: logoSize * 0.25,
+              shadowColor: colors.gradientStart,
+              shadowOffset: { width: 0, height: 8 },
+              shadowOpacity: 0.5,
+              shadowRadius: 16,
+              elevation: 12,
             }
           ]}
         >
+          {/* Animated background shimmer */}
+          <Animated.View
+            style={[
+              styles.shimmer,
+              {
+                opacity: scaleAnim.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [0.2, 0.5],
+                }),
+              }
+            ]}
+          />
+          
           {/* Gift icon */}
           <Ionicons 
             name="gift" 
@@ -122,8 +144,8 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
             style={[
               styles.sparkle,
               {
-                top: logoSize * 0.1,
-                right: logoSize * 0.1,
+                top: logoSize * 0.12,
+                right: logoSize * 0.12,
                 transform: [{ rotate }, { scale: scaleAnim }],
               }
             ]}
@@ -139,8 +161,8 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
             style={[
               styles.sparkle,
               {
-                bottom: logoSize * 0.1,
-                left: logoSize * 0.1,
+                bottom: logoSize * 0.12,
+                left: logoSize * 0.12,
                 transform: [
                   { 
                     rotate: rotateAnim.interpolate({
@@ -165,6 +187,21 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
           </Animated.View>
         </LinearGradient>
       </View>
+      
+      {/* Logo Text */}
+      {showText && (
+        <View style={styles.textContainer}>
+          <Text style={[
+            styles.logoText, 
+            { 
+              fontSize: size === 'sm' ? 18 : size === 'md' ? 24 : size === 'lg' ? 32 : 40,
+              color: colors.gradientStart,
+            }
+          ]}>
+            Wishera
+          </Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -173,6 +210,7 @@ const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
   },
   logoContainer: {
     position: 'relative',
@@ -182,28 +220,43 @@ const styles = StyleSheet.create({
   glow: {
     position: 'absolute',
     backgroundColor: '#6366F1',
-    opacity: 0.3,
+  },
+  shimmer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    borderRadius: 999,
   },
   iconContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    shadowColor: '#6366F1',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+    overflow: 'hidden',
   },
   giftIcon: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 4,
+    zIndex: 2,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
   sparkle: {
     position: 'absolute',
+    zIndex: 3,
+  },
+  textContainer: {
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  logoText: {
+    fontWeight: '900',
+    letterSpacing: 1,
+    textShadowColor: 'rgba(99, 102, 241, 0.3)',
+    textShadowOffset: { width: 0, height: 2 },
+    textShadowRadius: 4,
   },
 });
 

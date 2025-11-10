@@ -4,6 +4,35 @@
     "theme": "Mövzu",
     "darkMode": "Qaranlıq rejim",
     "language": "Dil"
+  },
+  "landing": {
+    "title": "WISHERA",
+    "headline": "Yaradın, Paylaşın və Hədiyyə Verin",
+    "tagline": "Sizin İstəklər Siyahınız, Sizin Arzularınız, Sizin Yolunuz",
+    "cardTitle": "Sizin İstəklər Siyahınız",
+    "cardSubtitle": "Arzularınızı sevimlilərinizlə paylaşın",
+    "featuresTitle": "Əsas Xüsusiyyətlər",
+    "featureEasy": "İstifadəsi asandır",
+    "featureEasyDesc": "İstəklər siyahısı yaratmaq üçün intuitiv interfeys",
+    "featureSecure": "Təhlükəsiz və Məxfi",
+    "featureSecureDesc": "Məxfilik parametrlərinizi idarə edin",
+    "featureShare": "Dərhal paylaşın",
+    "featureShareDesc": "Dostlarınızla problemsiz əlaqə qurun",
+    "screenshotsTitle": "Wishera-nı Fəaliyyətdə Görün",
+    "screenshotsSubtitle": "Əsas xüsusiyyətlərimizi araşdırın",
+    "howItWorksTitle": "Necə İşləyir",
+    "useCasesTitle": "Hər Vəziyyət Üçün Mükəmməl",
+    "socialFeaturesTitle": "Əlaqədə Qalın",
+    "socialFeaturesDesc": "Dostlarla söhbət edin, istəklər siyahılarına abunə olun və xüsusi hadisələr haqqında bildirişlər alın",
+    "socialFeatureChat": "Real Vaxt Söhbəti",
+    "socialFeatureFollow": "Abunəlik və Əlaqə",
+    "socialFeatureNotify": "Ağıllı Bildirişlər",
+    "privacyTitle": "Məxfilik və Təhlükəsizlik",
+    "privacyDesc": "Məlumatlarınız şifrələnir və qorunur. İstəklər siyahılarınızı və profil məlumatlarınızı kimin görəcəyini idarə edin.",
+    "finalCTATitle": "Başlamağa Hazırsınız?",
+    "finalCTADescription": "Arzularını paylaşan minlərlə istifadəçiyə qoşulun",
+    "getStarted": "Başla",
+    "signUp": "Pulsuz Qeydiyyatdan Keç"
   }
 }
 
