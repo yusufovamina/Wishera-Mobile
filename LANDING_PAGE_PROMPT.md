@@ -3,7 +3,7 @@
 ## Overview
 Create a modern, visually stunning landing page for **Wishera**, a social wishlist and gift-sharing mobile application. The design should capture the essence of connection, celebration, and thoughtful gifting.
 
-## Brand Identity
+## Branda Identity
 
 ### Color Palette
 - **Primary Gradient:** Indigo (#6366F1) → Purple (#8B5CF6) → Violet (#A78BFA)
