@@ -1,16 +1,12 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { getColors } from '../theme/colors';
-import { usePreferences } from '../state/preferences';
+import { colors } from '../theme/colors';
 import { endpoints, wishlistApi } from '../api/client';
 
 type WishlistFeedItem = { id: string; title: string; description?: string | null };
 
 export const UserWishlistsScreen: React.FC<any> = ({ route, navigation }) => {
   const { userId } = route.params as { userId: string };
-  const { theme } = usePreferences();
-  const colors = useMemo(() => getColors(), [theme]);
-  const styles = useMemo(() => createStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<WishlistFeedItem[]>([]);
 
@@ -36,7 +32,7 @@ export const UserWishlistsScreen: React.FC<any> = ({ route, navigation }) => {
         renderItem={({ item }) => (
           <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WishlistDetail', { id: item.id })}>
             <Text style={styles.title}>{item.title}</Text>
-            {!!item.description ? <Text style={styles.desc}>{item.description}</Text> : null}
+            {!!item.description && <Text style={styles.desc}>{item.description}</Text>}
           </TouchableOpacity>
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
@@ -48,7 +44,7 @@ export const UserWishlistsScreen: React.FC<any> = ({ route, navigation }) => {
   );
 };
 
-const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
+const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: 12 },
   title: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },

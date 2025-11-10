@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated, Easing, Dimensions, StatusBar, TextInput, Alert } from 'react-native';
+import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated, Easing, Dimensions, StatusBar, TextInput } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -7,7 +7,6 @@ import { usePreferences } from '../state/preferences';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
-import { EditWishlistModal } from '../components/EditWishlistModal';
 import { useAuthStore } from '../state/auth';
 import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
@@ -101,9 +100,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
-  const [showEditModal, setShowEditModal] = useState(false);
-  const [editingWishlist, setEditingWishlist] = useState<WishlistItem | null>(null);
-  const [editLoading, setEditLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('');
   const { user, logout } = useAuthStore();
@@ -149,229 +145,47 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     ).start();
   }, []);
 
-  const fetchGiftsForWishlist = async (wishlistId: string): Promise<Array<any>> => {
-    try {
-      console.log(`[fetchGiftsForWishlist] Fetching gifts for wishlist ${wishlistId}`);
-      
-      // Try the specific gifts endpoint first
-      try {
-        const res = await wishlistApi.get(`/api/wishlists/${wishlistId}/gifts`);
-        console.log(`[fetchGiftsForWishlist] Response for ${wishlistId}:`, res.data);
-        const gifts = res.data || [];
-        console.log(`[fetchGiftsForWishlist] Raw gifts array length:`, gifts.length);
-        
-        const mappedGifts = gifts.map((gift: any) => {
-          const mapped = {
-            id: gift.id || gift.giftId || `gift-${Math.random()}`,
-            name: gift.name || gift.giftName || 'Unnamed Gift',
-            price: gift.price || gift.priceAmount || 0,
-            image: gift.imageUrl || gift.image || gift.imageUri || '',
-          };
-          console.log(`[fetchGiftsForWishlist] Mapped gift:`, mapped);
-          return mapped;
-        });
-        
-        console.log(`[fetchGiftsForWishlist] Mapped gifts count for ${wishlistId}:`, mappedGifts.length);
-        return mappedGifts;
-      } catch (giftsError: any) {
-        // 404 is expected - the endpoint might not exist, so we'll fall back to wishlistById
-        // Only log non-404 errors
-        if (giftsError.response?.status !== 404) {
-          console.log(`[fetchGiftsForWishlist] Gifts endpoint failed (${giftsError.response?.status}), trying wishlistById endpoint`);
-        }
-        
-        // Fallback: try getting the full wishlist which might include gifts
-        try {
-          const wishlistRes = await wishlistApi.get(endpoints.wishlistById(wishlistId));
-          console.log(`[fetchGiftsForWishlist] WishlistById response for ${wishlistId}:`, JSON.stringify(wishlistRes.data, null, 2));
-          
-          const wishlistData = wishlistRes.data || {};
-          let gifts = [];
-          
-          // Check if gifts are in the response - try multiple possible structures
-          if (Array.isArray(wishlistData.gifts)) {
-            gifts = wishlistData.gifts;
-            console.log(`[fetchGiftsForWishlist] Found gifts array with ${gifts.length} items`);
-          } else if (wishlistData.gifts && typeof wishlistData.gifts === 'object') {
-            // Try various nested structures
-            gifts = wishlistData.gifts.items || 
-                   wishlistData.gifts.data || 
-                   wishlistData.gifts.gifts ||
-                   (Array.isArray(wishlistData.gifts) ? wishlistData.gifts : []) ||
-                   Object.values(wishlistData.gifts).find((val: any) => Array.isArray(val)) ||
-                   [];
-            console.log(`[fetchGiftsForWishlist] Found gifts object, extracted ${gifts.length} items`);
-          } else if (wishlistData.items && Array.isArray(wishlistData.items)) {
-            // Maybe gifts are in an items array
-            gifts = wishlistData.items;
-            console.log(`[fetchGiftsForWishlist] Found items array with ${gifts.length} items`);
-          } else if (wishlistData.data && Array.isArray(wishlistData.data)) {
-            // Maybe gifts are in a data array
-            gifts = wishlistData.data;
-            console.log(`[fetchGiftsForWishlist] Found data array with ${gifts.length} items`);
-          }
-          
-          // Log the full response structure for debugging
-          console.log(`[fetchGiftsForWishlist] Full wishlist data keys:`, Object.keys(wishlistData));
-          console.log(`[fetchGiftsForWishlist] Extracted ${gifts.length} gifts from wishlistById response`);
-          
-          if (gifts.length === 0) {
-            console.log(`[fetchGiftsForWishlist] No gifts found in wishlistById response. Full structure:`, JSON.stringify(wishlistData, null, 2));
-          }
-          
-          const mappedGifts = gifts.map((gift: any, idx: number) => {
-            console.log(`[fetchGiftsForWishlist] Processing gift ${idx + 1}:`, gift);
-            const mapped = {
-              id: gift.id || gift.giftId || `gift-${Math.random()}`,
-              name: gift.name || gift.giftName || gift.title || 'Unnamed Gift',
-              price: gift.price || gift.priceAmount || gift.cost || 0,
-              image: gift.imageUrl || gift.image || gift.imageUri || gift.imageUrl || '',
-            };
-            console.log(`[fetchGiftsForWishlist] Mapped gift ${idx + 1}:`, mapped);
-            return mapped;
-          });
-          
-          console.log(`[fetchGiftsForWishlist] Returning ${mappedGifts.length} mapped gifts`);
-          return mappedGifts;
-        } catch (wishlistError: any) {
-          console.log(`[fetchGiftsForWishlist] WishlistById endpoint also failed:`, wishlistError.message);
-          console.log(`[fetchGiftsForWishlist] Error response:`, wishlistError.response?.data);
-          return [];
-        }
-      }
-    } catch (error: any) {
-      // Only log non-404 errors
-      if (error.response?.status !== 404) {
-        console.log(`[fetchGiftsForWishlist] Error fetching gifts for wishlist ${wishlistId}:`, error.message);
-        console.log(`[fetchGiftsForWishlist] Error response:`, error.response?.data);
-        console.log(`[fetchGiftsForWishlist] Error status:`, error.response?.status);
-      }
-      return [];
-    }
-  };
-
   const fetchFeed = async () => {
     setLoading(true);
     try {
-      console.log('[fetchFeed] Fetching feed from:', wishlistApi.defaults.baseURL + endpoints.wishlistsFeed);
+      console.log('Fetching feed from:', wishlistApi.defaults.baseURL + endpoints.wishlistsFeed);
       const res = await wishlistApi.get(endpoints.wishlistsFeed, { 
         params: { page: 1, pageSize: 20 } 
       });
-      console.log('[fetchFeed] Feed response:', JSON.stringify(res.data, null, 2));
+      console.log('Feed response:', res.data);
       const data = res.data || [];
-      console.log('[fetchFeed] Feed data array length:', data.length);
       
       // Transform data to match our UI structure
-      const transformedData: WishlistItem[] = await Promise.all(
-        data.map(async (item: any, index: number) => {
-          console.log(`[fetchFeed] Processing wishlist ${index + 1}/${data.length}:`, {
-            id: item.id,
-            title: item.title,
-            hasGifts: !!item.gifts,
-            giftsType: typeof item.gifts,
-            giftsIsArray: Array.isArray(item.gifts),
-            giftsKeys: item.gifts && typeof item.gifts === 'object' ? Object.keys(item.gifts) : null,
-          });
-          
-          // Handle gifts - check if they're in the response first
-          let gifts = [];
-          if (Array.isArray(item.gifts)) {
-            gifts = item.gifts;
-            console.log(`[fetchFeed] Wishlist ${item.id} has gifts array with ${gifts.length} items`);
-          } else if (item.gifts && typeof item.gifts === 'object') {
-            // Try various nested structures
-            gifts = item.gifts.items || 
-                   item.gifts.data || 
-                   item.gifts.gifts ||
-                   Object.values(item.gifts).find((val: any) => Array.isArray(val)) ||
-                   [];
-            console.log(`[fetchFeed] Wishlist ${item.id} has gifts object, extracted ${gifts.length} items`);
-          } else if (item.items && Array.isArray(item.items)) {
-            // Maybe gifts are in an items array
-            gifts = item.items;
-            console.log(`[fetchFeed] Wishlist ${item.id} has items array with ${gifts.length} items`);
-          } else if (item.data && Array.isArray(item.data)) {
-            // Maybe gifts are in a data array
-            gifts = item.data;
-            console.log(`[fetchFeed] Wishlist ${item.id} has data array with ${gifts.length} items`);
-          } else {
-            console.log(`[fetchFeed] Wishlist ${item.id} has no gifts in response. Item keys:`, Object.keys(item));
-          }
-          
-          // If no gifts in response, fetch them separately
-          if (gifts.length === 0 && item.id) {
-            console.log(`[fetchFeed] Fetching gifts separately for wishlist ${item.id}`);
-            gifts = await fetchGiftsForWishlist(item.id);
-            console.log(`[fetchFeed] Fetched ${gifts.length} gifts separately for wishlist ${item.id}`);
-          } else {
-            console.log(`[fetchFeed] Using ${gifts.length} gifts from feed response for wishlist ${item.id}`);
-          }
-          
-          const transformedGifts = gifts.map((gift: any, idx: number) => {
-            console.log(`[fetchFeed] Processing gift ${idx + 1} for wishlist ${item.id}:`, gift);
-            const transformed = {
-              id: gift.id || gift.giftId || `gift-${Math.random()}`,
-              name: gift.name || gift.giftName || gift.title || 'Unnamed Gift',
-              price: gift.price || gift.priceAmount || gift.cost || 0,
-              image: gift.imageUrl || gift.image || gift.imageUri || '',
-            };
-            console.log(`[fetchFeed] Transformed gift ${idx + 1} for wishlist ${item.id}:`, transformed);
-            return transformed;
-          });
-          
-          const wishlistItem = {
-            id: item.id,
-            title: item.title,
-            description: item.description,
-            category: item.category,
-            isPublic: item.isPublic,
-            gifts: transformedGifts,
-            likes: item.likeCount || item.likes || 0,
-            isLiked: item.isLiked || false,
-            createdAt: item.createdAt || item.createdAtDate,
-            user: {
-              id: item.userId || item.user?.id,
-              name: item.username || item.user?.name || item.user?.username,
-              avatar: item.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
-              username: item.username || item.user?.username || 'user',
-            },
-          };
-          
-          console.log(`[fetchFeed] Final wishlist item ${item.id}:`, {
-            id: wishlistItem.id,
-            title: wishlistItem.title,
-            giftsCount: wishlistItem.gifts.length,
-            gifts: wishlistItem.gifts.map((g: any) => ({ id: g.id, name: g.name, hasImage: !!g.image })),
-          });
-          
-          return wishlistItem;
-        })
-      );
-      
-      console.log('[fetchFeed] Transformed wishlists summary:', transformedData.map(w => ({ 
-        id: w.id, 
-        title: w.title, 
-        giftsCount: w.gifts?.length || 0,
-        gifts: w.gifts?.map((g: any) => ({ id: g.id, name: g.name, hasImage: !!g.image })) || []
-      })));
-      
-      const totalGifts = transformedData.reduce((sum, w) => sum + (w.gifts?.length || 0), 0);
-      console.log(`[fetchFeed] Total wishlists: ${transformedData.length}, Total gifts: ${totalGifts}`);
+      const transformedData: WishlistItem[] = data.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        isPublic: item.isPublic,
+        gifts: item.gifts || [],
+        likes: item.likeCount || 0,
+        isLiked: item.isLiked || false,
+        createdAt: item.createdAt,
+        user: {
+          id: item.userId,
+          name: item.username,
+          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
+          username: item.username,
+        },
+      }));
       
       setWishlists(transformedData);
       setFilteredWishlists(transformedData);
     } catch (error: any) {
-      console.log('[fetchFeed] Error fetching feed:', error.message);
-      console.log('[fetchFeed] Error details:', error.response?.data || error);
-      console.log('[fetchFeed] Error status:', error.response?.status);
+      console.log('Error fetching feed:', error.message);
+      console.log('Error details:', error.response?.data || error);
       
       // Check if error is due to no auth token
       if (error.response?.status === 401) {
-        console.log('[fetchFeed] Not authenticated, showing mock data');
+        console.log('Not authenticated, showing mock data');
       }
       
       // Use mock data for now
-      console.log('[fetchFeed] Using mock wishlists with gifts:', mockWishlists.map(w => ({ id: w.id, title: w.title, giftsCount: w.gifts?.length || 0 })));
       setWishlists(mockWishlists);
       setFilteredWishlists(mockWishlists);
     } finally {
@@ -445,135 +259,63 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const fetchLikedWishlists = async () => {
     try {
-      console.log('[fetchLikedWishlists] Fetching liked wishlists');
-      const res = await wishlistApi.get(endpoints.likedWishlists(1, 20));
+      const res = await wishlistApi.get('/api/Wishlists/liked');
       const data = res.data || [];
-      console.log('[fetchLikedWishlists] Response data length:', data.length);
-      
-      const transformedData: WishlistItem[] = await Promise.all(
-        data.map(async (item: any) => {
-          let gifts = [];
-          if (Array.isArray(item.gifts)) {
-            gifts = item.gifts;
-          } else if (item.gifts && typeof item.gifts === 'object') {
-            gifts = item.gifts.items || 
-                   item.gifts.data || 
-                   item.gifts.gifts ||
-                   Object.values(item.gifts).find((val: any) => Array.isArray(val)) ||
-                   [];
-          } else if (item.items && Array.isArray(item.items)) {
-            gifts = item.items;
-          } else if (item.data && Array.isArray(item.data)) {
-            gifts = item.data;
-          }
-          
-          // If no gifts in response, fetch them separately
-          if (gifts.length === 0 && item.id) {
-            console.log(`[fetchLikedWishlists] Fetching gifts separately for wishlist ${item.id}`);
-            gifts = await fetchGiftsForWishlist(item.id);
-          }
-          
-          return {
-            id: item.id,
-            title: item.title,
-            description: item.description,
-            category: item.category,
-            isPublic: item.isPublic,
-            gifts: gifts.map((gift: any) => ({
-              id: gift.id || gift.giftId || `gift-${Math.random()}`,
-              name: gift.name || gift.giftName || gift.title || 'Unnamed Gift',
-              price: gift.price || gift.priceAmount || gift.cost || 0,
-              image: gift.imageUrl || gift.image || gift.imageUri || '',
-            })),
-            likes: item.likeCount || item.likes || 0,
-            isLiked: item.isLiked || false,
-            createdAt: item.createdAt || item.createdAtDate,
-            user: {
-              id: item.userId || item.user?.id,
-              name: item.username || item.user?.name || item.user?.username,
-              avatar: item.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
-              username: item.username || item.user?.username || 'user',
-            },
-          };
-        })
-      );
-      
-      console.log('[fetchLikedWishlists] Transformed wishlists with gifts:', transformedData.map(w => ({ id: w.id, title: w.title, giftsCount: w.gifts?.length || 0 })));
+      const transformedData: WishlistItem[] = data.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        isPublic: item.isPublic,
+        gifts: item.gifts || [],
+        likes: item.likeCount || 0,
+        isLiked: item.isLiked || false,
+        createdAt: item.createdAt,
+        user: {
+          id: item.userId,
+          name: item.username,
+          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
+          username: item.username,
+        },
+      }));
       setLikedWishlists(transformedData);
-    } catch (error: any) {
-      console.log('[fetchLikedWishlists] Error fetching liked wishlists:', error.message);
-      console.log('[fetchLikedWishlists] Error response:', error.response?.data);
+    } catch (error) {
+      console.log('Error fetching liked wishlists:', error);
       setLikedWishlists([]);
     }
   };
 
   const fetchMyWishlists = async () => {
     try {
-      console.log('[fetchMyWishlists] Fetching my wishlists for user:', user?.id);
-      const res = await wishlistApi.get(endpoints.userWishlists(user?.id || '', 1, 20));
+      const res = await wishlistApi.get(`/api/Wishlists/user/${user?.id}`);
       const data = res.data || [];
-      console.log('[fetchMyWishlists] Response data length:', data.length);
-      
-      const transformedData: WishlistItem[] = await Promise.all(
-        data.map(async (item: any) => {
-          let gifts = [];
-          if (Array.isArray(item.gifts)) {
-            gifts = item.gifts;
-          } else if (item.gifts && typeof item.gifts === 'object') {
-            gifts = item.gifts.items || 
-                   item.gifts.data || 
-                   item.gifts.gifts ||
-                   Object.values(item.gifts).find((val: any) => Array.isArray(val)) ||
-                   [];
-          } else if (item.items && Array.isArray(item.items)) {
-            gifts = item.items;
-          } else if (item.data && Array.isArray(item.data)) {
-            gifts = item.data;
-          }
-          
-          // If no gifts in response, fetch them separately
-          if (gifts.length === 0 && item.id) {
-            console.log(`[fetchMyWishlists] Fetching gifts separately for wishlist ${item.id}`);
-            gifts = await fetchGiftsForWishlist(item.id);
-          }
-          
-          return {
-            id: item.id,
-            title: item.title,
-            description: item.description,
-            category: item.category,
-            isPublic: item.isPublic,
-            gifts: gifts.map((gift: any) => ({
-              id: gift.id || gift.giftId || `gift-${Math.random()}`,
-              name: gift.name || gift.giftName || gift.title || 'Unnamed Gift',
-              price: gift.price || gift.priceAmount || gift.cost || 0,
-              image: gift.imageUrl || gift.image || gift.imageUri || '',
-            })),
-            likes: item.likeCount || item.likes || 0,
-            isLiked: item.isLiked || false,
-            createdAt: item.createdAt || item.createdAtDate,
-            user: {
-              id: item.userId || item.user?.id,
-              name: item.username || item.user?.name || item.user?.username,
-              avatar: item.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
-              username: item.username || item.user?.username || 'user',
-            },
-          };
-        })
-      );
-      
-      console.log('[fetchMyWishlists] Transformed wishlists with gifts:', transformedData.map(w => ({ id: w.id, title: w.title, giftsCount: w.gifts?.length || 0 })));
+      const transformedData: WishlistItem[] = data.map((item: any) => ({
+        id: item.id,
+        title: item.title,
+        description: item.description,
+        category: item.category,
+        isPublic: item.isPublic,
+        gifts: item.gifts || [],
+        likes: item.likeCount || 0,
+        isLiked: item.isLiked || false,
+        createdAt: item.createdAt,
+        user: {
+          id: item.userId,
+          name: item.username,
+          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
+          username: item.username,
+        },
+      }));
       setMyWishlists(transformedData);
-    } catch (error: any) {
-      console.log('[fetchMyWishlists] Error fetching my wishlists:', error.message);
-      console.log('[fetchMyWishlists] Error response:', error.response?.data);
+    } catch (error) {
+      console.log('Error fetching my wishlists:', error);
       setMyWishlists([]);
     }
   };
 
   const fetchMyGifts = async () => {
     try {
-      const res = await wishlistApi.get(endpoints.giftsForUser);
+      const res = await wishlistApi.get('/api/Gift/wishlist');
       setGifts(res.data || []);
     } catch (error) {
       console.log('Error fetching my gifts:', error);
@@ -589,47 +331,16 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const handleLike = async (wishlistId: string) => {
     try {
-      const target = wishlists.find(w => w.id === wishlistId) || 
-                     likedWishlists.find(w => w.id === wishlistId) ||
-                     myWishlists.find(w => w.id === wishlistId);
-      
-      if (target?.isLiked) {
-        // Unlike if already liked
-        await wishlistApi.delete(endpoints.wishlistUnlike(wishlistId));
-        setWishlists(prev => prev.map(w => 
-          w.id === wishlistId 
-            ? { ...w, isLiked: false, likes: Math.max(0, (w.likes || 0) - 1) }
-            : w
-        ));
-        setLikedWishlists(prev => prev.map(w => 
-          w.id === wishlistId 
-            ? { ...w, isLiked: false, likes: Math.max(0, (w.likes || 0) - 1) }
-            : w
-        ));
-        setMyWishlists(prev => prev.map(w => 
-          w.id === wishlistId 
-            ? { ...w, isLiked: false, likes: Math.max(0, (w.likes || 0) - 1) }
-            : w
-        ));
-      } else {
-        // Like if not liked
-        await wishlistApi.post(endpoints.wishlistLike(wishlistId));
-        setWishlists(prev => prev.map(w => 
-          w.id === wishlistId 
-            ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
-            : w
-        ));
-        setLikedWishlists(prev => prev.map(w => 
-          w.id === wishlistId 
-            ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
-            : w
-        ));
-        setMyWishlists(prev => prev.map(w => 
-          w.id === wishlistId 
-            ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
-            : w
-        ));
-      }
+      // If already liked, do nothing (server only supports like, not unlike)
+      const target = wishlists.find(w => w.id === wishlistId);
+      if (target?.isLiked) return;
+
+      await wishlistApi.post(endpoints.wishlistLike(wishlistId));
+      setWishlists(prev => prev.map(w => 
+        w.id === wishlistId 
+          ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
+          : w
+      ));
     } catch (err: any) {
       const msg = err?.response?.data || err?.message || '';
       // Treat "already liked" from backend as idempotent success
@@ -641,7 +352,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         ));
         return;
       }
-      console.log('Error liking/unliking wishlist:', err);
+      console.log('Error liking wishlist:', err);
     }
   };
 
@@ -690,7 +401,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           user: {
             id: user?.id || '',
             name: user?.username || 'You',
-            avatar: (user as any)?.avatar || '',
+            avatar: user?.avatar || '',
             username: user?.username || 'you',
           },
         }));
@@ -715,77 +426,29 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const handleEditWishlist = (wishlist: WishlistItem) => {
-    setEditingWishlist(wishlist);
-    setShowEditModal(true);
-  };
-
-  const handleUpdateWishlist = async (data: any) => {
-    if (!editingWishlist) return;
-    
-    try {
-      setEditLoading(true);
-      await wishlistApi.put(endpoints.wishlistUpdate(editingWishlist.id), {
-        title: data.title,
-        description: data.description || null,
-        category: data.category,
-        isPublic: data.isPublic,
-      });
-      
-      // Update the wishlist in all relevant lists
-      const updateWishlist = (w: WishlistItem) => 
-        w.id === editingWishlist.id 
-          ? { ...w, title: data.title, description: data.description, category: data.category, isPublic: data.isPublic }
-          : w;
-      
-      setWishlists(prev => prev.map(updateWishlist));
-      setLikedWishlists(prev => prev.map(updateWishlist));
-      setMyWishlists(prev => prev.map(updateWishlist));
-      
-      setShowEditModal(false);
-      setEditingWishlist(null);
-    } catch (error) {
-      console.log('Error updating wishlist:', error);
-    } finally {
-      setEditLoading(false);
-    }
+    // TODO: Implement edit wishlist modal
+    console.log('Edit wishlist:', wishlist.id);
   };
 
   const handleDeleteWishlist = async (wishlist: WishlistItem) => {
-    Alert.alert(
-      'Delete Wishlist',
-      `Are you sure you want to delete "${wishlist.title}"? This action cannot be undone.`,
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel',
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await wishlistApi.delete(endpoints.wishlistById(wishlist.id));
-              
-              // Remove from current data
-              setWishlists(prev => prev.filter(w => w.id !== wishlist.id));
-              setLikedWishlists(prev => prev.filter(w => w.id !== wishlist.id));
-              setMyWishlists(prev => prev.filter(w => w.id !== wishlist.id));
-              
-              console.log('Wishlist deleted successfully');
-            } catch (error) {
-              console.log('Error deleting wishlist:', error);
-              Alert.alert('Error', 'Failed to delete wishlist. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    try {
+      await wishlistApi.delete(`/api/Wishlists/${wishlist.id}`);
+      
+      // Remove from current data
+      setWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+      setLikedWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+      setMyWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+      
+      console.log('Wishlist deleted successfully');
+    } catch (error) {
+      console.log('Error deleting wishlist:', error);
+    }
   };
 
   const handleCreateWishlist = async (data: any) => {
     try {
       setCreateLoading(true);
-      await wishlistApi.post('/api/wishlists', {
+      await wishlistApi.post('/api/Wishlists', {
         title: data.title,
         description: data.description || null,
         category: data.category,
@@ -833,110 +496,63 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         },
       ]}
     >
-      <View style={styles.cardTouchable}>
-        <TouchableOpacity 
-          onPress={() => navigation.navigate('WishlistDetail', { id: item.id })}
-          activeOpacity={0.9}
-        >
-          {/* Header with user info */}
-          <View style={styles.cardHeader}>
-            <View style={styles.userInfo}>
-              <Image source={{ uri: item.user.avatar }} style={styles.userAvatar} />
-              <View>
-                <Text style={styles.userCardName}>{item.user.name}</Text>
-                <Text style={styles.userHandle}>@{item.user.username}</Text>
-              </View>
+      <TouchableOpacity 
+        onPress={() => navigation.navigate('WishlistDetail', { id: item.id })}
+        style={styles.cardTouchable}
+      >
+        {/* Header with user info */}
+        <View style={styles.cardHeader}>
+          <View style={styles.userInfo}>
+            <Image source={{ uri: item.user.avatar }} style={styles.userAvatar} />
+            <View>
+              <Text style={styles.userName}>{item.user.name}</Text>
+              <Text style={styles.userHandle}>@{item.user.username}</Text>
             </View>
           </View>
+          <TouchableOpacity style={styles.moreButton}>
+              <Text style={styles.moreText}>...</Text>
+          </TouchableOpacity>
+        </View>
 
-          {/* Wishlist content */}
-          <View style={styles.cardContent}>
-            <Text style={styles.wishlistTitle}>{item.title}</Text>
-            {item.description && (
-              <Text style={styles.wishlistDescription}>{item.description}</Text>
-            )}
-            
-            {/* Gifts preview */}
-            {(() => {
-              const hasGifts = item.gifts && Array.isArray(item.gifts) && item.gifts.length > 0;
-              console.log(`[renderWishlistCard] Wishlist ${item.id} - hasGifts:`, hasGifts, 'gifts count:', item.gifts?.length || 0);
-              if (!hasGifts) {
-                console.log(`[renderWishlistCard] Wishlist ${item.id} has no gifts, skipping preview`);
-                return null;
-              }
-              console.log(`[renderWishlistCard] Rendering ${item.gifts.length} gifts for wishlist ${item.id}`);
-              return (
-                <View style={styles.giftsPreviewContainer}>
-                  <ScrollView 
-                    horizontal 
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.giftsPreviewScroll}
-                    contentContainerStyle={styles.giftsPreviewContent}
-                    nestedScrollEnabled={true}
-                  >
-                    {item.gifts.map((gift, index) => {
-                      if (!gift || !gift.name) {
-                        console.log(`[renderWishlistCard] Gift ${index} is invalid:`, gift);
-                        return null;
-                      }
-                      console.log(`[renderWishlistCard] Rendering gift ${index + 1}/${item.gifts.length}:`, {
-                        id: gift.id,
-                        name: gift.name,
-                        hasImage: !!gift.image,
-                        image: gift.image,
-                      });
-                      return (
-                        <View key={gift.id || `gift-${index}`} style={styles.giftPreviewCard}>
-                          {/* Gift Image */}
-                          <View style={styles.giftPreviewImageContainer}>
-                            {gift.image ? (
-                              <Image 
-                                source={{ uri: gift.image }} 
-                                style={styles.giftPreviewImage}
-                                resizeMode="cover"
-                                onError={(error) => {
-                                  console.log(`[renderWishlistCard] Image load error for gift ${gift.id}:`, error.nativeEvent.error);
-                                }}
-                                onLoad={() => {
-                                  console.log(`[renderWishlistCard] Image loaded successfully for gift ${gift.id}`);
-                                }}
-                              />
-                            ) : (
-                              <LinearGradient
-                                colors={[colors.gradientStart + '40', colors.gradientMid + '30']}
-                                style={styles.giftPreviewPlaceholder}
-                              >
-                                <Text style={styles.giftPreviewIcon}>🎁</Text>
-                              </LinearGradient>
-                            )}
-                          </View>
-                          
-                          {/* Gift Info */}
-                          <View style={styles.giftPreviewCardContent}>
-                            <Text style={styles.giftPreviewName} numberOfLines={2}>
-                              {gift.name || 'Unnamed Gift'}
-                            </Text>
-                            {(() => {
-                              const price = gift.price;
-                              if (price !== undefined && price !== null && !isNaN(Number(price))) {
-                                return (
-                                  <Text style={styles.giftPreviewPrice}>${Number(price).toFixed(2)}</Text>
-                                );
-                              }
-                              return null;
-                            })()}
-                          </View>
-                        </View>
-                      );
-                    })}
-                  </ScrollView>
+        {/* Wishlist content */}
+        <TouchableOpacity 
+          style={styles.cardContent}
+          onPress={() => navigation.navigate('WishlistDetail', { 
+            wishlistId: item.id, 
+            wishlistTitle: item.title 
+          })}
+        >
+          <Text style={styles.wishlistTitle}>{item.title}</Text>
+          {item.description && (
+            <Text style={styles.wishlistDescription}>{item.description}</Text>
+          )}
+          
+          {/* Gifts preview */}
+          {item.gifts.length > 0 && (
+            <View style={styles.giftsPreview}>
+              {item.gifts.slice(0, 3).map((gift, index) => (
+                <View key={gift.id} style={styles.giftItem}>
+                  <View style={styles.giftIcon}>
+                    <Text style={styles.giftIconText}>G</Text>
+                  </View>
+                  <Text style={styles.giftName} numberOfLines={1}>
+                    {gift.name}
+                  </Text>
+                  {gift.price && (
+                    <Text style={styles.giftPrice}>${gift.price}</Text>
+                  )}
                 </View>
-              );
-            })()}
-          </View>
+              ))}
+              {item.gifts.length > 3 && (
+                <View style={styles.moreGifts}>
+                  <Text style={styles.moreGiftsText}>+{item.gifts.length - 3} more</Text>
+                </View>
+              )}
+            </View>
+          )}
         </TouchableOpacity>
 
-        {/* Card footer with actions - outside TouchableOpacity so buttons work */}
+        {/* Card footer with actions */}
         <View style={styles.cardFooter}>
           <View style={styles.actionButtons}>
             <TouchableOpacity 
@@ -946,7 +562,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               <Text style={[styles.actionIcon, item.isLiked && styles.likedIcon]}>
                 {item.isLiked ? 'Liked' : 'Like'}
               </Text>
-              <Text style={styles.actionText}>{item.likes || 0}</Text>
+              <Text style={styles.actionText}>{item.likes}</Text>
             </TouchableOpacity>
             
             <TouchableOpacity 
@@ -970,10 +586,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
                 
                 <TouchableOpacity 
                   style={styles.actionButton}
-                  onPress={() => {
-                    console.log('Delete button pressed for wishlist:', item.id);
-                    handleDeleteWishlist(item);
-                  }}
+                  onPress={() => handleDeleteWishlist(item)}
                 >
                   <Text style={[styles.actionIcon, { color: colors.danger }]}>Delete</Text>
                 </TouchableOpacity>
@@ -985,7 +598,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             {new Date(item.createdAt).toLocaleDateString()}
           </Text>
         </View>
-      </View>
+      </TouchableOpacity>
     </Animated.View>
   );
 
@@ -1029,7 +642,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         <View style={styles.headerTop}>
           <View style={styles.userSection}>
             <Image 
-              source={{ uri: (user as any)?.avatar || 'https://api.dicebear.com/7.x/initials/svg?seed=User' }} 
+              source={{ uri: user?.avatar || 'https://api.dicebear.com/7.x/initials/svg?seed=User' }} 
               style={styles.headerAvatar} 
             />
             <View>
@@ -1193,18 +806,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         onClose={() => setShowCreateModal(false)}
         onSubmit={handleCreateWishlist}
         loading={createLoading}
-      />
-
-      {/* Edit Wishlist Modal */}
-      <EditWishlistModal
-        visible={showEditModal}
-        onClose={() => {
-          setShowEditModal(false);
-          setEditingWishlist(null);
-        }}
-        onSubmit={handleUpdateWishlist}
-        wishlist={editingWishlist}
-        loading={editLoading}
       />
     </View>
   );
@@ -1460,13 +1061,20 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 20,
     marginRight: 12,
   },
-  userCardName: {
+  userName: {
     fontSize: 16,
     fontWeight: '600',
     color: colors.text,
   },
   userHandle: {
     fontSize: 14,
+    color: colors.textSecondary,
+  },
+  moreButton: {
+    padding: 8,
+  },
+  moreText: {
+    fontSize: 20,
     color: colors.textSecondary,
   },
   cardContent: {
@@ -1484,68 +1092,57 @@ const createStyles = () => StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
-  giftsPreviewContainer: {
-    marginTop: 16,
-    marginBottom: 4,
-    minHeight: 180,
+  giftsPreview: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
   },
-  giftsPreviewScroll: {
-    flexGrow: 0,
-    height: 180,
-  },
-  giftsPreviewContent: {
-    paddingRight: 20,
-    paddingLeft: 0,
+  giftItem: {
+    flexDirection: 'row',
     alignItems: 'center',
-    minHeight: 180,
+    backgroundColor: colors.muted,
+    borderRadius: 12,
+    padding: 8,
+    flex: 1,
+    minWidth: 100,
   },
-  giftPreviewCard: {
-    backgroundColor: colors.surface,
+  giftIcon: {
+    width: 32,
+    height: 32,
     borderRadius: 16,
-    marginRight: 12,
-    width: 140,
-    borderWidth: 1,
-    borderColor: colors.border,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 3,
-    overflow: 'hidden',
-  },
-  giftPreviewImageContainer: {
-    width: '100%',
-    height: 120,
-    backgroundColor: colors.muted,
-  },
-  giftPreviewImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: colors.muted,
-  },
-  giftPreviewPlaceholder: {
-    width: '100%',
-    height: '100%',
+    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
+    marginRight: 8,
   },
-  giftPreviewIcon: {
-    fontSize: 40,
-  },
-  giftPreviewCardContent: {
-    padding: 12,
-  },
-  giftPreviewName: {
+  giftIconText: {
     fontSize: 14,
     fontWeight: '700',
-    color: colors.text,
-    marginBottom: 6,
-    lineHeight: 18,
+    color: 'white',
   },
-  giftPreviewPrice: {
-    fontSize: 15,
-    fontWeight: '700',
-    color: colors.primary,
+  giftName: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    flex: 1,
+  },
+  giftPrice: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '500',
+  },
+  moreGifts: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.muted,
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 60,
+  },
+  moreGiftsText: {
+    fontSize: 12,
+    color: colors.textSecondary,
+    fontWeight: '600',
   },
   cardFooter: {
     flexDirection: 'row',

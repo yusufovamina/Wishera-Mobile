@@ -3,9 +3,24 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Determine the correct base host for backend services across simulator and devices
+// USE_LOCAL_BACKEND flag to control whether to use localhost or production
+// Set to false to always use production API Gateway (recommended for mobile testing)
+const USE_LOCAL_BACKEND = false;
+
+// Determine the correct base URL for backend services
 const getBaseUrl = () => {
-  if (__DEV__) {
+  // PRODUCTION: Always use the API Gateway (recommended)
+  if (!__DEV__ || !USE_LOCAL_BACKEND) {
+    return 'https://wishera-app.onrender.com/api';
+  }
+
+  // DEVELOPMENT with LOCAL backend (requires all services running locally)
+  if (__DEV__ && USE_LOCAL_BACKEND) {
+    // For web platform, use localhost directly (backend must have CORS enabled)
+    if (Platform.OS === 'web') {
+      return 'http://localhost';
+    }
+
     // Prefer packager host IP for physical devices on LAN
     const hostUri = (Constants as any)?.expoConfig?.hostUri || (Constants as any)?.manifest?.debuggerHost || '';
     const packagerHost = typeof hostUri === 'string' ? hostUri.split(':')[0] : '';
@@ -20,26 +35,33 @@ const getBaseUrl = () => {
       return packagerHost && packagerHost !== 'localhost' ? `http://${packagerHost}` : 'http://localhost';
     }
 
-    // Fallback for other platforms (web, etc.)
+    // Fallback for other platforms
     return packagerHost ? `http://${packagerHost}` : 'http://localhost';
   }
-  // In production, use your actual backend URL (env/remote)
-  return 'https://your-production-url.com';
+
+  // Fallback to production
+  return 'https://wishera-app.onrender.com/api';
 };
 
 const baseUrl = getBaseUrl();
+const isUsingApiGateway = baseUrl.includes('wishera-app.onrender.com') || !USE_LOCAL_BACKEND;
 
-// Different services run on different ports
-export const authServiceUrl = `${baseUrl}:5219`;  // Auth service
-const userServiceUrl = `${baseUrl}:5001`;  // User service
-const wishlistServiceUrl = `${baseUrl}:5003`; // Gift/wishlist service
-export const chatServiceUrl = `${baseUrl}:5002`;  // Chat service
+// When using API Gateway (production or dev mode), all requests go through the gateway
+// When using local backend, different services run on different ports
+export const authServiceUrl = isUsingApiGateway ? baseUrl : `${baseUrl}:5219`;
+const userServiceUrl = isUsingApiGateway ? baseUrl : `${baseUrl}:5001`;
+const wishlistServiceUrl = isUsingApiGateway ? baseUrl : `${baseUrl}:5003`;
+export const chatServiceUrl = isUsingApiGateway ? baseUrl : `${baseUrl}:5002`;
 
+console.log('=== Wishera Mobile API Configuration ===');
 console.log('Platform:', Platform.OS);
+console.log('Environment:', __DEV__ ? 'Development' : 'Production');
+console.log('Using API Gateway:', isUsingApiGateway);
 console.log('Auth Service URL:', authServiceUrl);
 console.log('User Service URL:', userServiceUrl);
 console.log('Wishlist Service URL:', wishlistServiceUrl);
 console.log('Chat Service URL:', chatServiceUrl);
+console.log('=====================================');
 
 // Auth API client
 export const api = axios.create({ baseURL: authServiceUrl });
@@ -57,19 +79,9 @@ export const chatApi = axios.create({ baseURL: chatServiceUrl });
 api.interceptors.response.use(
   response => response,
   error => {
-    // Don't log 400 errors for forgot-password as they're handled as success cases
-    const isForgotPassword = error.config?.url?.includes('forgot-password');
-    const isSecurityResponse = error.response?.status === 400 && 
-                               error.response?.data?.message?.includes('password reset link will be sent');
-    
-    if (isForgotPassword && isSecurityResponse) {
-      // This is expected - backend returns 400 for security, but we treat it as success
-      console.log('Password reset email will be sent (security response)');
-    } else {
-      console.error('API Error:', error.message);
-      console.error('Request URL:', error.config?.url);
-      console.error('Response:', error.response?.data);
-    }
+    console.error('API Error:', error.message);
+    console.error('Request URL:', error.config?.url);
+    console.error('Response:', error.response?.data);
     return Promise.reject(error);
   }
 );
@@ -140,10 +152,6 @@ export const endpoints = {
   // Align to web/frontend routes (lowercase)
   login: '/api/auth/login',
   register: '/api/auth/register',
-  forgotPassword: '/api/auth/forgot-password',
-  verifyResetCode: '/api/auth/verify-reset-code',
-  resetPassword: '/api/auth/reset-password',
-  googleLogin: '/api/ExternalAuth/login/google',
   deleteAccount: '/api/auth/delete-account',
   identification: '/api/users/profile',
   updateProfile: '/api/users/profile',
@@ -151,20 +159,7 @@ export const endpoints = {
   wishlistsFeed: '/api/wishlists/feed',
   wishlistById: (id: string) => `/api/wishlists/${id}`,
   wishlistLike: (id: string) => `/api/wishlists/${id}/like`,
-  wishlistUnlike: (id: string) => `/api/wishlists/${id}/unlike`,
-  wishlistUpdate: (id: string) => `/api/wishlists/${id}`,
-  wishlistCategories: '/api/wishlists/categories',
-  wishlistUploadImage: '/api/wishlists/upload-image',
-  wishlistComments: (id: string, page: number = 1, pageSize: number = 20) => `/api/wishlists/${id}/comments?page=${page}&pageSize=${pageSize}`,
-  wishlistAddComment: (id: string) => `/api/wishlists/${id}/comments`,
-  wishlistUpdateComment: (id: string) => `/api/wishlists/comments/${id}`,
-  wishlistDeleteComment: (id: string) => `/api/wishlists/comments/${id}`,
   giftsForUser: '/api/gift/wishlist',
-  giftById: (id: string) => `/api/gift/${id}`,
-  giftUpdate: (id: string) => `/api/gift/${id}`,
-  giftUploadImage: (id: string) => `/api/gift/${id}/upload-image`,
-  giftAssignToWishlist: (id: string) => `/api/gift/${id}/assign-to-wishlist`,
-  giftRemoveFromWishlist: (id: string) => `/api/gift/${id}/remove-from-wishlist`,
   // Parity with web app
   updateBirthday: '/api/users/birthday',
   followers: (userId: string, page: number = 1, pageSize: number = 10) => `/api/users/${userId}/followers?page=${page}&pageSize=${pageSize}`,
@@ -188,13 +183,6 @@ export const endpoints = {
     `/api/users/search?query=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`,
   getFollowing: (userId: string, page: number = 1, pageSize: number = 50) => 
     `/api/users/${userId}/following?page=${page}&pageSize=${pageSize}`,
-  getUserProfile: (userId: string) => `/api/users/${userId}`,
-  followUser: (userId: string) => `/api/users/follow/${userId}`,
-  unfollowUser: (userId: string) => `/api/users/unfollow/${userId}`,
-  getSuggestedUsers: (page: number = 1, pageSize: number = 10) => 
-    `/api/users/suggested?page=${page}&pageSize=${pageSize}`,
-  getMyFriends: (page: number = 1, pageSize: number = 20) => 
-    `/api/users/my-friends?page=${page}&pageSize=${pageSize}`,
   // Chat message operations
   editChatMessage: '/api/chat/message/edit',
   deleteChatMessage: '/api/chat/message/delete',
@@ -220,11 +208,29 @@ export const endpoints = {
 
 // Helper to use correct API client based on endpoint
 export const getApiClient = (endpoint: string) => {
-  if (endpoint.startsWith('/api/Auth')) {
+  // When using API Gateway, all endpoints go through the same base URL
+  // So we can use any client (they all point to the same gateway)
+  if (isUsingApiGateway) {
+    // For API Gateway, we still route to the correct client for proper baseURL
+    // But they all point to the same gateway URL anyway
+    if (endpoint.startsWith('/api/auth') || endpoint.startsWith('/api/Auth')) {
+      return api;
+    } else if (endpoint.startsWith('/api/Users') || endpoint.startsWith('/api/users')) {
+      return userApi;
+    } else if (endpoint.startsWith('/api/Wishlists') || endpoint.startsWith('/api/wishlists') || endpoint.startsWith('/api/Gift') || endpoint.startsWith('/api/gift')) {
+      return wishlistApi;
+    } else if (endpoint.startsWith('/api/chat')) {
+      return chatApi;
+    }
+    return api; // default to api gateway
+  }
+
+  // When using local backend (microservices on different ports)
+  if (endpoint.startsWith('/api/Auth') || endpoint.startsWith('/api/auth')) {
     return api;
   } else if (endpoint.startsWith('/api/Users') || endpoint.startsWith('/api/users')) {
     return userApi;
-  } else if (endpoint.startsWith('/api/Wishlists') || endpoint.startsWith('/api/Gift')) {
+  } else if (endpoint.startsWith('/api/Wishlists') || endpoint.startsWith('/api/wishlists') || endpoint.startsWith('/api/Gift') || endpoint.startsWith('/api/gift')) {
     return wishlistApi;
   } else if (endpoint.startsWith('/api/chat')) {
     return chatApi;

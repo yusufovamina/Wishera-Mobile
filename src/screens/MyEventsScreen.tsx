@@ -1,15 +1,11 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, FlatList } from 'react-native';
-import { getColors } from '../theme/colors';
-import { usePreferences } from '../state/preferences';
+import { colors } from '../theme/colors';
 import { endpoints, userApi } from '../api/client';
 
 type EventItem = { id: string; title: string; eventDate?: string; eventTime?: string; isCancelled?: boolean };
 
 export const MyEventsScreen: React.FC = () => {
-  const { theme } = usePreferences();
-  const colors = useMemo(() => getColors(), [theme]);
-  const styles = useMemo(() => createStyles(colors), [colors]);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<EventItem[]>([]);
 
@@ -35,9 +31,7 @@ export const MyEventsScreen: React.FC = () => {
         renderItem={({ item }) => (
           <View style={styles.card}>
             <Text style={styles.title}>{item.title}</Text>
-            <Text style={styles.meta}>
-              {item.eventDate || ''} {item.eventTime || ''} {item.isCancelled ? '· Cancelled' : ''}
-            </Text>
+            <Text style={styles.meta}>{item.eventDate || ''} {item.eventTime || ''} {item.isCancelled ? '· Cancelled' : ''}</Text>
           </View>
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
@@ -49,7 +43,7 @@ export const MyEventsScreen: React.FC = () => {
   );
 };
 
-const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
+const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: 12 },
   title: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },

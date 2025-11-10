@@ -19,7 +19,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
   const styles = React.useMemo(() => createStyles(), [theme]);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
-  const { login, loginWithGoogle, loading, error } = useAuthStore();
+  const { login, loading, error } = useAuthStore();
   
   const floatY = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -153,24 +153,9 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
             </View>
           </View>
 
-          {/* Google Sign In Button */}
-          <View style={styles.socialContainer}>
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>{t('auth.or', 'OR')}</Text>
-              <View style={styles.dividerLine} />
-            </View>
-            <Button 
-              title={t('auth.signInWithGoogle', 'Sign in with Google')} 
-              onPress={() => loginWithGoogle()} 
-              loading={loading} 
-              variant="outline"
-            />
-          </View>
-
           {/* Footer Links */}
           <View style={styles.footerLinks}>
-            <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword')}>
+            <TouchableOpacity onPress={() => console.log('Forgot password')}>
               <Text style={styles.linkText}>{t('auth.forgotPassword', 'Forgot Password?')}</Text>
             </TouchableOpacity>
           </View>
@@ -283,26 +268,6 @@ const createStyles = () => StyleSheet.create({
     color: colors.primary,
     fontSize: 15,
     fontWeight: '600',
-  },
-  socialContainer: {
-    marginTop: 24,
-    marginBottom: 24,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: colors.border,
-  },
-  dividerText: {
-    marginHorizontal: 16,
-    color: colors.textSecondary,
-    fontSize: 14,
-    fontWeight: '500',
   },
   registerSection: {
     flexDirection: 'row',
