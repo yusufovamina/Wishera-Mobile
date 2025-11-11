@@ -1,22 +1,29 @@
 import React, { useState, useEffect } from 'react';
-import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, RefreshControl } from 'react-native';
+import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, RefreshControl, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
 import { useAuthStore } from '../state/auth';
+import { userApi, endpoints, getApiClient } from '../api/client';
 
 interface Notification {
   id: string;
-  type: 'like' | 'follow' | 'gift' | 'message' | 'system';
+  type: 'like' | 'follow' | 'gift' | 'message' | 'system' | 'event' | 'wishlist';
   title: string;
   message: string;
   userId?: string;
   username?: string;
   avatar?: string;
+  avatarUrl?: string;
   createdAt: string;
   isRead: boolean;
+  read: boolean;
   actionData?: any;
+  relatedEntityId?: string;
+  relatedEntityType?: string;
+  invitationId?: string; // For event invitations
+  invitationStatus?: 'pending' | 'accepted' | 'declined'; // For event invitations
 }
 
 export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
@@ -35,64 +42,70 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      // Mock notifications for now - replace with actual API call
-      const mockNotifications: Notification[] = [
-        {
-          id: '1',
-          type: 'like',
-          title: 'New Like',
-          message: 'John Doe liked your "Birthday Wishlist"',
-          userId: '1',
-          username: 'John Doe',
-          avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=John',
-          createdAt: new Date(Date.now() - 1000 * 60 * 5).toISOString(),
-          isRead: false,
-        },
-        {
-          id: '2',
-          type: 'follow',
-          title: 'New Follower',
-          message: 'Jane Smith started following you',
-          userId: '2',
-          username: 'Jane Smith',
-          avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Jane',
-          createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-          isRead: false,
-        },
-        {
-          id: '3',
-          type: 'gift',
-          title: 'Gift Reserved',
-          message: 'Mike Johnson reserved "Wireless Headphones" from your wishlist',
-          userId: '3',
-          username: 'Mike Johnson',
-          avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Mike',
-          createdAt: new Date(Date.now() - 1000 * 60 * 60 * 2).toISOString(),
-          isRead: true,
-        },
-        {
-          id: '4',
-          type: 'message',
-          title: 'New Message',
-          message: 'Sarah Wilson sent you a message',
-          userId: '4',
-          username: 'Sarah Wilson',
-          avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Sarah',
-          createdAt: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
-          isRead: true,
-        },
-        {
-          id: '5',
-          type: 'system',
-          title: 'Welcome to Wishera!',
-          message: 'Complete your profile to get started',
-          createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-          isRead: true,
-        },
-      ];
-      setNotifications(mockNotifications);
-    } catch (error) {
+      const notificationApi = getApiClient(endpoints.getNotifications(1, 50));
+      const response = await notificationApi.get(endpoints.getNotifications(1, 50));
+      
+      // Transform backend notifications to match our UI structure
+      // Handle different response formats
+      let backendNotifications: any[] = [];
+      
+      if (Array.isArray(response.data)) {
+        backendNotifications = response.data;
+      } else if (response.data?.items && Array.isArray(response.data.items)) {
+        backendNotifications = response.data.items;
+      } else if (response.data?.notifications && Array.isArray(response.data.notifications)) {
+        backendNotifications = response.data.notifications;
+      } else if (response.data?.data && Array.isArray(response.data.data)) {
+        backendNotifications = response.data.data;
+      } else if (response.data && typeof response.data === 'object') {
+        // If it's a single object, wrap it in an array
+        backendNotifications = [response.data];
+      }
+      
+      console.log('Backend notifications format:', {
+        isArray: Array.isArray(response.data),
+        hasItems: !!response.data?.items,
+        hasNotifications: !!response.data?.notifications,
+        dataKeys: response.data ? Object.keys(response.data) : [],
+        backendNotificationsLength: backendNotifications.length
+      });
+      
+      const transformedNotifications: Notification[] = backendNotifications.map((notif: any) => {
+        // Map backend notification types to our types
+        let type: Notification['type'] = 'system';
+        if (notif.type === 'Like' || notif.type === 'like') type = 'like';
+        else if (notif.type === 'Follow' || notif.type === 'follow') type = 'follow';
+        else if (notif.type === 'GiftReserved' || notif.type === 'giftReserved' || notif.type === 'gift') type = 'gift';
+        else if (notif.type === 'Message' || notif.type === 'message') type = 'message';
+        else if (notif.type === 'Event' || notif.type === 'event') type = 'event';
+        else if (notif.type === 'Wishlist' || notif.type === 'wishlist') type = 'wishlist';
+        
+        return {
+          id: notif.id || notif.notificationId || '',
+          type,
+          title: notif.title || notif.message || '',
+          message: notif.message || notif.content || notif.title || '',
+          userId: notif.userId || notif.fromUserId || notif.actorId,
+          username: notif.username || notif.fromUsername || notif.actorUsername,
+          avatar: notif.avatarUrl || notif.avatar || notif.fromUserAvatarUrl,
+          avatarUrl: notif.avatarUrl || notif.avatar || notif.fromUserAvatarUrl,
+          createdAt: notif.createdAt || notif.timestamp || new Date().toISOString(),
+          isRead: notif.isRead !== undefined ? notif.isRead : (notif.read !== undefined ? notif.read : false),
+          read: notif.isRead !== undefined ? notif.isRead : (notif.read !== undefined ? notif.read : false),
+          relatedEntityId: notif.relatedEntityId || notif.entityId,
+          relatedEntityType: notif.relatedEntityType || notif.entityType,
+          actionData: notif.actionData || notif.data,
+          invitationId: notif.invitationId || notif.invitation?.id,
+          invitationStatus: notif.invitationStatus || notif.invitation?.status,
+        };
+      });
+      
+      setNotifications(transformedNotifications);
+    } catch (error: any) {
       console.log('Error fetching notifications:', error);
+      console.log('Error response:', error?.response?.data);
+      // On error, show empty list instead of mock data
+      setNotifications([]);
     } finally {
       setLoading(false);
     }
@@ -104,29 +117,78 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
     setRefreshing(false);
   };
 
-  const handleNotificationPress = (notification: Notification) => {
-    // Mark as read
-    setNotifications(prev => 
-      prev.map(n => n.id === notification.id ? { ...n, isRead: true } : n)
-    );
+  const handleNotificationPress = async (notification: Notification) => {
+    // Mark as read if not already read
+    if (!notification.isRead) {
+      try {
+        const notificationApi = getApiClient(endpoints.markNotificationRead(notification.id));
+        await notificationApi.post(endpoints.markNotificationRead(notification.id));
+        
+        // Update local state
+        setNotifications(prev => 
+          prev.map(n => n.id === notification.id ? { ...n, isRead: true, read: true } : n)
+        );
+      } catch (error) {
+        console.log('Error marking notification as read:', error);
+        // Still update UI even if API call fails
+        setNotifications(prev => 
+          prev.map(n => n.id === notification.id ? { ...n, isRead: true, read: true } : n)
+        );
+      }
+    }
 
     // Handle navigation based on notification type
     switch (notification.type) {
       case 'like':
-        // Navigate to wishlist
+        // Navigate to wishlist if we have the ID
+        if (notification.relatedEntityId) {
+          navigation.navigate('WishlistDetail', { 
+            wishlistId: notification.relatedEntityId,
+            wishlistTitle: notification.message 
+          });
+        }
         break;
       case 'follow':
         // Navigate to user profile
+        if (notification.userId) {
+          navigation.navigate('UserProfile', { userId: notification.userId });
+        }
         break;
       case 'gift':
-        // Navigate to wishlist
+        // Navigate to wishlist or reserved gifts
+        if (notification.relatedEntityId) {
+          navigation.navigate('WishlistDetail', { 
+            wishlistId: notification.relatedEntityId 
+          });
+        } else {
+          navigation.navigate('ReservedGifts');
+        }
         break;
       case 'message':
         // Navigate to chat
-        navigation.navigate('Chats');
+        if (notification.userId) {
+          navigation.navigate('Chats', { userId: notification.userId });
+        } else {
+          navigation.navigate('Chats');
+        }
+        break;
+      case 'event':
+        // For event invitations, don't navigate on press - use accept/decline buttons instead
+        // Only navigate if it's not an invitation notification
+        if (notification.relatedEntityId && !notification.invitationId) {
+          navigation.navigate('EventDetail', { eventId: notification.relatedEntityId });
+        }
+        break;
+      case 'wishlist':
+        // Navigate to wishlist
+        if (notification.relatedEntityId) {
+          navigation.navigate('WishlistDetail', { 
+            wishlistId: notification.relatedEntityId 
+          });
+        }
         break;
       case 'system':
-        // Handle system notification
+        // Handle system notification - might navigate to settings or profile
         break;
     }
   };
@@ -141,6 +203,10 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
         return '🎁';
       case 'message':
         return '💬';
+      case 'event':
+        return '📅';
+      case 'wishlist':
+        return '📝';
       case 'system':
         return '🔔';
       default:
@@ -165,28 +231,102 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
-  const renderNotification = ({ item }: { item: Notification }) => (
-    <TouchableOpacity
-      style={[styles.notificationItem, !item.isRead && styles.unreadNotification]}
-      onPress={() => handleNotificationPress(item)}
-    >
-      <View style={styles.notificationContent}>
-        <View style={styles.notificationIcon}>
-          <Text style={styles.notificationIconText}>{getNotificationIcon(item.type)}</Text>
-        </View>
+  const handleRespondToInvitation = async (notification: Notification, accept: boolean) => {
+    if (!notification.invitationId) {
+      Alert.alert('Error', 'Invalid invitation');
+      return;
+    }
+
+    try {
+      const eventApi = getApiClient(endpoints.respondInvitation(notification.invitationId));
+      await eventApi.post(endpoints.respondInvitation(notification.invitationId), { 
+        status: accept ? 'accepted' : 'declined' 
+      });
+      
+      // Update local state
+      setNotifications(prev => 
+        prev.map(n => 
+          n.id === notification.id 
+            ? { ...n, invitationStatus: accept ? 'accepted' : 'declined', isRead: true, read: true }
+            : n
+        )
+      );
+      
+      Alert.alert('Success', accept ? 'Invitation accepted!' : 'Invitation declined');
+      
+      // Refresh notifications
+      await fetchNotifications();
+    } catch (error: any) {
+      console.error('Error responding to invitation:', error);
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to respond to invitation');
+    }
+  };
+
+  const renderNotification = ({ item }: { item: Notification }) => {
+    const isEventInvitation = item.type === 'event' && item.invitationId;
+    const canRespond = isEventInvitation && item.invitationStatus === 'pending';
+    
+    return (
+      <View style={[styles.notificationItem, !item.isRead && styles.unreadNotification]}>
+        <TouchableOpacity
+          style={styles.notificationContent}
+          onPress={() => !isEventInvitation && handleNotificationPress(item)}
+          disabled={isEventInvitation}
+        >
+          {/* User Avatar or Icon */}
+          {item.avatar || item.avatarUrl ? (
+            <Image 
+              source={{ uri: item.avatar || item.avatarUrl }} 
+              style={styles.notificationAvatar}
+            />
+          ) : (
+            <View style={styles.notificationIcon}>
+              <Text style={styles.notificationIconText}>{getNotificationIcon(item.type)}</Text>
+            </View>
+          )}
+          
+          <View style={styles.notificationInfo}>
+            <Text style={styles.notificationTitle}>{item.title}</Text>
+            <Text style={styles.notificationMessage}>{item.message}</Text>
+            <Text style={styles.notificationTime}>
+              {getTimeAgo(item.createdAt)}
+            </Text>
+            {isEventInvitation && item.invitationStatus && item.invitationStatus !== 'pending' && (
+              <View style={[styles.statusBadge, { 
+                backgroundColor: item.invitationStatus === 'accepted' ? colors.success + '20' : colors.danger + '20' 
+              }]}>
+                <Text style={[styles.statusText, { 
+                  color: item.invitationStatus === 'accepted' ? colors.success : colors.danger 
+                }]}>
+                  {item.invitationStatus.charAt(0).toUpperCase() + item.invitationStatus.slice(1)}
+                </Text>
+              </View>
+            )}
+          </View>
+          
+          {!item.isRead && <View style={styles.unreadDot} />}
+        </TouchableOpacity>
         
-        <View style={styles.notificationInfo}>
-          <Text style={styles.notificationTitle}>{item.title}</Text>
-          <Text style={styles.notificationMessage}>{item.message}</Text>
-          <Text style={styles.notificationTime}>
-            {getTimeAgo(item.createdAt)}
-          </Text>
-        </View>
-        
-        {!item.isRead && <View style={styles.unreadDot} />}
+        {/* Accept/Decline buttons for event invitations */}
+        {canRespond && (
+          <View style={styles.invitationActions}>
+            <TouchableOpacity
+              style={[styles.invitationButton, styles.acceptButton]}
+              onPress={() => handleRespondToInvitation(item, true)}
+            >
+              <Text style={styles.invitationButtonText}>✓ Accept</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.invitationButton, styles.declineButton]}
+              onPress={() => handleRespondToInvitation(item, false)}
+            >
+              <Text style={styles.invitationButtonText}>✕ Decline</Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
-    </TouchableOpacity>
-  );
+    );
+  };
 
   const getTimeAgo = (dateString: string) => {
     const now = new Date();
@@ -301,6 +441,13 @@ const createStyles = () => StyleSheet.create({
     alignItems: 'center',
     marginRight: 12,
   },
+  notificationAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+    backgroundColor: colors.muted,
+  },
   notificationIconText: {
     fontSize: 18,
   },
@@ -349,5 +496,45 @@ const createStyles = () => StyleSheet.create({
     color: colors.textSecondary,
     textAlign: 'center',
     lineHeight: 20,
+  },
+  
+  // Invitation action styles
+  invitationActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  invitationButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  acceptButton: {
+    backgroundColor: colors.success,
+  },
+  declineButton: {
+    backgroundColor: colors.danger,
+  },
+  invitationButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  statusBadge: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    marginTop: 6,
+  },
+  statusText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
 });

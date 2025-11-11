@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated, Easing, Dimensions, StatusBar, TextInput } from 'react-native';
+import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated, Easing, Dimensions, StatusBar, TextInput, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -7,8 +7,12 @@ import { usePreferences } from '../state/preferences';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
+import { EditWishlistModal } from '../components/EditWishlistModal';
+import { CreateChoiceModal } from '../components/CreateChoiceModal';
+import { GiftModal } from '../components/GiftModal';
+import { EventModal } from '../components/EventModal';
 import { useAuthStore } from '../state/auth';
-import { api, wishlistApi, userApi, endpoints } from '../api/client';
+import { api, wishlistApi, userApi, endpoints, getApiClient } from '../api/client';
 
 const { width, height } = Dimensions.get('window');
 
@@ -55,9 +59,18 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [activeTab, setActiveTab] = useState('home');
   const [suggestedUsers, setSuggestedUsers] = useState<any[]>([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
-  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showCreateChoiceModal, setShowCreateChoiceModal] = useState(false);
+  const [showCreateWishlistModal, setShowCreateWishlistModal] = useState(false);
+  const [showEditWishlistModal, setShowEditWishlistModal] = useState(false);
+  const [editingWishlist, setEditingWishlist] = useState<WishlistItem | null>(null);
+  const [editWishlistLoading, setEditWishlistLoading] = useState(false);
+  const [showCreateGiftModal, setShowCreateGiftModal] = useState(false);
+  const [showCreateEventModal, setShowCreateEventModal] = useState(false);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [giftLoading, setGiftLoading] = useState(false);
+  const [eventLoading, setEventLoading] = useState(false);
+  const [myWishlistsForGift, setMyWishlistsForGift] = useState<any[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('');
   const { user, logout } = useAuthStore();
@@ -110,37 +123,128 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       const res = await wishlistApi.get(endpoints.wishlistsFeed, { 
         params: { page: 1, pageSize: 20 } 
       });
-      console.log('Feed response:', res.data);
-      const data = res.data || [];
+      console.log('Feed response:', JSON.stringify(res.data, null, 2));
+      const data = res.data?.items || res.data || [];
+      console.log('Feed data items count:', data.length);
       
       // Transform data to match our UI structure
-      const transformedData: WishlistItem[] = data.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        category: item.category,
-        isPublic: item.isPublic,
-        gifts: (item.gifts || []).map((gift: any) => ({
-          id: gift.giftId || gift.id || '',
-          name: gift.title || gift.name || '',
-          price: gift.price,
-          imageUrl: gift.imageUrl,
-          description: gift.description,
-          category: gift.category,
-        })),
-        likes: item.likeCount || 0,
-        isLiked: item.isLiked || false,
-        createdAt: item.createdAt,
-        user: {
-          id: item.userId,
-          name: item.username,
-          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
-          username: item.username,
-        },
+      const transformedData: WishlistItem[] = data.map((item: any) => {
+        // Log the full item structure to see what fields exist
+        console.log(`\n=== Wishlist ${item.id} (${item.title}) ===`);
+        console.log('Item keys:', Object.keys(item));
+        console.log('Full item structure:', JSON.stringify(item, null, 2));
+        
+        // Extract gifts from multiple possible locations
+        let gifts: any[] = [];
+        
+        // Check all possible gift field names
+        if (Array.isArray(item.gifts)) {
+          gifts = item.gifts;
+          console.log('Found gifts in item.gifts');
+        } else if (Array.isArray(item.items)) {
+          gifts = item.items;
+          console.log('Found gifts in item.items');
+        } else if (Array.isArray(item.giftItems)) {
+          gifts = item.giftItems;
+          console.log('Found gifts in item.giftItems');
+        } else if (Array.isArray(item.Gifts)) {
+          gifts = item.Gifts;
+          console.log('Found gifts in item.Gifts');
+        } else if (Array.isArray(item.Items)) {
+          gifts = item.Items;
+          console.log('Found gifts in item.Items');
+        } else if (item.gifts && typeof item.gifts === 'object' && !Array.isArray(item.gifts)) {
+          // If gifts is an object, try to extract array from it
+          gifts = item.gifts.items || item.gifts.data || Object.values(item.gifts).filter(Array.isArray)[0] || [];
+          console.log('Found gifts as object, extracted array');
+        }
+        
+        console.log(`Total gifts found: ${gifts.length}`);
+        if (gifts.length > 0) {
+          console.log('Sample gift data:', JSON.stringify(gifts[0], null, 2));
+        } else {
+          console.log('No gifts in feed response - will fetch separately if needed');
+        }
+        
+        // Store the wishlist item with gifts (even if empty for now)
+        const wishlistItem = {
+          id: item.id,
+          title: item.title,
+          description: item.description,
+          category: item.category,
+          isPublic: item.isPublic,
+          gifts: gifts.map((gift: any) => {
+            // Extract gift data from various possible field names
+            const giftData = {
+              id: gift.giftId || gift.id || gift.itemId || gift.GiftId || '',
+              name: gift.title || gift.name || gift.Name || gift.Title || '',
+              price: gift.price || gift.Price || 0,
+              imageUrl: gift.imageUrl || gift.image || gift.photoUrl || gift.ImageUrl || gift.Image || '',
+              description: gift.description || gift.Description || '',
+              category: gift.category || gift.Category || '',
+            };
+            
+            console.log('Transformed gift:', giftData);
+            return giftData;
+          }),
+          likes: item.likeCount || 0,
+          isLiked: item.isLiked || false,
+          createdAt: item.createdAt,
+          user: {
+            id: item.userId,
+            name: item.username,
+            avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
+            username: item.username,
+          },
+        };
+        
+        return wishlistItem;
+      });
+      
+      // If gifts are missing, fetch them separately for each wishlist
+      const wishlistsWithGifts = await Promise.all(transformedData.map(async (wishlist) => {
+        // If gifts are already present, return as is
+        if (wishlist.gifts && wishlist.gifts.length > 0) {
+          return wishlist;
+        }
+        
+        // Otherwise, fetch wishlist details to get gifts
+        try {
+          console.log(`Fetching gifts for wishlist ${wishlist.id} separately...`);
+          const detailRes = await wishlistApi.get(`/api/wishlists/${wishlist.id}`);
+          const wishlistDetail = detailRes.data;
+          
+          let fetchedGifts: any[] = [];
+          if (Array.isArray(wishlistDetail.items)) {
+            fetchedGifts = wishlistDetail.items;
+          } else if (Array.isArray(wishlistDetail.gifts)) {
+            fetchedGifts = wishlistDetail.gifts;
+          }
+          
+          console.log(`Fetched ${fetchedGifts.length} gifts for wishlist ${wishlist.id}`);
+          
+          return {
+            ...wishlist,
+            gifts: fetchedGifts.map((gift: any) => ({
+              id: gift.giftId || gift.id || gift.itemId || '',
+              name: gift.title || gift.name || '',
+              price: gift.price || 0,
+              imageUrl: gift.imageUrl || gift.image || '',
+              description: gift.description || '',
+              category: gift.category || '',
+            })),
+          };
+        } catch (error: any) {
+          console.error(`Error fetching gifts for wishlist ${wishlist.id}:`, error);
+          // Return wishlist without gifts if fetch fails
+          return wishlist;
+        }
       }));
       
-      setWishlists(transformedData);
-      setFilteredWishlists(transformedData);
+      console.log('Final wishlists with gifts:', wishlistsWithGifts.map(w => ({ id: w.id, title: w.title, giftCount: w.gifts.length })));
+      
+      setWishlists(wishlistsWithGifts);
+      setFilteredWishlists(wishlistsWithGifts);
     } catch (error: any) {
       console.log('Error fetching feed:', error.message);
       console.log('Error details:', error.response?.data || error);
@@ -414,36 +518,115 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const handleEditWishlist = (wishlist: WishlistItem) => {
-    // TODO: Implement edit wishlist modal
-    console.log('Edit wishlist:', wishlist.id);
+    setEditingWishlist(wishlist);
+    setShowEditWishlistModal(true);
   };
 
-  const handleDeleteWishlist = async (wishlist: WishlistItem) => {
+  const handleUpdateWishlist = async (data: any) => {
+    if (!editingWishlist) return;
+    
     try {
-      await wishlistApi.delete(`/api/Wishlists/${wishlist.id}`);
+      setEditWishlistLoading(true);
+      console.log('Updating wishlist:', editingWishlist.id, 'with data:', data);
       
-      // Remove from current data
-      setWishlists(prev => prev.filter(w => w.id !== wishlist.id));
-      setLikedWishlists(prev => prev.filter(w => w.id !== wishlist.id));
-      setMyWishlists(prev => prev.filter(w => w.id !== wishlist.id));
-      
-      console.log('Wishlist deleted successfully');
-    } catch (error) {
-      console.log('Error deleting wishlist:', error);
-    }
-  };
-
-  const handleCreateWishlist = async (data: any) => {
-    try {
-      setCreateLoading(true);
-      await wishlistApi.post('/api/Wishlists', {
+      await wishlistApi.put(endpoints.updateWishlist(editingWishlist.id), {
         title: data.title,
         description: data.description || null,
         category: data.category,
         isPublic: data.isPublic,
       });
       
-      // Refresh the current tab data
+      console.log('Wishlist updated successfully');
+      
+      // Refresh all relevant data
+      if (activeTab === 'home') {
+        await fetchFeed();
+      } else if (activeTab === 'my-wishlists') {
+        await fetchMyWishlists();
+      } else if (activeTab === 'liked') {
+        await fetchLikedWishlists();
+      }
+      
+      // Also update local state immediately
+      setWishlists(prev => prev.map(w => 
+        w.id === editingWishlist.id 
+          ? { ...w, title: data.title, description: data.description, category: data.category, isPublic: data.isPublic }
+          : w
+      ));
+      setMyWishlists(prev => prev.map(w => 
+        w.id === editingWishlist.id 
+          ? { ...w, title: data.title, description: data.description, category: data.category, isPublic: data.isPublic }
+          : w
+      ));
+      setLikedWishlists(prev => prev.map(w => 
+        w.id === editingWishlist.id 
+          ? { ...w, title: data.title, description: data.description, category: data.category, isPublic: data.isPublic }
+          : w
+      ));
+      
+      setShowEditWishlistModal(false);
+      setEditingWishlist(null);
+    } catch (error: any) {
+      console.error('Error updating wishlist:', error);
+      console.error('Error response:', error?.response?.data);
+      Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to update wishlist');
+    } finally {
+      setEditWishlistLoading(false);
+    }
+  };
+
+  const handleDeleteWishlist = async (wishlist: WishlistItem) => {
+    Alert.alert(
+      'Delete Wishlist',
+      `Are you sure you want to delete "${wishlist.title}"? This action cannot be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('Deleting wishlist:', wishlist.id);
+              await wishlistApi.delete(`/api/wishlists/${wishlist.id}`);
+              console.log('Wishlist deleted successfully');
+              
+              // Refresh data from backend
+              if (activeTab === 'home') {
+                await fetchFeed();
+              } else if (activeTab === 'my-wishlists') {
+                await fetchMyWishlists();
+              } else if (activeTab === 'liked') {
+                await fetchLikedWishlists();
+              }
+              
+              // Also update local state immediately
+              setWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+              setLikedWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+              setMyWishlists(prev => prev.filter(w => w.id !== wishlist.id));
+              
+              Alert.alert('Success', 'Wishlist deleted successfully!');
+            } catch (error: any) {
+              console.error('Error deleting wishlist:', error);
+              Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to delete wishlist');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleCreateWishlist = async (data: any) => {
+    try {
+      setCreateLoading(true);
+      const response = await wishlistApi.post('/api/wishlists', {
+        title: data.title,
+        description: data.description || null,
+        category: data.category,
+        isPublic: data.isPublic,
+      });
+      console.log('Wishlist created successfully:', response.data);
+      
+      // Refresh the current tab data to get the new wishlist from backend
       switch (activeTab) {
         case 'home':
           await fetchFeed();
@@ -453,11 +636,128 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           break;
       }
       
-      setShowCreateModal(false);
-    } catch (error) {
-      console.log('Error creating wishlist:', error);
+      setShowCreateWishlistModal(false);
+      Alert.alert('Success', 'Wishlist created successfully!');
+    } catch (error: any) {
+      console.error('Error creating wishlist:', error);
+      console.error('Error response:', error?.response?.data);
+      Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to create wishlist');
     } finally {
       setCreateLoading(false);
+    }
+  };
+
+  const handleCreateGift = async (data: any) => {
+    try {
+      setGiftLoading(true);
+      // Fetch user's wishlists if not already loaded
+      if (myWishlistsForGift.length === 0 && user?.id) {
+        const res = await wishlistApi.get(endpoints.userWishlists(user.id, 1, 50));
+        setMyWishlistsForGift(res.data || []);
+      }
+      
+      // For now, create gift without wishlist (user can add to wishlist later)
+      // Or we could show a wishlist picker - for simplicity, create without wishlist
+      const form = new FormData();
+      form.append('name', data.name);
+      form.append('price', String(parseFloat(data.price)));
+      form.append('category', data.category);
+      if (data.description) form.append('description', data.description);
+      if (data.fileUri) {
+        form.append('imageFile', {
+          uri: data.fileUri,
+          name: 'gift.jpg',
+          type: 'image/jpeg',
+        } as any);
+      }
+      // Note: wishlistId is optional - can be set later
+      
+      await wishlistApi.post('/api/gift', form, { 
+        headers: { 'Content-Type': 'multipart/form-data' } 
+      });
+      
+      // Refresh gifts if on my-gifts tab
+      if (activeTab === 'my-gifts') {
+        await fetchMyGifts();
+      }
+      
+      setShowCreateGiftModal(false);
+    } catch (error) {
+      console.log('Error creating gift:', error);
+    } finally {
+      setGiftLoading(false);
+    }
+  };
+
+  const handleCreateEvent = async (data: any) => {
+    try {
+      setEventLoading(true);
+      // Convert event data to API format
+      const eventDate = new Date(data.eventDate);
+      eventDate.setHours(0, 0, 0, 0); // Reset time to midnight
+      
+      let eventTime: string | null = null;
+      if (data.eventTime) {
+        const timeDate = new Date(data.eventTime);
+        const hours = timeDate.getHours();
+        const minutes = timeDate.getMinutes();
+        // Convert to TimeSpan format (HH:mm:ss) for backend
+        eventTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
+      }
+      
+      // Ensure inviteeIds is an array and not empty
+      const inviteeIds = Array.isArray(data.inviteeIds) ? data.inviteeIds : [];
+      
+      const eventData: any = {
+        title: data.title,
+        description: data.description || '',
+        eventDate: eventDate.toISOString().split('T')[0], // Format as YYYY-MM-DD
+        eventTime: eventTime,
+        location: data.location || '',
+        additionalNotes: data.additionalNotes || '',
+        eventType: data.eventType || 'General',
+      };
+      
+      // Add inviteeIds in multiple possible formats for backend compatibility
+      if (inviteeIds.length > 0) {
+        eventData.inviteeIds = inviteeIds;
+        eventData.inviteeUserIds = inviteeIds; // Alternative field name
+        eventData.invitees = inviteeIds; // Another alternative
+      }
+      
+      // Use getApiClient to get the correct API client for events
+      const eventApi = getApiClient(endpoints.createEvent);
+      console.log('Creating event with data:', JSON.stringify(eventData, null, 2));
+      console.log('Invitee IDs count:', eventData.inviteeIds.length);
+      console.log('Invitee IDs:', eventData.inviteeIds);
+      console.log('Using endpoint:', endpoints.createEvent);
+      console.log('Using API client base URL:', eventApi.defaults.baseURL);
+      
+      const response = await eventApi.post(endpoints.createEvent, eventData);
+      console.log('Event created successfully:', response.data);
+      console.log('Created event ID:', response.data?.id);
+      console.log('Created event invitations:', response.data?.invitations || response.data?.invitees);
+      
+      setShowCreateEventModal(false);
+      Alert.alert('Success', 'Event created successfully!');
+    } catch (error: any) {
+      console.error('Error creating event:', error);
+      console.error('Error response:', error?.response?.data);
+      console.error('Error status:', error?.response?.status);
+      const errorMessage = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Failed to create event';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setEventLoading(false);
+    }
+  };
+
+  const fetchMyWishlistsForGift = async () => {
+    if (!user?.id) return;
+    try {
+      const res = await wishlistApi.get(endpoints.userWishlists(user.id, 1, 50));
+      setMyWishlistsForGift(res.data || []);
+    } catch (error) {
+      console.log('Error fetching wishlists for gift:', error);
     }
   };
 
@@ -485,7 +785,10 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       ]}
     >
       <TouchableOpacity 
-        onPress={() => navigation.navigate('WishlistDetail', { id: item.id })}
+        onPress={() => navigation.navigate('WishlistDetail', { 
+          wishlistId: item.id, 
+          wishlistTitle: item.title 
+        })}
         style={styles.cardTouchable}
       >
         {/* Header with user info */}
@@ -503,70 +806,67 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
 
         {/* Wishlist content */}
-        <TouchableOpacity 
-          style={styles.cardContent}
-          onPress={() => navigation.navigate('WishlistDetail', { 
-            wishlistId: item.id, 
-            wishlistTitle: item.title 
-          })}
-        >
+        <View style={styles.cardContent}>
           <Text style={styles.wishlistTitle}>{item.title}</Text>
           {item.description && (
             <Text style={styles.wishlistDescription}>{item.description}</Text>
           )}
           
-          {/* Gifts preview with photos, names, prices, and descriptions */}
-          {item.gifts && Array.isArray(item.gifts) && item.gifts.length > 0 && (
-            <View style={styles.giftsPreview}>
-              {item.gifts.slice(0, 3).map((gift: any, index: number) => {
-                if (!gift || (!gift.id && !gift.name)) return null;
-                const giftKey = gift.id || `gift-${index}`;
-                return (
-                  <View key={giftKey} style={styles.giftItem}>
-                    {/* Gift Image */}
-                    {gift.imageUrl && gift.imageUrl.trim() ? (
-                      <Image 
-                        source={{ uri: gift.imageUrl }} 
-                        style={styles.giftImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.giftImagePlaceholder}>
-                        <Text style={styles.giftImagePlaceholderText}>
-                          {gift.name && gift.name.length > 0 ? gift.name.charAt(0).toUpperCase() : 'G'}
-                        </Text>
+          {/* Gifts Section - Display all gifts with photos, names, prices, and categories */}
+          {item.gifts && Array.isArray(item.gifts) && item.gifts.length > 0 ? (
+            <View style={styles.giftsSection}>
+              <Text style={styles.giftsSectionTitle}>Gifts ({item.gifts.length})</Text>
+              <View style={styles.giftsGrid}>
+                {item.gifts
+                  .filter((gift: any) => gift && (gift.id || gift.name))
+                  .map((gift: any, index: number) => {
+                    const giftKey = gift.id || `gift-${index}`;
+                    return (
+                      <View key={giftKey} style={styles.giftCard}>
+                        {/* Gift Image */}
+                        {gift.imageUrl && gift.imageUrl.trim() ? (
+                          <Image 
+                            source={{ uri: gift.imageUrl }} 
+                            style={styles.giftImage}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <View style={styles.giftImagePlaceholder}>
+                            <Text style={styles.giftImagePlaceholderText}>
+                              {gift.name && gift.name.length > 0 ? gift.name.charAt(0).toUpperCase() : 'G'}
+                            </Text>
+                          </View>
+                        )}
+                        
+                        {/* Gift Info */}
+                        <View style={styles.giftInfo}>
+                          {gift.name && gift.name.trim() ? (
+                            <Text style={styles.giftName} numberOfLines={1}>
+                              {gift.name}
+                            </Text>
+                          ) : null}
+                          {gift.price !== undefined && gift.price !== null && gift.price !== '' ? (
+                            <Text style={styles.giftPrice}>
+                              ${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}
+                            </Text>
+                          ) : null}
+                          {gift.category && gift.category.trim() ? (
+                            <View style={styles.categoryBadge}>
+                              <Text style={styles.categoryText}>{gift.category}</Text>
+                            </View>
+                          ) : null}
+                        </View>
                       </View>
-                    )}
-                    
-                    {/* Gift Info */}
-                    <View style={styles.giftInfo}>
-                      {gift.name && gift.name.trim() ? (
-                        <Text style={styles.giftName} numberOfLines={1}>
-                          {gift.name}
-                        </Text>
-                      ) : null}
-                      {gift.price !== undefined && gift.price !== null && gift.price !== '' ? (
-                        <Text style={styles.giftPrice}>
-                          ${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}
-                        </Text>
-                      ) : null}
-                      {gift.description && gift.description.trim() ? (
-                        <Text style={styles.giftDescription} numberOfLines={2}>
-                          {gift.description}
-                        </Text>
-                      ) : null}
-                    </View>
-                  </View>
-                );
-              }).filter(Boolean)}
-              {item.gifts.length > 3 && (
-                <View style={styles.moreGifts}>
-                  <Text style={styles.moreGiftsText}>+{item.gifts.length - 3} more</Text>
-                </View>
-              )}
+                    );
+                  })}
+              </View>
+            </View>
+          ) : (
+            <View style={styles.noGiftsContainer}>
+              <Text style={styles.noGiftsText}>No gifts in this wishlist</Text>
             </View>
           )}
-        </TouchableOpacity>
+        </View>
 
         {/* Card footer with actions */}
         <View style={styles.cardFooter}>
@@ -865,7 +1165,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       {/* Floating Action Button */}
       <TouchableOpacity 
         style={styles.fab}
-        onPress={() => setShowCreateModal(true)}
+        onPress={() => setShowCreateChoiceModal(true)}
       >
         <LinearGradient
           colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
@@ -875,12 +1175,62 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </LinearGradient>
       </TouchableOpacity>
 
+      {/* Create Choice Modal */}
+      <CreateChoiceModal
+        visible={showCreateChoiceModal}
+        onClose={() => setShowCreateChoiceModal(false)}
+        onSelectGift={() => {
+          fetchMyWishlistsForGift();
+          setShowCreateGiftModal(true);
+        }}
+        onSelectWishlist={() => setShowCreateWishlistModal(true)}
+        onSelectEvent={() => setShowCreateEventModal(true)}
+      />
+
       {/* Create Wishlist Modal */}
       <CreateWishlistModal
-        visible={showCreateModal}
-        onClose={() => setShowCreateModal(false)}
+        visible={showCreateWishlistModal}
+        onClose={() => setShowCreateWishlistModal(false)}
         onSubmit={handleCreateWishlist}
         loading={createLoading}
+      />
+
+      {/* Edit Wishlist Modal */}
+      <EditWishlistModal
+        visible={showEditWishlistModal}
+        onClose={() => {
+          setShowEditWishlistModal(false);
+          setEditingWishlist(null);
+        }}
+        onSubmit={handleUpdateWishlist}
+        wishlist={editingWishlist ? {
+          id: editingWishlist.id,
+          title: editingWishlist.title,
+          description: editingWishlist.description,
+          category: editingWishlist.category,
+          isPublic: editingWishlist.isPublic !== undefined ? editingWishlist.isPublic : true,
+        } : null}
+        loading={editWishlistLoading}
+      />
+
+      {/* Create Gift Modal */}
+      <GiftModal
+        visible={showCreateGiftModal}
+        onClose={() => setShowCreateGiftModal(false)}
+        onSubmit={handleCreateGift}
+        loading={giftLoading}
+        gift={null}
+        mode="create"
+      />
+
+      {/* Create Event Modal */}
+      <EventModal
+        visible={showCreateEventModal}
+        onClose={() => setShowCreateEventModal(false)}
+        onSubmit={handleCreateEvent}
+        loading={eventLoading}
+        event={null}
+        mode="create"
       />
     </View>
   );
@@ -1222,14 +1572,25 @@ const createStyles = () => StyleSheet.create({
     lineHeight: 22,
     marginBottom: 16,
   },
-  giftsPreview: {
+  giftsSection: {
+    marginTop: 16,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+  },
+  giftsSectionTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+  },
+  giftsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
-    marginTop: 12,
   },
-  giftItem: {
-    width: (width - 64) / 3 - 8, // 3 items per row with margins
+  giftCard: {
+    width: (width - 64) / 2 - 6, // 2 items per row with margins
     backgroundColor: colors.surface,
     borderRadius: 12,
     overflow: 'hidden',
@@ -1238,47 +1599,65 @@ const createStyles = () => StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
-    marginBottom: 4,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
   },
   giftImage: {
     width: '100%',
-    height: 100,
+    height: 120,
     backgroundColor: colors.muted,
   },
   giftImagePlaceholder: {
     width: '100%',
-    height: 100,
-    backgroundColor: colors.primary,
+    height: 120,
+    backgroundColor: colors.primary + '30',
     justifyContent: 'center',
     alignItems: 'center',
   },
   giftImagePlaceholderText: {
     fontSize: 32,
     fontWeight: '700',
-    color: 'white',
+    color: colors.primary,
   },
   giftInfo: {
-    padding: 8,
+    padding: 10,
   },
   giftName: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 4,
-  },
-  giftPrice: {
     fontSize: 14,
     fontWeight: '700',
-    color: colors.primary,
-    marginBottom: 4,
+    color: colors.text,
+    marginBottom: 6,
   },
-  giftDescription: {
+  giftPrice: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: 6,
+  },
+  categoryBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.primary + '20',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  categoryText: {
     fontSize: 11,
+    fontWeight: '600',
+    color: colors.primary,
+  },
+  noGiftsContainer: {
+    paddingVertical: 20,
+    alignItems: 'center',
+  },
+  noGiftsText: {
+    fontSize: 14,
     color: colors.textSecondary,
-    lineHeight: 14,
+    fontStyle: 'italic',
   },
   moreGifts: {
-    width: (width - 64) / 3 - 8,
+    width: (width - 64) / 2 - 6,
     height: 140,
     justifyContent: 'center',
     alignItems: 'center',

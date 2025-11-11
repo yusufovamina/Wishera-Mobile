@@ -6,7 +6,7 @@ import { useI18n } from '../i18n';
 import { Button } from '../components/Button';
 import { ProfileEditModal } from '../components/ProfileEditModal';
 import { useAuthStore } from '../state/auth';
-import { api, userApi, wishlistApi, endpoints } from '../api/client';
+import { api, userApi, wishlistApi, endpoints, getApiClient } from '../api/client';
 import { usePreferences } from '../state/preferences';
 
 const { width, height } = Dimensions.get('window');
@@ -76,6 +76,16 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     }
   }, [activeTab, profile?.id]);
 
+  // Refresh events when screen comes into focus (e.g., after editing an event)
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      if (activeTab === 'events') {
+        fetchEvents();
+      }
+    });
+    return unsubscribe;
+  }, [navigation, activeTab]);
+
   const fetchProfile = async () => {
     if (!targetUserId) {
       setLoading(false);
@@ -128,29 +138,44 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     
     try {
       setLoadingGifts(true);
-      // Get all gifts from user's wishlists
-      // First fetch wishlists, then extract all gifts from them
-      const res = await wishlistApi.get(endpoints.userWishlists(targetUserId, 1, 50));
-      const wishlistsData = res.data || [];
-      const allGifts: any[] = [];
-      
-      wishlistsData.forEach((wishlist: any) => {
-        if (wishlist.gifts && Array.isArray(wishlist.gifts)) {
-          wishlist.gifts.forEach((gift: any) => {
-            allGifts.push({
-              id: gift.id || gift.giftId,
-              name: gift.name || gift.title,
-              price: gift.price,
-              imageUrl: gift.imageUrl,
-              category: gift.category,
-              wishlistId: wishlist.id,
-              wishlistTitle: wishlist.title,
+      // Use the gifts endpoint to get all user gifts
+      // Only fetch gifts for the current user (endpoint requires authentication)
+      if (isViewingOtherUser) {
+        // For other users, fetch their wishlists and extract gifts
+        const res = await wishlistApi.get(endpoints.userWishlists(targetUserId, 1, 50));
+        const wishlistsData = res.data || [];
+        const allGifts: any[] = [];
+        
+        wishlistsData.forEach((wishlist: any) => {
+          if (wishlist.gifts && Array.isArray(wishlist.gifts)) {
+            wishlist.gifts.forEach((gift: any) => {
+              allGifts.push({
+                id: gift.id || gift.giftId,
+                name: gift.name || gift.title,
+                price: gift.price,
+                imageUrl: gift.imageUrl,
+                category: gift.category,
+                wishlistId: wishlist.id,
+                wishlistTitle: wishlist.title,
+              });
             });
-          });
-        }
-      });
-      
-      setGifts(allGifts);
+          }
+        });
+        setGifts(allGifts);
+      } else {
+        // For current user, use the direct gifts endpoint
+        const res = await wishlistApi.get(endpoints.giftsForUser);
+        const giftsData = res.data || [];
+        setGifts(giftsData.map((gift: any) => ({
+          id: gift.id,
+          name: gift.name,
+          price: gift.price,
+          imageUrl: gift.imageUrl,
+          category: gift.category,
+          wishlistId: gift.wishlistId,
+          wishlistTitle: null,
+        })));
+      }
     } catch (error: any) {
       console.log('Error fetching gifts:', error);
       setGifts([]);
@@ -160,9 +185,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
   };
 
   const fetchEvents = async () => {
-    // Events are only available for the current user (myEvents endpoint)
-    // Only fetch if viewing own profile
-    if (!targetUserId || isViewingOtherUser) {
+    if (!targetUserId) {
       setEvents([]);
       setLoadingEvents(false);
       return;
@@ -170,11 +193,33 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     
     try {
       setLoadingEvents(true);
-      const res = await api.get(endpoints.myEvents(1, 50));
-      const data = res.data?.events || res.data?.items || res.data || [];
-      setEvents(Array.isArray(data) ? data : []);
+      const eventApi = getApiClient(endpoints.myEvents(1, 50));
+      
+      if (isViewingOtherUser) {
+        // When viewing another user's profile, only show events where current user is invited
+        // Use invitedEvents endpoint which returns events where current user is invited
+        console.log('Fetching invited events (viewing other user profile)');
+        const res = await eventApi.get(endpoints.invitedEvents(1, 50));
+        console.log('Invited events response:', res.data);
+        // Filter to only show events created by the target user
+        const allInvitedEvents = res.data?.events || res.data?.items || res.data || [];
+        const filteredEvents = allInvitedEvents.filter((event: any) => 
+          (event.createdBy === targetUserId || event.creatorId === targetUserId || event.userId === targetUserId)
+        );
+        setEvents(Array.isArray(filteredEvents) ? filteredEvents : []);
+      } else {
+        // Viewing own profile - show all my events
+        console.log('Fetching my events from:', eventApi.defaults.baseURL + endpoints.myEvents(1, 50));
+        const res = await eventApi.get(endpoints.myEvents(1, 50));
+        console.log('Events response:', res.data);
+        // Handle different response formats
+        const data = res.data?.events || res.data?.items || res.data || [];
+        setEvents(Array.isArray(data) ? data : []);
+      }
     } catch (error: any) {
       console.log('Error fetching events:', error);
+      console.log('Error response:', error?.response?.data);
+      console.log('Error status:', error?.response?.status);
       setEvents([]);
     } finally {
       setLoadingEvents(false);
@@ -420,7 +465,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
           <TouchableOpacity
             key={event.id}
             style={styles.gridItem}
-            onPress={() => navigation.navigate('MyEvents')}
+            onPress={() => navigation.navigate('EventDetail', { eventId: event.id })}
           >
             <View style={styles.gridImagePlaceholder}>
               <Text style={styles.gridPlaceholderText}>📅</Text>

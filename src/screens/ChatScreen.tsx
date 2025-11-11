@@ -109,6 +109,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     markMessagesRead,
     getConnectionId,
     addUser,
+    connect: retryConnect,
+    disconnect,
   } = useSignalRChat({
     currentUserId: user?.id,
     token: token,
@@ -710,8 +712,27 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       {!connected && (
         <View style={styles.connectionStatus}>
           <Text style={styles.connectionText}>
-            {connectionState === 'Reconnecting' ? t('chat.reconnecting', 'Reconnecting...') : t('chat.disconnected', 'Disconnected')}
+            {connectionState === 'Reconnecting' 
+              ? t('chat.reconnecting', 'Reconnecting...') 
+              : connectionState === 'Failed'
+              ? t('chat.connectionFailed', 'Connection failed')
+              : t('chat.disconnected', 'Disconnected')}
           </Text>
+          {connectionState === 'Failed' && (
+            <TouchableOpacity 
+              style={styles.retryButton}
+              onPress={() => {
+                console.log('Manual retry triggered');
+                if (user?.id && token) {
+                  retryConnect();
+                } else {
+                  Alert.alert('Error', 'Please log in to use chat');
+                }
+              }}
+            >
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
 
@@ -1047,11 +1068,25 @@ const createStyles = () => StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 8,
     alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 12,
   },
   connectionText: {
     fontSize: 14,
     color: colors.warning,
     fontWeight: '500',
+  },
+  retryButton: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: '600',
   },
 
   // Reply preview styles

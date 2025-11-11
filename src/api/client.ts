@@ -3,6 +3,16 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
+// Import auth store to clear user state on 401
+let authStore: any = null;
+try {
+  // Dynamic import to avoid circular dependency
+  const authModule = require('./state/auth');
+  authStore = authModule.useAuthStore;
+} catch (e) {
+  console.log('Could not import auth store for 401 handling:', e);
+}
+
 // USE_LOCAL_BACKEND flag to control whether to use localhost or production
 // Set to false to always use production API Gateway (recommended for mobile testing)
 const USE_LOCAL_BACKEND = true;
@@ -98,10 +108,31 @@ userApi.interceptors.response.use(
 
 wishlistApi.interceptors.response.use(
   response => response,
-  error => {
+  async error => {
     console.error('Wishlist API Error:', error.message);
     console.error('Request URL:', error.config?.url);
     console.error('Response:', error.response?.data);
+    
+    // Handle 401 Unauthorized - token expired or invalid
+    if (error?.response?.status === 401) {
+      console.warn('401 Unauthorized - token may be expired or invalid');
+      // Clear invalid token and user state
+      try {
+        await AsyncStorage.removeItem('auth_token');
+        console.log('Cleared invalid auth token');
+        // Clear auth store state if available
+        if (authStore) {
+          const logout = authStore.getState()?.logout;
+          if (logout) {
+            await logout();
+            console.log('Cleared auth store state');
+          }
+        }
+      } catch (e) {
+        console.error('Error clearing token:', e);
+      }
+    }
+    
     return Promise.reject(error);
   }
 );
@@ -135,12 +166,20 @@ chatApi.interceptors.response.use(
 
 // Add auth token to all API requests
 const addAuthToken = async (config: any) => {
-  const token = await AsyncStorage.getItem('auth_token');
-  if (token) {
-    config.headers = config.headers ?? {};
-    config.headers.Authorization = `Bearer ${token}`;
+  try {
+    const token = await AsyncStorage.getItem('auth_token');
+    if (token) {
+      config.headers = config.headers ?? {};
+      config.headers.Authorization = `Bearer ${token}`;
+      console.log('Auth token added to request:', config.url);
+    } else {
+      console.warn('No auth token found for request:', config.url);
+    }
+    return config;
+  } catch (error) {
+    console.error('Error adding auth token:', error);
+    return config;
   }
-  return config;
 };
 
 api.interceptors.request.use(addAuthToken);
@@ -162,8 +201,11 @@ export const endpoints = {
   uploadAvatar: '/api/users/avatar',
   wishlistsFeed: '/api/wishlists/feed',
   wishlistById: (id: string) => `/api/wishlists/${id}`,
+  updateWishlist: (id: string) => `/api/wishlists/${id}`,
   wishlistLike: (id: string) => `/api/wishlists/${id}/like`,
   giftsForUser: '/api/gift/wishlist',
+  updateGift: (id: string) => `/api/gift/${id}`,
+  uploadGiftImage: (id: string) => `/api/gift/${id}/upload-image`,
   // Parity with web app
   updateBirthday: '/api/users/birthday',
   followers: (userId: string, page: number = 1, pageSize: number = 10) => `/api/users/${userId}/followers?page=${page}&pageSize=${pageSize}`,
@@ -176,8 +218,10 @@ export const endpoints = {
   myEvents: (page: number = 1, pageSize: number = 10) => `/api/events/my-events?page=${page}&pageSize=${pageSize}`,
   invitedEvents: (page: number = 1, pageSize: number = 10) => `/api/events/invited-events?page=${page}&pageSize=${pageSize}`,
   eventById: (id: string) => `/api/events/${id}`,
+  updateEvent: (id: string) => `/api/events/${id}`,
   cancelEvent: (id: string) => `/api/events/${id}/cancel`,
   deleteEvent: (id: string) => `/api/events/${id}`,
+  eventInvitations: (eventId: string) => `/api/events/${eventId}/invitations`,
   myInvitations: (page: number = 1, pageSize: number = 10) => `/api/events/my-invitations?page=${page}&pageSize=${pageSize}`,
   respondInvitation: (invitationId: string) => `/api/events/invitations/${invitationId}/respond`,
   // Chat endpoints
@@ -208,6 +252,11 @@ export const endpoints = {
     `/api/chat/custom-wallpapers/${encodeURIComponent(wallpaperId)}?userId=${encodeURIComponent(userId)}`,
   // Chat media upload
   uploadChatMedia: '/api/chat/upload-media',
+  // Notifications endpoints
+  getNotifications: (page: number = 1, pageSize: number = 20) => `/api/notifications?page=${page}&pageSize=${pageSize}`,
+  markNotificationRead: (notificationId: string) => `/api/notifications/${notificationId}/read`,
+  markAllNotificationsRead: '/api/notifications/read-all',
+  deleteNotification: (notificationId: string) => `/api/notifications/${notificationId}`,
 };
 
 // Helper to use correct API client based on endpoint
@@ -225,6 +274,10 @@ export const getApiClient = (endpoint: string) => {
       return wishlistApi;
     } else if (endpoint.startsWith('/api/chat')) {
       return chatApi;
+    } else if (endpoint.startsWith('/api/events')) {
+      return userApi; // Events are handled by user service
+    } else if (endpoint.startsWith('/api/notifications')) {
+      return userApi; // Notifications are handled by user service
     }
     return api; // default to api gateway
   }
@@ -238,6 +291,10 @@ export const getApiClient = (endpoint: string) => {
     return wishlistApi;
   } else if (endpoint.startsWith('/api/chat')) {
     return chatApi;
+  } else if (endpoint.startsWith('/api/events')) {
+    return userApi; // Events are handled by user service
+  } else if (endpoint.startsWith('/api/notifications')) {
+    return userApi; // Notifications are handled by user service
   }
   return api; // default
 };
