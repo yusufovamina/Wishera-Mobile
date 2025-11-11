@@ -24,6 +24,7 @@ import { MyEventsScreen } from '../screens/MyEventsScreen';
 import { InvitationsScreen } from '../screens/InvitationsScreen';
 import { UserWishlistsScreen } from '../screens/UserWishlistsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
+import { EventDetailScreen } from '../screens/EventDetailScreen';
 import { useAuthStore } from '../state/auth';
 
 const Stack = createNativeStackNavigator();
@@ -76,6 +77,7 @@ export const AppNavigator: React.FC = () => {
             <Stack.Screen name="LikedWishlists" component={LikedWishlistsScreen} options={{ title: 'Liked Wishlists' }} />
             <Stack.Screen name="ReservedGifts" component={ReservedGiftsScreen} options={{ title: 'Reserved Gifts' }} />
             <Stack.Screen name="MyEvents" component={MyEventsScreen} options={{ title: 'My Events' }} />
+            <Stack.Screen name="EventDetail" component={EventDetailScreen} options={{ title: 'Event Details' }} />
             <Stack.Screen name="Invitations" component={InvitationsScreen} options={{ title: 'Invitations' }} />
             <Stack.Screen name="UserWishlists" component={UserWishlistsScreen} options={{ title: 'My Wishlists' }} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />

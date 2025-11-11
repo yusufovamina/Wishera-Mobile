@@ -61,12 +61,21 @@ export const EditWishlistModal: React.FC<EditWishlistModalProps> = ({
   const [errors, setErrors] = useState<Partial<EditWishlistData>>({});
 
   useEffect(() => {
-    if (wishlist) {
+    if (visible && wishlist) {
+      // Update form data when modal opens with wishlist data
       setFormData({
         title: wishlist.title || '',
         description: wishlist.description || '',
         category: wishlist.category || '',
         isPublic: wishlist.isPublic !== undefined ? wishlist.isPublic : true,
+      });
+    } else if (visible && !wishlist) {
+      // Reset form if modal opens without wishlist
+      setFormData({
+        title: '',
+        description: '',
+        category: '',
+        isPublic: true,
       });
     }
   }, [wishlist, visible]);

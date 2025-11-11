@@ -60,9 +60,13 @@ export function useSignalRChat({
   const maxReconnectAttempts = 5;
 
   const hubUrl = useMemo(() => {
+    // SignalR hub endpoint - use /chat (works based on logs showing successful connections)
+    // The backend SignalR hub is at /chat, not /api/chat
     const base = `${chatServiceUrl}/chat`;
     const uid = currentUserId && currentUserId !== "" ? `userId=${encodeURIComponent(currentUserId)}` : "";
-    return uid ? `${base}${base.includes("?") ? "&" : "?"}${uid}` : base;
+    const url = uid ? `${base}${base.includes("?") ? "&" : "?"}${uid}` : base;
+    console.log('SignalR Hub URL:', url);
+    return url;
   }, [currentUserId]);
 
   // Heartbeat mechanism to keep connection alive
@@ -93,6 +97,10 @@ export function useSignalRChat({
   }, []);
 
   // Enhanced reconnection logic with exponential backoff
+  // Note: reconnect is defined before connect to avoid circular dependency
+  // We'll use a ref to store the connect function
+  const connectRef = useRef<(() => Promise<void>) | null>(null);
+
   const reconnect = useCallback(() => {
     if (reconnectAttemptsRef.current >= maxReconnectAttempts) {
       console.log('Max reconnection attempts reached');
@@ -107,37 +115,71 @@ export function useSignalRChat({
     
     reconnectTimeoutRef.current = setTimeout(() => {
       reconnectAttemptsRef.current++;
-      connect();
+      if (connectRef.current) {
+        connectRef.current();
+      }
     }, delay);
   }, [maxReconnectAttempts]);
+
+  const isConnectingRef = useRef(false);
 
   const connect = useCallback(async () => {
     if (!currentUserId || !token) {
       console.log('Missing userId or token for SignalR connection');
+      console.log('Current userId:', currentUserId);
+      console.log('Token present:', !!token);
       return;
     }
+
+    // Prevent multiple simultaneous connection attempts
+    if (isConnectingRef.current) {
+      console.log('Connection already in progress, skipping...');
+      return;
+    }
+
+    // If already connected, don't reconnect
+    if (connectionRef.current && connectionRef.current.state === signalR.HubConnectionState.Connected) {
+      console.log('Already connected, skipping connection attempt');
+      return;
+    }
+
+    isConnectingRef.current = true;
+    console.log('Attempting SignalR connection...');
+    console.log('Hub URL:', hubUrl);
+    console.log('Token length:', token?.length);
 
     try {
       // Clean up existing connection
       if (connectionRef.current) {
-        await connectionRef.current.stop();
+        try {
+          await connectionRef.current.stop();
+        } catch (stopError) {
+          console.log('Error stopping existing connection:', stopError);
+        }
+        connectionRef.current = null;
       }
 
       // On web, prefer LongPolling to avoid browser/WebSocket constraints
       // For mobile, try WebSocket first, then fallback to LongPolling
       const preferLongPolling = Platform.OS === 'web';
+      console.log('Platform:', Platform.OS, 'Prefer LongPolling:', preferLongPolling);
+      
       let connection = new signalR.HubConnectionBuilder()
-        .withUrl(hubUrl, preferLongPolling ? {
-          accessTokenFactory: () => token,
-          // LongPolling requires negotiation, so don't skip it
-          transport: signalR.HttpTransportType.LongPolling,
-        } : {
-          accessTokenFactory: () => token,
-          // Try WebSocket first with negotiation (let SignalR handle transport negotiation)
-          // Don't use skipNegotiation unless we explicitly want WebSockets only
+        .withUrl(hubUrl, {
+          accessTokenFactory: () => {
+            console.log('Access token factory called, returning token');
+            return token;
+          },
+          ...(preferLongPolling ? {
+            // LongPolling requires negotiation, so don't skip it
+            transport: signalR.HttpTransportType.LongPolling,
+          } : {
+            // Try WebSocket first with negotiation (let SignalR handle transport negotiation)
+            // Don't use skipNegotiation unless we explicitly want WebSockets only
+          })
         })
         .withAutomaticReconnect([0, 2000, 10000, 30000])
-        .configureLogging(signalR.LogLevel.Information)
+        .configureLogging(signalR.LogLevel.Warning) // Reduce logging noise
         .build();
 
       // Event handlers (matching backend ChatHub events)
@@ -203,73 +245,136 @@ export function useSignalRChat({
 
       // Start connection (with negotiation + fallback handled by SignalR or explicit LP)
       try {
+        console.log('Starting SignalR connection...');
         await connection.start();
-      } catch (firstError) {
+        console.log('SignalR connection started successfully');
+      } catch (firstError: any) {
         // If WebSocket/SSE fails (common on iOS device or constrained env), force LongPolling as a fallback
         console.warn('Primary SignalR start failed, retrying with LongPolling...', firstError);
-        try {
-          // LongPolling fallback - must allow negotiation
-          connection = new signalR.HubConnectionBuilder()
-            .withUrl(hubUrl, {
-              accessTokenFactory: () => token,
-              // LongPolling requires negotiation, so don't skip it
-              transport: signalR.HttpTransportType.LongPolling,
-            })
-            .withAutomaticReconnect([0, 2000, 10000, 30000])
-            .configureLogging(signalR.LogLevel.Information)
-            .build();
+        console.warn('Error details:', firstError?.message, firstError?.response);
+        
+        // Try alternative hub URLs if /api/chat fails
+        let alternativeHubUrl = hubUrl;
+        const alternatives: string[] = [];
+        
+        if (hubUrl.includes('/api/chat')) {
+          // Try /chat (without /api prefix) - this is the working endpoint
+          alternatives.push(hubUrl.replace('/api/chat', '/chat'));
+          // Try /api/chat/hub
+          alternatives.push(hubUrl.replace('/api/chat', '/api/chat/hub'));
+          // Try /chat/hub
+          alternatives.push(hubUrl.replace('/api/chat', '/chat/hub'));
+          // Try /hub
+          alternatives.push(hubUrl.replace('/api/chat', '/hub'));
+        } else if (hubUrl.includes('/chat')) {
+          // Try /api/chat (though /chat seems to work)
+          alternatives.push(hubUrl.replace('/chat', '/api/chat'));
+          // Try /chat/hub
+          alternatives.push(hubUrl.replace('/chat', '/chat/hub'));
+          // Try /hub
+          alternatives.push(hubUrl.replace('/chat', '/hub'));
+        }
+        
+        // Use first alternative
+        if (alternatives.length > 0) {
+          alternativeHubUrl = alternatives[0];
+          console.log('Trying alternative hub URL:', alternativeHubUrl);
+          console.log('Other alternatives available:', alternatives.slice(1));
+        }
+        
+        // Try each alternative URL until one works
+        let fallbackSucceeded = false;
+        const allAlternatives = [alternativeHubUrl, ...alternatives.slice(1)];
+        
+        for (const altUrl of allAlternatives) {
+          try {
+            console.log(`Trying hub URL: ${altUrl}`);
+            // LongPolling fallback - must allow negotiation
+            connection = new signalR.HubConnectionBuilder()
+              .withUrl(altUrl, {
+                accessTokenFactory: () => {
+                  console.log('Access token factory called (fallback), returning token');
+                  return token;
+                },
+                // LongPolling requires negotiation, so don't skip it
+                transport: signalR.HttpTransportType.LongPolling,
+              })
+              .withAutomaticReconnect([0, 2000, 10000, 30000])
+              .configureLogging(signalR.LogLevel.Warning)
+              .build();
 
-          // Re-register handlers on the new instance
-          connection.on("ReceiveMessage", (message: any, username?: string) => {
-            console.log('Message received:', message, username);
-            onMessageReceived?.(message, username);
-          });
-          connection.on("MessageEdited", (data: { id: string; text: string }) => {
-            console.log('Message edited:', data);
-          });
-          connection.on("MessageDeleted", (data: { id: string }) => {
-            console.log('Message deleted:', data);
-          });
-          connection.on("UserJoined", (userId: string, username: string) => {
-            console.log('User joined:', userId, username);
-            onUserJoined?.(userId, username);
-          });
-          connection.on("UserLeft", (userId: string) => {
-            console.log('User left:', userId);
-            onUserLeft?.(userId);
-          });
-          connection.on("UserTyping", (userId: string, username: string) => {
-            console.log('User typing:', userId, username);
-            onTypingStart?.(userId, username);
-          });
-          connection.on("UserStopTyping", (userId: string) => {
-            console.log('User stop typing:', userId);
-            onTypingStop?.(userId);
-          });
+            // Re-register handlers on the new instance
+            connection.on("ReceiveMessage", (message: any, username?: string) => {
+              console.log('Message received:', message, username);
+              onMessageReceived?.(message, username);
+            });
+            connection.on("MessageEdited", (data: { id: string; text: string }) => {
+              console.log('Message edited:', data);
+            });
+            connection.on("MessageDeleted", (data: { id: string }) => {
+              console.log('Message deleted:', data);
+            });
+            connection.on("UserJoined", (userId: string, username: string) => {
+              console.log('User joined:', userId, username);
+              onUserJoined?.(userId, username);
+            });
+            connection.on("UserLeft", (userId: string) => {
+              console.log('User left:', userId);
+              onUserLeft?.(userId);
+            });
+            connection.on("UserTyping", (userId: string, username: string) => {
+              console.log('User typing:', userId, username);
+              onTypingStart?.(userId, username);
+            });
+            connection.on("UserStopTyping", (userId: string) => {
+              console.log('User stop typing:', userId);
+              onTypingStop?.(userId);
+            });
 
-          connection.onclose((error) => {
-            console.log('SignalR connection closed (LP):', error);
-            setConnected(false);
-            setConnectionState('Disconnected');
-            stopHeartbeat();
-            reconnect();
-          });
-          connection.onreconnecting((error) => {
-            console.log('SignalR reconnecting (LP):', error);
-            setConnectionState('Reconnecting');
-            stopHeartbeat();
-          });
-          connection.onreconnected((connectionId) => {
-            console.log('SignalR reconnected (LP):', connectionId);
-            setConnected(true);
-            setConnectionState('Connected');
-            reconnectAttemptsRef.current = 0;
-            startHeartbeat();
-          });
+            connection.onclose((error) => {
+              console.log('SignalR connection closed (LP):', error);
+              setConnected(false);
+              setConnectionState('Disconnected');
+              stopHeartbeat();
+              reconnect();
+            });
+            connection.onreconnecting((error) => {
+              console.log('SignalR reconnecting (LP):', error);
+              setConnectionState('Reconnecting');
+              stopHeartbeat();
+            });
+            connection.onreconnected((connectionId) => {
+              console.log('SignalR reconnected (LP):', connectionId);
+              setConnected(true);
+              setConnectionState('Connected');
+              reconnectAttemptsRef.current = 0;
+              startHeartbeat();
+            });
 
-          await connection.start();
-        } catch (fallbackError) {
-          console.error('SignalR fallback (LongPolling) failed:', fallbackError);
+            console.log(`Starting SignalR connection with LongPolling on ${altUrl}...`);
+            await connection.start();
+            console.log(`SignalR connection started successfully with LongPolling on ${altUrl}`);
+            fallbackSucceeded = true;
+            isConnectingRef.current = false;
+            break; // Success! Exit the loop
+          } catch (altError: any) {
+            console.warn(`Failed to connect to ${altUrl}:`, altError?.message);
+            // Check if it's a CORS error
+            const isCorsError = altError?.message?.includes('access control checks') || 
+                               altError?.message?.includes('Load failed') ||
+                               altError?.message?.includes('CORS');
+            if (isCorsError) {
+              console.warn('CORS error on this URL - backend needs CORS configuration');
+            }
+            // Continue to next alternative
+            continue;
+          }
+        }
+        
+        if (!fallbackSucceeded) {
+          isConnectingRef.current = false;
+          const fallbackError = new Error('All SignalR hub URL alternatives failed');
+          console.error('SignalR fallback (LongPolling) failed for all alternatives');
           throw fallbackError;
         }
       }
@@ -279,20 +384,44 @@ export function useSignalRChat({
       (connection as any).keepAliveIntervalInMilliseconds = 20000;
       (connection as any).serverTimeoutInMilliseconds = 90000;
       console.log('SignalR connected successfully');
+      console.log('Connection state:', connection.state);
+      console.log('Connection ID:', connection.connectionId);
       
       connectionRef.current = connection;
       setConnected(true);
       setConnectionState('Connected');
       reconnectAttemptsRef.current = 0;
       startHeartbeat();
+      isConnectingRef.current = false;
 
-    } catch (error) {
+    } catch (error: any) {
       console.error('SignalR connection failed:', error);
+      console.error('Error message:', error?.message);
+      console.error('Error stack:', error?.stack);
+      if (error?.response) {
+        console.error('Error response:', error.response);
+      }
       setConnected(false);
       setConnectionState('Failed');
-      reconnect();
+      isConnectingRef.current = false;
+      
+      // Only reconnect if it's not a CORS error (CORS errors mean backend needs fixing)
+      const isCorsError = error?.message?.includes('access control checks') || 
+                         error?.message?.includes('Load failed') ||
+                         error?.message?.includes('CORS');
+      if (!isCorsError) {
+        reconnect();
+      } else {
+        console.warn('CORS error detected - backend needs to allow CORS for SignalR endpoint');
+        console.warn('Connection will not auto-reconnect until CORS is fixed');
+      }
     }
   }, [currentUserId, token, hubUrl, onMessageReceived, onUserJoined, onUserLeft, onTypingStart, onTypingStop, reconnect, startHeartbeat, stopHeartbeat]);
+
+  // Store connect function in ref for reconnect to use
+  useEffect(() => {
+    connectRef.current = connect;
+  }, [connect]);
 
   const disconnect = useCallback(async () => {
     stopHeartbeat();
@@ -408,10 +537,13 @@ export function useSignalRChat({
       return () => {};
     }
     console.log('Registering ReceiveActiveUsers handler');
+    // Try both case variations - backend might use different casing
+    connectionRef.current.on("ReceiveActiveUsers", handler);
     connectionRef.current.on("receiveactiveusers", handler);
     return () => {
       console.log('Unregistering ReceiveActiveUsers handler');
       if (connectionRef.current) {
+        connectionRef.current.off("ReceiveActiveUsers", handler);
         connectionRef.current.off("receiveactiveusers", handler);
       }
     };
@@ -543,16 +675,21 @@ export function useSignalRChat({
     }
   }, [connected]);
 
-  // Initialize connection
+  // Initialize connection - only connect once when userId/token are available
   useEffect(() => {
     if (currentUserId && token) {
-      connect();
-    }
-
-    return () => {
+      // Small delay to prevent multiple simultaneous connections
+      const timeoutId = setTimeout(() => {
+        connect();
+      }, 100);
+      return () => {
+        clearTimeout(timeoutId);
+        disconnect();
+      };
+    } else {
       disconnect();
-    };
-  }, [currentUserId, token, connect, disconnect]);
+    }
+  }, [currentUserId, token]); // Removed connect/disconnect from deps to prevent re-connections
 
   return {
     connected,

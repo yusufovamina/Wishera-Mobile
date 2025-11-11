@@ -1,9 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
+import { usePreferences } from '../state/preferences';
 
 interface GiftModalProps {
   visible: boolean;
@@ -54,6 +55,8 @@ export const GiftModal: React.FC<GiftModalProps> = ({
   mode,
 }) => {
   const { t } = useI18n();
+  const { theme } = usePreferences();
+  const styles = useMemo(() => createStyles(), [theme]);
   const [formData, setFormData] = useState<GiftData>({
     name: gift?.name || '',
     price: gift?.price || '',
@@ -63,6 +66,30 @@ export const GiftModal: React.FC<GiftModalProps> = ({
     fileUri: undefined,
   });
   const [errors, setErrors] = useState<Partial<GiftData>>({});
+
+  // Update form data when gift prop changes (for edit mode)
+  useEffect(() => {
+    if (visible && mode === 'edit' && gift) {
+      setFormData({
+        name: gift.name || '',
+        price: gift.price || '',
+        category: gift.category || '',
+        description: gift.description || '',
+        imageUrl: gift.imageUrl || '',
+        fileUri: undefined,
+      });
+    } else if (visible && mode === 'create') {
+      // Reset form for create mode
+      setFormData({
+        name: '',
+        price: '',
+        category: '',
+        description: '',
+        imageUrl: '',
+        fileUri: undefined,
+      });
+    }
+  }, [visible, mode, gift]);
 
   const validateForm = () => {
     const newErrors: Partial<GiftData> = {};
@@ -236,7 +263,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,

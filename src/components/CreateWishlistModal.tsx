@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
 import { Button } from './Button';
 
 interface CreateWishlistModalProps {
@@ -46,6 +47,8 @@ export const CreateWishlistModal: React.FC<CreateWishlistModalProps> = ({
   onSubmit,
   loading = false,
 }) => {
+  const { theme } = usePreferences();
+  const styles = useMemo(() => createStyles(), [theme]);
   const [formData, setFormData] = useState<CreateWishlistData>({
     title: '',
     description: '',
@@ -194,7 +197,7 @@ export const CreateWishlistModal: React.FC<CreateWishlistModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
