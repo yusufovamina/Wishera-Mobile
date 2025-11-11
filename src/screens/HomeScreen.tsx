@@ -14,51 +14,6 @@ const { width, height } = Dimensions.get('window');
 
 const CATEGORIES = ['All', 'Electronics', 'Books', 'Clothing', 'Home & Garden', 'Sports', 'Beauty', 'Toys', 'Food', 'Health', 'Other'];
 
-// Mock data for development
-const mockWishlists: WishlistItem[] = [
-  {
-    id: '1',
-    title: 'My Birthday Wishlist 🎉',
-    description: 'Things I would love for my birthday this year!',
-    category: 'Birthday',
-    isPublic: true,
-    gifts: [
-      { id: '1', name: 'AirPods Pro', price: 249 },
-      { id: '2', name: 'Nike Air Max', price: 150 },
-      { id: '3', name: 'Coffee Maker', price: 89 },
-    ],
-    likes: 12,
-    isLiked: false,
-    createdAt: '2024-01-15T10:30:00Z',
-    user: {
-      id: 'user1',
-      name: 'Alex Johnson',
-      avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Alex',
-      username: 'alexj',
-    },
-  },
-  {
-    id: '2',
-    title: 'Holiday Gifts 🎄',
-    description: 'Perfect gifts for the holiday season',
-    category: 'Holiday',
-    isPublic: true,
-    gifts: [
-      { id: '4', name: 'Wireless Headphones', price: 199 },
-      { id: '5', name: 'Smart Watch', price: 299 },
-    ],
-    likes: 8,
-    isLiked: true,
-    createdAt: '2024-01-14T15:45:00Z',
-    user: {
-      id: 'user2',
-      name: 'Sarah Wilson',
-      avatar: 'https://api.dicebear.com/7.x/initials/svg?seed=Sarah',
-      username: 'sarahw',
-    },
-  },
-];
-
 type WishlistItem = {
   id: string;
   title: string;
@@ -69,7 +24,9 @@ type WishlistItem = {
     id: string;
     name: string;
     price?: number;
-    image?: string;
+    imageUrl?: string;
+    description?: string;
+    category?: string;
   }>;
   likes: number;
   isLiked: boolean;
@@ -99,6 +56,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [suggestedUsers, setSuggestedUsers] = useState<any[]>([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [searchingUsers, setSearchingUsers] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string>('');
   const [sortBy, setSortBy] = useState<string>('');
@@ -162,7 +120,14 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         description: item.description,
         category: item.category,
         isPublic: item.isPublic,
-        gifts: item.gifts || [],
+        gifts: (item.gifts || []).map((gift: any) => ({
+          id: gift.giftId || gift.id || '',
+          name: gift.title || gift.name || '',
+          price: gift.price,
+          imageUrl: gift.imageUrl,
+          description: gift.description,
+          category: gift.category,
+        })),
         likes: item.likeCount || 0,
         isLiked: item.isLiked || false,
         createdAt: item.createdAt,
@@ -179,15 +144,9 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     } catch (error: any) {
       console.log('Error fetching feed:', error.message);
       console.log('Error details:', error.response?.data || error);
-      
-      // Check if error is due to no auth token
-      if (error.response?.status === 401) {
-        console.log('Not authenticated, showing mock data');
-      }
-      
-      // Use mock data for now
-      setWishlists(mockWishlists);
-      setFilteredWishlists(mockWishlists);
+      // Clear data on error (no mock fallbacks)
+      setWishlists([]);
+      setFilteredWishlists([]);
     } finally {
       setLoading(false);
     }
@@ -228,6 +187,35 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     fetchFeed();
   }, []);
 
+  // Search users when search query changes
+  useEffect(() => {
+    const searchUsers = async () => {
+      if (searchQuery.trim().length >= 2) {
+        setSearchingUsers(true);
+        try {
+          const response = await userApi.get(endpoints.searchUsers(searchQuery, 1, 10));
+          setSuggestedUsers(response.data || []);
+          setShowSearchDropdown(true);
+        } catch (error: any) {
+          console.log('Error searching users:', error.message);
+          setSuggestedUsers([]);
+        } finally {
+          setSearchingUsers(false);
+        }
+      } else {
+        setSuggestedUsers([]);
+        setShowSearchDropdown(false);
+      }
+    };
+
+    // Debounce search
+    const timeoutId = setTimeout(() => {
+      searchUsers();
+    }, 300);
+
+    return () => clearTimeout(timeoutId);
+  }, [searchQuery]);
+
   // Load data based on active tab
   useEffect(() => {
     const loadTabData = async () => {
@@ -259,7 +247,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const fetchLikedWishlists = async () => {
     try {
-      const res = await wishlistApi.get('/api/Wishlists/liked');
+      const res = await wishlistApi.get(endpoints.likedWishlists());
       const data = res.data || [];
       const transformedData: WishlistItem[] = data.map((item: any) => ({
         id: item.id,
@@ -287,7 +275,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const fetchMyWishlists = async () => {
     try {
-      const res = await wishlistApi.get(`/api/Wishlists/user/${user?.id}`);
+      const res = await wishlistApi.get(endpoints.userWishlists(String(user?.id)));
       const data = res.data || [];
       const transformedData: WishlistItem[] = data.map((item: any) => ({
         id: item.id,
@@ -315,7 +303,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const fetchMyGifts = async () => {
     try {
-      const res = await wishlistApi.get('/api/Gift/wishlist');
+      const res = await wishlistApi.get(endpoints.giftsForUser);
       setGifts(res.data || []);
     } catch (error) {
       console.log('Error fetching my gifts:', error);
@@ -527,22 +515,50 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             <Text style={styles.wishlistDescription}>{item.description}</Text>
           )}
           
-          {/* Gifts preview */}
-          {item.gifts.length > 0 && (
+          {/* Gifts preview with photos, names, prices, and descriptions */}
+          {item.gifts && Array.isArray(item.gifts) && item.gifts.length > 0 && (
             <View style={styles.giftsPreview}>
-              {item.gifts.slice(0, 3).map((gift, index) => (
-                <View key={gift.id} style={styles.giftItem}>
-                  <View style={styles.giftIcon}>
-                    <Text style={styles.giftIconText}>G</Text>
+              {item.gifts.slice(0, 3).map((gift: any, index: number) => {
+                if (!gift || (!gift.id && !gift.name)) return null;
+                const giftKey = gift.id || `gift-${index}`;
+                return (
+                  <View key={giftKey} style={styles.giftItem}>
+                    {/* Gift Image */}
+                    {gift.imageUrl && gift.imageUrl.trim() ? (
+                      <Image 
+                        source={{ uri: gift.imageUrl }} 
+                        style={styles.giftImage}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={styles.giftImagePlaceholder}>
+                        <Text style={styles.giftImagePlaceholderText}>
+                          {gift.name && gift.name.length > 0 ? gift.name.charAt(0).toUpperCase() : 'G'}
+                        </Text>
+                      </View>
+                    )}
+                    
+                    {/* Gift Info */}
+                    <View style={styles.giftInfo}>
+                      {gift.name && gift.name.trim() ? (
+                        <Text style={styles.giftName} numberOfLines={1}>
+                          {gift.name}
+                        </Text>
+                      ) : null}
+                      {gift.price !== undefined && gift.price !== null && gift.price !== '' ? (
+                        <Text style={styles.giftPrice}>
+                          ${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}
+                        </Text>
+                      ) : null}
+                      {gift.description && gift.description.trim() ? (
+                        <Text style={styles.giftDescription} numberOfLines={2}>
+                          {gift.description}
+                        </Text>
+                      ) : null}
+                    </View>
                   </View>
-                  <Text style={styles.giftName} numberOfLines={1}>
-                    {gift.name}
-                  </Text>
-                  {gift.price && (
-                    <Text style={styles.giftPrice}>${gift.price}</Text>
-                  )}
-                </View>
-              ))}
+                );
+              }).filter(Boolean)}
               {item.gifts.length > 3 && (
                 <View style={styles.moreGifts}>
                   <Text style={styles.moreGiftsText}>+{item.gifts.length - 3} more</Text>
@@ -667,19 +683,78 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             <Text style={styles.searchIcon}>🔎</Text>
             <TextInput
               style={styles.searchInput}
-              placeholder={t('home.searchPlaceholder', 'Search wishlists...')}
+              placeholder={t('home.searchPlaceholder', 'Search wishlists or users...')}
               placeholderTextColor={colors.textSecondary}
               value={searchQuery}
-              onChangeText={setSearchQuery}
+              onChangeText={(text) => {
+                setSearchQuery(text);
+                if (text.trim().length >= 2) {
+                  setShowSearchDropdown(true);
+                } else {
+                  setShowSearchDropdown(false);
+                }
+              }}
               autoCapitalize="none"
               autoCorrect={false}
+              onFocus={() => {
+                if (suggestedUsers.length > 0 && searchQuery.trim().length >= 2) {
+                  setShowSearchDropdown(true);
+                }
+              }}
+              onBlur={() => {
+                // Delay closing to allow tap on suggestion
+                setTimeout(() => setShowSearchDropdown(false), 200);
+              }}
             />
             {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearButton}>
+              <TouchableOpacity onPress={() => {
+                setSearchQuery('');
+                setSuggestedUsers([]);
+                setShowSearchDropdown(false);
+              }} style={styles.clearButton}>
                 <Text style={styles.clearButtonText}>✕</Text>
               </TouchableOpacity>
             )}
           </View>
+          
+          {/* User Search Suggestions Dropdown */}
+          {showSearchDropdown && suggestedUsers.length > 0 && searchQuery.trim().length >= 2 && (
+            <View style={styles.searchDropdown}>
+              <ScrollView 
+                style={styles.searchDropdownScroll}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled={true}
+              >
+                {suggestedUsers.map((user: any) => (
+                  <TouchableOpacity
+                    key={user.id}
+                    style={styles.searchSuggestionItem}
+                    onPress={() => {
+                      setSearchQuery('');
+                      setSuggestedUsers([]);
+                      setShowSearchDropdown(false);
+                      // Navigate to user profile
+                      navigation.navigate('UserProfile', { userId: user.id });
+                    }}
+                  >
+                    <Image 
+                      source={{ uri: user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}` }} 
+                      style={styles.searchSuggestionAvatar}
+                    />
+                    <View style={styles.searchSuggestionInfo}>
+                      <Text style={styles.searchSuggestionUsername}>@{user.username || 'Unknown'}</Text>
+                      {user.name && user.name !== user.username && (
+                        <Text style={styles.searchSuggestionName}>{user.name}</Text>
+                      )}
+                    </View>
+                    {user.isFollowing && (
+                      <Text style={styles.searchSuggestionFollowing}>Following</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          )}
         </View>
 
         {/* Tab Navigation */}
@@ -758,11 +833,11 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
       </View>
     </Animated.View>
-  ), [user, fadeIn, slideUp, floatY, activeTab, selectedCategory, sortBy]);
+  ), [user, fadeIn, slideUp, floatY, activeTab, selectedCategory, sortBy, theme, searchQuery, t]);
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       
       <FlatList
         data={getCurrentData()}
@@ -904,6 +979,8 @@ const createStyles = () => StyleSheet.create({
   },
   searchContainer: {
     marginBottom: 10,
+    position: 'relative',
+    zIndex: 100,
   },
   searchBar: {
     flexDirection: 'row',
@@ -936,6 +1013,59 @@ const createStyles = () => StyleSheet.create({
     fontSize: 18,
     color: colors.textSecondary,
     fontWeight: '700',
+  },
+  searchDropdown: {
+    position: 'absolute',
+    top: 50,
+    left: 20,
+    right: 20,
+    maxHeight: 300,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 1000,
+    borderWidth: 1,
+    borderColor: colors.muted,
+    marginTop: 4,
+  },
+  searchDropdownScroll: {
+    maxHeight: 300,
+  },
+  searchSuggestionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.muted,
+  },
+  searchSuggestionAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 12,
+    backgroundColor: colors.muted,
+  },
+  searchSuggestionInfo: {
+    flex: 1,
+  },
+  searchSuggestionUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 2,
+  },
+  searchSuggestionName: {
+    fontSize: 12,
+    color: colors.textSecondary,
+  },
+  searchSuggestionFollowing: {
+    fontSize: 12,
+    color: colors.primary,
+    fontWeight: '500',
   },
 
   // Tab Navigation styles
@@ -1096,52 +1226,71 @@ const createStyles = () => StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 12,
+    marginTop: 12,
   },
   giftItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.muted,
+    width: (width - 64) / 3 - 8, // 3 items per row with margins
+    backgroundColor: colors.surface,
     borderRadius: 12,
-    padding: 8,
-    flex: 1,
-    minWidth: 100,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+    marginBottom: 4,
   },
-  giftIcon: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+  giftImage: {
+    width: '100%',
+    height: 100,
+    backgroundColor: colors.muted,
+  },
+  giftImagePlaceholder: {
+    width: '100%',
+    height: 100,
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
-  giftIconText: {
-    fontSize: 14,
+  giftImagePlaceholderText: {
+    fontSize: 32,
     fontWeight: '700',
     color: 'white',
   },
+  giftInfo: {
+    padding: 8,
+  },
   giftName: {
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: '600',
     color: colors.text,
-    flex: 1,
+    marginBottom: 4,
   },
   giftPrice: {
-    fontSize: 12,
+    fontSize: 14,
+    fontWeight: '700',
+    color: colors.primary,
+    marginBottom: 4,
+  },
+  giftDescription: {
+    fontSize: 11,
     color: colors.textSecondary,
-    fontWeight: '500',
+    lineHeight: 14,
   },
   moreGifts: {
+    width: (width - 64) / 3 - 8,
+    height: 140,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: colors.muted,
     borderRadius: 12,
-    padding: 8,
-    minWidth: 60,
+    borderWidth: 2,
+    borderColor: colors.primary,
+    borderStyle: 'dashed',
   },
   moreGiftsText: {
     fontSize: 12,
-    color: colors.textSecondary,
+    color: colors.primary,
     fontWeight: '600',
   },
   cardFooter: {

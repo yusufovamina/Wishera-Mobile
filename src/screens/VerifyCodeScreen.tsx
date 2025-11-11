@@ -118,7 +118,7 @@ export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       
       {/* Animated Background Blobs */}
       <View style={styles.blobContainer} pointerEvents="none">

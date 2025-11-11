@@ -58,6 +58,13 @@ export const AppNavigator: React.FC = () => {
           <>
             <Stack.Screen name="Tabs" component={TabsNavigator} options={{ headerShown: false }} />
             <Stack.Screen name="WishlistDetail" component={WishlistDetailScreen} options={{ title: 'Wishlist' }} />
+            <Stack.Screen 
+              name="UserProfile" 
+              component={ProfileScreen} 
+              options={{ 
+                headerShown: false,
+              }} 
+            />
             <Stack.Screen name="Followers" component={FollowersScreen} options={{ title: 'Followers' }} />
             <Stack.Screen name="Following" component={FollowingScreen} options={{ title: 'Following' }} />
             <Stack.Screen name="LikedWishlists" component={LikedWishlistsScreen} options={{ title: 'Liked Wishlists' }} />
@@ -83,7 +90,7 @@ export const AppNavigator: React.FC = () => {
 // Placeholder components for tabs
 
 // Custom tab bar icon component
-const TabIcon = ({ icon, focused, label }: { icon: string; focused: boolean; label: string }) => (
+const TabIcon = ({ icon, focused, label, styles }: { icon: string; focused: boolean; label: string; styles: any }) => (
   <View style={styles.tabIconContainer}>
     <View style={[styles.tabIconCircle, focused && styles.tabIconCircleFocused]}>
       <Text style={[styles.tabIcon, focused && styles.tabIconFocused]}>{icon}</Text>
@@ -93,6 +100,9 @@ const TabIcon = ({ icon, focused, label }: { icon: string; focused: boolean; lab
 );
 
 const TabsNavigator: React.FC = () => {
+  const { theme } = usePreferences();
+  const styles = React.useMemo(() => createStyles(), [theme]);
+  
   return (
     <Tabs.Navigator
       screenOptions={{
@@ -108,7 +118,7 @@ const TabsNavigator: React.FC = () => {
         component={HomeScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🏠" focused={focused} label="Home" />
+            <TabIcon icon="🏠" focused={focused} label="Home" styles={styles} />
           ),
         }}
       />
@@ -117,7 +127,7 @@ const TabsNavigator: React.FC = () => {
         component={ChatScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="💬" focused={focused} label="Chats" />
+            <TabIcon icon="💬" focused={focused} label="Chats" styles={styles} />
           ),
         }}
       />
@@ -126,7 +136,7 @@ const TabsNavigator: React.FC = () => {
         component={NotificationsScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="🔔" focused={focused} label="Notifications" />
+            <TabIcon icon="🔔" focused={focused} label="Notifications" styles={styles} />
           ),
         }}
       />
@@ -135,7 +145,7 @@ const TabsNavigator: React.FC = () => {
         component={ProfileScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon icon="👤" focused={focused} label="Profile" />
+            <TabIcon icon="👤" focused={focused} label="Profile" styles={styles} />
           ),
         }}
       />
@@ -143,7 +153,7 @@ const TabsNavigator: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const createStyles = () => StyleSheet.create({
   tabBar: {
     backgroundColor: colors.surface,
     borderTopColor: colors.border,

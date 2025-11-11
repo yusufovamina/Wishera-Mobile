@@ -73,7 +73,7 @@ export const LoginScreen: React.FC<Props> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       
       {/* Animated Background Blobs - Pointer events disabled to allow typing */}
       <View style={styles.blobContainer} pointerEvents="none">

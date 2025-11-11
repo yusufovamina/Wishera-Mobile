@@ -5,13 +5,13 @@ import { Platform } from 'react-native';
 
 // USE_LOCAL_BACKEND flag to control whether to use localhost or production
 // Set to false to always use production API Gateway (recommended for mobile testing)
-const USE_LOCAL_BACKEND = false;
+const USE_LOCAL_BACKEND = true;
 
 // Determine the correct base URL for backend services
 const getBaseUrl = () => {
   // PRODUCTION: Always use the API Gateway (recommended)
   if (!__DEV__ || !USE_LOCAL_BACKEND) {
-    return 'https://wishera-app.onrender.com/api';
+    return 'https://wishera-app.onrender.com';
   }
 
   // DEVELOPMENT with LOCAL backend (requires all services running locally)
@@ -40,7 +40,7 @@ const getBaseUrl = () => {
   }
 
   // Fallback to production
-  return 'https://wishera-app.onrender.com/api';
+  return 'https://wishera-app.onrender.com';
 };
 
 const baseUrl = getBaseUrl();
@@ -152,6 +152,10 @@ export const endpoints = {
   // Align to web/frontend routes (lowercase)
   login: '/api/auth/login',
   register: '/api/auth/register',
+  forgotPassword: '/api/auth/forgot-password',
+  verifyResetCode: '/api/auth/verify-reset-code',
+  resetPassword: '/api/auth/reset-password',
+  googleLogin: '/api/auth/google',
   deleteAccount: '/api/auth/delete-account',
   identification: '/api/users/profile',
   updateProfile: '/api/users/profile',

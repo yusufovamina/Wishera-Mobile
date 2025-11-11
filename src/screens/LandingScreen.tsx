@@ -565,7 +565,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="dark-content" backgroundColor="transparent" translucent />
+      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       
       <View style={styles.blobContainer} pointerEvents="none">
         <Animated.View
