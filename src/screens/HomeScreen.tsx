@@ -111,39 +111,71 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         params: { page: 1, pageSize: 20 } 
       });
       console.log('Feed response:', res.data);
-      const data = res.data || [];
+      console.log('Feed response type:', typeof res.data);
+      console.log('Feed response is array:', Array.isArray(res.data));
+      
+      // Handle different response formats
+      let data: any[] = [];
+      if (Array.isArray(res.data)) {
+        data = res.data;
+      } else if (res.data && Array.isArray(res.data.data)) {
+        // Paginated response
+        data = res.data.data;
+      } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+        // Alternative paginated format
+        data = res.data.items;
+      } else if (res.data && typeof res.data === 'object') {
+        // Try to extract array from object
+        const keys = Object.keys(res.data);
+        const arrayKey = keys.find(key => Array.isArray(res.data[key]));
+        if (arrayKey) {
+          data = res.data[arrayKey];
+        }
+      }
+      
+      console.log('Extracted data:', data);
+      console.log('Data length:', data.length);
       
       // Transform data to match our UI structure
-      const transformedData: WishlistItem[] = data.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        category: item.category,
-        isPublic: item.isPublic,
-        gifts: (item.gifts || []).map((gift: any) => ({
-          id: gift.giftId || gift.id || '',
-          name: gift.title || gift.name || '',
-          price: gift.price,
-          imageUrl: gift.imageUrl,
-          description: gift.description,
-          category: gift.category,
-        })),
-        likes: item.likeCount || 0,
-        isLiked: item.isLiked || false,
-        createdAt: item.createdAt,
-        user: {
-          id: item.userId,
-          name: item.username,
-          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
-          username: item.username,
-        },
-      }));
+      const transformedData: WishlistItem[] = data.map((item: any) => {
+        if (!item || !item.id) {
+          console.warn('Invalid wishlist item:', item);
+          return null;
+        }
+        return {
+          id: item.id,
+          title: item.title || 'Untitled Wishlist',
+          description: item.description || null,
+          category: item.category || 'Other',
+          isPublic: item.isPublic !== undefined ? item.isPublic : true,
+          gifts: (item.gifts || []).map((gift: any) => ({
+            id: gift.giftId || gift.id || '',
+            name: gift.title || gift.name || '',
+            price: gift.price,
+            imageUrl: gift.imageUrl,
+            description: gift.description,
+            category: gift.category,
+          })),
+          likes: item.likeCount || item.likes || 0,
+          isLiked: item.isLiked || false,
+          createdAt: item.createdAt || new Date().toISOString(),
+          user: {
+            id: item.userId || item.user?.id || '',
+            name: item.username || item.user?.username || item.user?.name || 'Unknown',
+            avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
+            username: item.username || item.user?.username || 'unknown',
+          },
+        };
+      }).filter((item): item is WishlistItem => item !== null);
       
+      console.log('Transformed data length:', transformedData.length);
       setWishlists(transformedData);
       setFilteredWishlists(transformedData);
     } catch (error: any) {
-      console.log('Error fetching feed:', error.message);
-      console.log('Error details:', error.response?.data || error);
+      console.error('Error fetching feed:', error.message);
+      console.error('Error details:', error.response?.data || error);
+      console.error('Error status:', error.response?.status);
+      console.error('Error headers:', error.response?.headers);
       // Clear data on error (no mock fallbacks)
       setWishlists([]);
       setFilteredWishlists([]);
@@ -184,8 +216,16 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   }, [searchQuery, wishlists, selectedCategory, sortBy]);
 
   useEffect(() => {
-    fetchFeed();
-  }, []);
+    // Only fetch feed if user is authenticated
+    if (user?.id) {
+      console.log('User authenticated, fetching feed...');
+      fetchFeed();
+    } else {
+      console.log('User not authenticated, skipping feed fetch');
+      setWishlists([]);
+      setFilteredWishlists([]);
+    }
+  }, [user?.id]);
 
   // Search users when search query changes
   useEffect(() => {
@@ -218,9 +258,16 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   // Load data based on active tab
   useEffect(() => {
+    // Only load data if user is authenticated
+    if (!user?.id) {
+      console.log('User not authenticated, skipping tab data load');
+      return;
+    }
+    
     const loadTabData = async () => {
       try {
         setLoading(true);
+        console.log('Loading tab data for:', activeTab);
         switch (activeTab) {
           case 'home':
             await fetchFeed();
@@ -236,67 +283,115 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             break;
         }
       } catch (error) {
-        console.log('Error loading tab data:', error);
+        console.error('Error loading tab data:', error);
       } finally {
         setLoading(false);
       }
     };
     
     loadTabData();
-  }, [activeTab]);
+  }, [activeTab, user?.id]);
 
   const fetchLikedWishlists = async () => {
     try {
-      const res = await wishlistApi.get(endpoints.likedWishlists());
-      const data = res.data || [];
-      const transformedData: WishlistItem[] = data.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        category: item.category,
-        isPublic: item.isPublic,
-        gifts: item.gifts || [],
-        likes: item.likeCount || 0,
-        isLiked: item.isLiked || false,
-        createdAt: item.createdAt,
-        user: {
-          id: item.userId,
-          name: item.username,
-          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
-          username: item.username,
-        },
-      }));
+      console.log('Fetching liked wishlists from:', wishlistApi.defaults.baseURL + endpoints.likedWishlists(1, 50));
+      const res = await wishlistApi.get(endpoints.likedWishlists(1, 50));
+      console.log('Liked wishlists response:', res.data);
+      
+      // Handle different response formats
+      let data: any[] = [];
+      if (Array.isArray(res.data)) {
+        data = res.data;
+      } else if (res.data && Array.isArray(res.data.data)) {
+        data = res.data.data;
+      } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+        data = res.data.items;
+      }
+      
+      const transformedData: WishlistItem[] = data.map((item: any) => {
+        if (!item || !item.id) {
+          console.warn('Invalid liked wishlist item:', item);
+          return null;
+        }
+        return {
+          id: item.id,
+          title: item.title || 'Untitled Wishlist',
+          description: item.description || null,
+          category: item.category || 'Other',
+          isPublic: item.isPublic !== undefined ? item.isPublic : true,
+          gifts: item.gifts || [],
+          likes: item.likeCount || item.likes || 0,
+          isLiked: item.isLiked || true,
+          createdAt: item.createdAt || new Date().toISOString(),
+          user: {
+            id: item.userId || item.user?.id || '',
+            name: item.username || item.user?.username || item.user?.name || 'Unknown',
+            avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
+            username: item.username || item.user?.username || 'unknown',
+          },
+        };
+      }).filter((item): item is WishlistItem => item !== null);
+      
+      console.log('Transformed liked wishlists length:', transformedData.length);
       setLikedWishlists(transformedData);
-    } catch (error) {
-      console.log('Error fetching liked wishlists:', error);
+    } catch (error: any) {
+      console.error('Error fetching liked wishlists:', error.message);
+      console.error('Error details:', error.response?.data || error);
       setLikedWishlists([]);
     }
   };
 
   const fetchMyWishlists = async () => {
+    if (!user?.id) {
+      console.log('No user ID, skipping fetchMyWishlists');
+      setMyWishlists([]);
+      return;
+    }
+    
     try {
-      const res = await wishlistApi.get(endpoints.userWishlists(String(user?.id)));
-      const data = res.data || [];
-      const transformedData: WishlistItem[] = data.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        category: item.category,
-        isPublic: item.isPublic,
-        gifts: item.gifts || [],
-        likes: item.likeCount || 0,
-        isLiked: item.isLiked || false,
-        createdAt: item.createdAt,
-        user: {
-          id: item.userId,
-          name: item.username,
-          avatar: item.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username)}`,
-          username: item.username,
-        },
-      }));
+      console.log('Fetching my wishlists from:', wishlistApi.defaults.baseURL + endpoints.userWishlists(String(user.id), 1, 50));
+      const res = await wishlistApi.get(endpoints.userWishlists(String(user.id), 1, 50));
+      console.log('My wishlists response:', res.data);
+      
+      // Handle different response formats
+      let data: any[] = [];
+      if (Array.isArray(res.data)) {
+        data = res.data;
+      } else if (res.data && Array.isArray(res.data.data)) {
+        data = res.data.data;
+      } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+        data = res.data.items;
+      }
+      
+      const transformedData: WishlistItem[] = data.map((item: any) => {
+        if (!item || !item.id) {
+          console.warn('Invalid my wishlist item:', item);
+          return null;
+        }
+        return {
+          id: item.id,
+          title: item.title || 'Untitled Wishlist',
+          description: item.description || null,
+          category: item.category || 'Other',
+          isPublic: item.isPublic !== undefined ? item.isPublic : true,
+          gifts: item.gifts || [],
+          likes: item.likeCount || item.likes || 0,
+          isLiked: item.isLiked || false,
+          createdAt: item.createdAt || new Date().toISOString(),
+          user: {
+            id: item.userId || user.id,
+            name: item.username || user.username || 'You',
+            avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || 'User')}`,
+            username: item.username || user.username || 'you',
+          },
+        };
+      }).filter((item): item is WishlistItem => item !== null);
+      
+      console.log('Transformed my wishlists length:', transformedData.length);
       setMyWishlists(transformedData);
-    } catch (error) {
-      console.log('Error fetching my wishlists:', error);
+    } catch (error: any) {
+      console.error('Error fetching my wishlists:', error.message);
+      console.error('Error details:', error.response?.data || error);
       setMyWishlists([]);
     }
   };
@@ -368,15 +463,19 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const getCurrentData = () => {
+    let data: WishlistItem[] = [];
     switch (activeTab) {
       case 'home':
-        return filteredWishlists;
+        data = filteredWishlists;
+        break;
       case 'liked':
-        return likedWishlists;
+        data = likedWishlists;
+        break;
       case 'my-wishlists':
-        return myWishlists;
+        data = myWishlists;
+        break;
       case 'my-gifts':
-        return gifts.map(gift => ({
+        data = gifts.map(gift => ({
           id: gift.id,
           title: gift.name,
           description: `$${gift.price}`,
@@ -393,9 +492,12 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             username: user?.username || 'you',
           },
         }));
+        break;
       default:
-        return filteredWishlists;
+        data = filteredWishlists;
     }
+    console.log(`getCurrentData for tab "${activeTab}":`, data.length, 'items');
+    return data;
   };
 
   const getEmptyMessage = () => {
@@ -843,7 +945,10 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         data={getCurrentData()}
         keyExtractor={(item) => item.id}
         renderItem={renderWishlistCard}
-        contentContainerStyle={styles.listContent}
+        contentContainerStyle={[
+          styles.listContent,
+          loading && getCurrentData().length === 0 && { justifyContent: 'center', flex: 1 }
+        ]}
         refreshControl={
           <RefreshControl 
             tintColor={colors.primary} 
@@ -854,11 +959,22 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         ListHeaderComponent={Header}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyText}>
-              {getEmptyMessage()}
-            </Text>
-          </View>
+          loading && getCurrentData().length === 0 ? (
+            <View style={styles.loadingContainer}>
+              <Text style={styles.loadingText}>Loading wishlists...</Text>
+            </View>
+          ) : (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {getEmptyMessage()}
+              </Text>
+              {!loading && (
+                <Text style={styles.emptySubtext}>
+                  Pull down to refresh or create a new wishlist
+                </Text>
+              )}
+            </View>
+          )
         }
       />
 
@@ -1357,8 +1473,26 @@ const createStyles = () => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 60,
+    paddingHorizontal: 20,
   },
   emptyText: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emptySubtext: {
+    fontSize: 14,
+    color: colors.textMuted,
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingVertical: 60,
+  },
+  loadingText: {
     fontSize: 16,
     color: colors.textSecondary,
     textAlign: 'center',

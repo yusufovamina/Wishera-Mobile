@@ -16,11 +16,12 @@ export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
   const { theme } = usePreferences();
   const styles = React.useMemo(() => createStyles(), [theme]);
   const [code, setCode] = useState(['', '', '', '', '', '']);
-  const { verifyResetCode, loading, error } = useAuthStore();
+  const { verifyResetCode, verifyLoginCode, resendLoginCode, loading, error } = useAuthStore();
   const inputRefs = useRef<(TextInput | null)[]>([]);
   
-  // Get email from route params
+  // Get email and type from route params
   const email = route?.params?.email || '';
+  const codeType = route?.params?.type || 'reset'; // 'reset' or 'login'
   
   const floatY = useRef(new Animated.Value(0)).current;
   const pulse = useRef(new Animated.Value(0)).current;
@@ -29,7 +30,11 @@ export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
   useEffect(() => {
     if (!email) {
       Alert.alert(t('auth.error', 'Error'), t('auth.emailRequired', 'Email is required'));
-      navigation.navigate('ForgotPassword');
+      if (codeType === 'reset') {
+        navigation.navigate('ForgotPassword');
+      } else {
+        navigation.navigate('Login');
+      }
       return;
     }
 
@@ -107,12 +112,31 @@ export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
     }
 
     try {
-      const token = await verifyResetCode(email, codeString);
-      // Navigate to reset password screen with token
-      navigation.navigate('ResetPassword', { token });
+      if (codeType === 'login') {
+        await verifyLoginCode(email, codeString);
+        // Navigation will be handled automatically after successful login
+      } else {
+        const token = await verifyResetCode(email, codeString);
+        // Navigate to reset password screen with token
+        navigation.navigate('ResetPassword', { token });
+      }
     } catch (e) {
       // Error is handled by the store
       console.log('Verify code error:', e);
+    }
+  };
+
+  const handleResend = async () => {
+    try {
+      if (codeType === 'login') {
+        await resendLoginCode(email);
+        Alert.alert(t('auth.success', 'Success'), t('auth.codeResent', 'Code has been resent to your email'));
+      } else {
+        navigation.navigate('ForgotPassword', { email });
+      }
+    } catch (e) {
+      // Error is handled by the store
+      console.log('Resend code error:', e);
     }
   };
 
@@ -153,9 +177,15 @@ export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
         <Animated.View style={[styles.content, { opacity: fadeIn }]} pointerEvents="auto">
           {/* Header */}
           <View style={styles.header}>
-            <Text style={styles.title}>{t('auth.verifyCode', 'Verify Code')}</Text>
+            <Text style={styles.title}>
+              {codeType === 'login' 
+                ? t('auth.signInConfirmation', 'Sign In Confirmation')
+                : t('auth.verifyCode', 'Verify Code')}
+            </Text>
             <Text style={styles.subtitle}>
-              {t('auth.verifyCodeSubtitle', 'Enter the 6-digit code sent to your email')}
+              {codeType === 'login'
+                ? t('auth.signInCodeSubtitle', 'Enter the 6-digit code sent to your email to complete sign in')
+                : t('auth.verifyCodeSubtitle', 'Enter the 6-digit code sent to your email')}
             </Text>
             <Text style={styles.emailText}>{email}</Text>
           </View>
@@ -199,7 +229,7 @@ export const VerifyCodeScreen: React.FC<Props> = ({ navigation, route }) => {
               <Text style={styles.resendText}>
                 {t('auth.didntReceiveCode', "Didn't receive the code?")}
               </Text>
-              <TouchableOpacity onPress={() => navigation.navigate('ForgotPassword', { email })}>
+              <TouchableOpacity onPress={handleResend}>
                 <Text style={styles.resendLink}>{t('auth.resendCode', 'Resend')}</Text>
               </TouchableOpacity>
             </View>

@@ -8,6 +8,9 @@ import { usePreferences } from '../state/preferences';
 import { LandingScreen } from '../screens/LandingScreen';
 import { LoginScreen } from '../screens/LoginScreen';
 import { RegisterScreen } from '../screens/RegisterScreen';
+import { ForgotPasswordScreen } from '../screens/ForgotPasswordScreen';
+import { VerifyCodeScreen } from '../screens/VerifyCodeScreen';
+import { ResetPasswordScreen } from '../screens/ResetPasswordScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { WishlistDetailScreen } from '../screens/WishlistDetailScreen';
 import { NotificationsScreen } from '../screens/NotificationsScreen';
@@ -52,7 +55,10 @@ export const AppNavigator: React.FC = () => {
 
   return (
     <NavigationContainer theme={navTheme}>
-      <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.text }}>
+      <Stack.Navigator 
+        initialRouteName={isAuthenticated ? "Tabs" : "Landing"}
+        screenOptions={{ headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.text }}
+      >
         {isAuthenticated ? (
           // Authenticated user - show main app
           <>
@@ -80,6 +86,9 @@ export const AppNavigator: React.FC = () => {
             <Stack.Screen name="Landing" component={LandingScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Login" component={LoginScreen} options={{ headerShown: false }} />
             <Stack.Screen name="Register" component={RegisterScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="ForgotPassword" component={ForgotPasswordScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="VerifyCode" component={VerifyCodeScreen} options={{ headerShown: false }} />
+            <Stack.Screen name="ResetPassword" component={ResetPasswordScreen} options={{ headerShown: false }} />
           </>
         )}
       </Stack.Navigator>

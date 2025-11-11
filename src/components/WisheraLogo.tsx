@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated } from 'react-native';
@@ -239,9 +239,7 @@ const styles = StyleSheet.create({
   },
   giftIcon: {
     zIndex: 2,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    textShadow: '0 2px 4px rgba(0, 0, 0, 0.3)',
   },
   sparkle: {
     position: 'absolute',
@@ -254,9 +252,7 @@ const styles = StyleSheet.create({
   logoText: {
     fontWeight: '900',
     letterSpacing: 1,
-    textShadowColor: 'rgba(99, 102, 241, 0.3)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 4,
+    textShadow: '0 2px 4px rgba(99, 102, 241, 0.3)',
   },
 });
 

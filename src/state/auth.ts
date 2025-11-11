@@ -12,11 +12,13 @@ type AuthState = {
   token: string | null;
   loading: boolean;
   error: string | null;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<{ requiresCode: boolean; email?: string }>;
   register: (username: string, password: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   verifyResetCode: (email: string, code: string) => Promise<string>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
+  verifyLoginCode: (email: string, code: string) => Promise<void>;
+  resendLoginCode: (email: string) => Promise<void>;
   loginWithGoogle: () => Promise<void>;
   identify: () => Promise<void>;
   logout: () => Promise<void>;
@@ -41,8 +43,16 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       console.log('Token set, calling identify...');
       await (get().identify());
       console.log('Login completed successfully');
+      return { requiresCode: false };
     } catch (e: any) {
       console.log('Login error:', e?.response?.data || e.message);
+      
+      // Check if login code is required
+      if (e?.response?.data?.message === 'LOGIN_CODE_REQUIRED') {
+        console.log('Login code required for first-time sign-in');
+        return { requiresCode: true, email: username };
+      }
+      
       let errorMessage = 'Login failed';
       
       // Handle network/CORS errors
@@ -59,6 +69,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       }
       
       set({ error: errorMessage });
+      return { requiresCode: false };
     } finally {
       set({ loading: false });
     }
@@ -130,6 +141,32 @@ export const useAuthStore = create<AuthState>((set, get) => ({
       set({ loading: false });
     }
   },
+  verifyLoginCode: async (email, code) => {
+    set({ loading: true, error: null });
+    try {
+      const response = await api.post(endpoints.verifyLoginCode, { email, code });
+      const token = response.data?.token || response.data;
+      await AsyncStorage.setItem('auth_token', token);
+      set({ token });
+      await (get().identify());
+    } catch (e: any) {
+      set({ error: e?.response?.data?.message || 'Invalid or expired code' });
+      throw e;
+    } finally {
+      set({ loading: false });
+    }
+  },
+  resendLoginCode: async (email) => {
+    set({ loading: true, error: null });
+    try {
+      await api.post(endpoints.resendLoginCode, { email });
+    } catch (e: any) {
+      set({ error: e?.response?.data?.message || 'Failed to resend code' });
+      throw e;
+    } finally {
+      set({ loading: false });
+    }
+  },
   loginWithGoogle: async () => {
     set({ loading: true, error: null });
     try {
@@ -147,13 +184,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         return; // Don't wait for completion, browser handles it
       }
       
-      // For mobile platforms, use deep linking
+      // For mobile platforms, use dedicated mobile endpoint with deep linking
       // Create a deep link URL for the OAuth callback
       // Format: wishera://oauth-complete?token=xxx&userId=xxx&username=xxx
       const redirectUrl = Linking.createURL('/oauth-complete');
       
-      // Add clientType parameter to tell backend this is a mobile client
-      const authUrl = `${authServiceUrl}${endpoints.googleLogin}?clientType=mobile`;
+      // Use mobile-specific endpoint for better separation
+      const authUrl = `${authServiceUrl}${endpoints.googleLoginMobile}?redirectUrl=${encodeURIComponent(redirectUrl)}`;
       
       console.log('[Mobile OAuth] Opening Google OAuth:', authUrl);
       console.log('[Mobile OAuth] Expected redirect to:', redirectUrl);
@@ -207,7 +244,7 @@ export const useAuthStore = create<AuthState>((set, get) => ({
               console.error('[Mobile OAuth] Failed to parse HTTP URL:', e);
             }
             
-            throw new Error('Backend redirected to web URL but no token found. Check backend logs - state should start with "google_mobile_".');
+            throw new Error('Backend redirected to web URL but no token found. Ensure the mobile endpoint /api/auth/google-mobile is properly configured.');
           }
           throw new Error('No token received from Google login');
         }

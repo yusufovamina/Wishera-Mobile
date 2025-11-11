@@ -100,23 +100,64 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
   };
 
   const fetchWishlists = async () => {
-    if (!targetUserId) return;
+    if (!targetUserId) {
+      console.log('No targetUserId, skipping fetchWishlists');
+      setWishlists([]);
+      return;
+    }
     
     try {
       setLoadingWishlists(true);
+      console.log('Fetching wishlists for user:', targetUserId);
+      console.log('Fetching from:', wishlistApi.defaults.baseURL + endpoints.userWishlists(targetUserId, 1, 50));
+      
       const res = await wishlistApi.get(endpoints.userWishlists(targetUserId, 1, 50));
-      const data = res.data || [];
-      setWishlists(data.map((item: any) => ({
-        id: item.id,
-        title: item.title,
-        description: item.description,
-        imageUrl: item.imageUrl || (item.gifts && item.gifts.length > 0 && item.gifts[0]?.imageUrl),
-        category: item.category,
-        likeCount: item.likeCount || 0,
-        gifts: item.gifts || [],
-      })));
+      console.log('Wishlists response:', res.data);
+      console.log('Wishlists response type:', typeof res.data);
+      console.log('Wishlists response is array:', Array.isArray(res.data));
+      
+      // Handle different response formats
+      let data: any[] = [];
+      if (Array.isArray(res.data)) {
+        data = res.data;
+      } else if (res.data && Array.isArray(res.data.data)) {
+        data = res.data.data;
+      } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+        data = res.data.items;
+      } else if (res.data && typeof res.data === 'object') {
+        // Try to extract array from object
+        const keys = Object.keys(res.data);
+        const arrayKey = keys.find(key => Array.isArray(res.data[key]));
+        if (arrayKey) {
+          data = res.data[arrayKey];
+        }
+      }
+      
+      console.log('Extracted wishlists data:', data);
+      console.log('Wishlists count:', data.length);
+      
+      const transformedData = data.map((item: any) => {
+        if (!item || !item.id) {
+          console.warn('Invalid wishlist item:', item);
+          return null;
+        }
+        return {
+          id: item.id,
+          title: item.title || 'Untitled Wishlist',
+          description: item.description || null,
+          imageUrl: item.imageUrl || (item.gifts && Array.isArray(item.gifts) && item.gifts.length > 0 && item.gifts[0]?.imageUrl),
+          category: item.category || 'Other',
+          likeCount: item.likeCount || item.likes || 0,
+          gifts: item.gifts || [],
+        };
+      }).filter((item): item is WishlistItem => item !== null);
+      
+      console.log('Transformed wishlists count:', transformedData.length);
+      setWishlists(transformedData);
     } catch (error: any) {
-      console.log('Error fetching wishlists:', error);
+      console.error('Error fetching wishlists:', error.message);
+      console.error('Error details:', error.response?.data || error);
+      console.error('Error status:', error.response?.status);
       setWishlists([]);
     } finally {
       setLoadingWishlists(false);
@@ -124,35 +165,124 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
   };
 
   const fetchGifts = async () => {
-    if (!targetUserId) return;
+    if (!targetUserId) {
+      console.log('No targetUserId, skipping fetchGifts');
+      setGifts([]);
+      return;
+    }
     
     try {
       setLoadingGifts(true);
-      // Get all gifts from user's wishlists
-      // First fetch wishlists, then extract all gifts from them
-      const res = await wishlistApi.get(endpoints.userWishlists(targetUserId, 1, 50));
-      const wishlistsData = res.data || [];
-      const allGifts: any[] = [];
+      console.log('Fetching gifts for user:', targetUserId);
+      console.log('Is viewing other user:', isViewingOtherUser);
       
-      wishlistsData.forEach((wishlist: any) => {
-        if (wishlist.gifts && Array.isArray(wishlist.gifts)) {
-          wishlist.gifts.forEach((gift: any) => {
-            allGifts.push({
-              id: gift.id || gift.giftId,
-              name: gift.name || gift.title,
-              price: gift.price,
-              imageUrl: gift.imageUrl,
-              category: gift.category,
-              wishlistId: wishlist.id,
-              wishlistTitle: wishlist.title,
-            });
-          });
+      let allGifts: any[] = [];
+      
+      // If viewing current user's profile, use the giftsForUser endpoint (same as HomeScreen)
+      if (!isViewingOtherUser && targetUserId === user?.id) {
+        console.log('Fetching own gifts from:', wishlistApi.defaults.baseURL + endpoints.giftsForUser);
+        const res = await wishlistApi.get(endpoints.giftsForUser);
+        console.log('Gifts response:', res.data);
+        console.log('Gifts response type:', typeof res.data);
+        console.log('Gifts response is array:', Array.isArray(res.data));
+        
+        // Handle different response formats
+        if (Array.isArray(res.data)) {
+          allGifts = res.data;
+        } else if (res.data && Array.isArray(res.data.data)) {
+          allGifts = res.data.data;
+        } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+          allGifts = res.data.items;
+        } else if (res.data && typeof res.data === 'object') {
+          // Try to extract array from object
+          const keys = Object.keys(res.data);
+          const arrayKey = keys.find(key => Array.isArray(res.data[key]));
+          if (arrayKey) {
+            allGifts = res.data[arrayKey];
+          }
         }
-      });
+        
+        // Transform gifts to match expected format
+        allGifts = allGifts.map((gift: any) => ({
+          id: gift.id || gift.giftId || `gift-${allGifts.indexOf(gift)}`,
+          name: gift.name || gift.title || 'Untitled Gift',
+          price: gift.price,
+          imageUrl: gift.imageUrl,
+          description: gift.description,
+          category: gift.category,
+          wishlistId: gift.wishlistId,
+          wishlistTitle: gift.wishlistTitle,
+        }));
+      } else {
+        // For other users, extract gifts from wishlists
+        console.log('Fetching from:', wishlistApi.defaults.baseURL + endpoints.userWishlists(targetUserId, 1, 50));
+        const res = await wishlistApi.get(endpoints.userWishlists(targetUserId, 1, 50));
+        console.log('Wishlists response:', res.data);
+        console.log('Wishlists response type:', typeof res.data);
+        console.log('Wishlists response is array:', Array.isArray(res.data));
+        
+        // Handle different response formats
+        let wishlistsData: any[] = [];
+        if (Array.isArray(res.data)) {
+          wishlistsData = res.data;
+        } else if (res.data && Array.isArray(res.data.data)) {
+          wishlistsData = res.data.data;
+        } else if (res.data && res.data.items && Array.isArray(res.data.items)) {
+          wishlistsData = res.data.items;
+        } else if (res.data && typeof res.data === 'object') {
+          // Try to extract array from object
+          const keys = Object.keys(res.data);
+          const arrayKey = keys.find(key => Array.isArray(res.data[key]));
+          if (arrayKey) {
+            wishlistsData = res.data[arrayKey];
+          }
+        }
+        
+        console.log('Extracted wishlists data:', wishlistsData);
+        console.log('Wishlists count:', wishlistsData.length);
+        
+        wishlistsData.forEach((wishlist: any) => {
+          if (!wishlist || !wishlist.id) {
+            console.warn('Invalid wishlist item:', wishlist);
+            return;
+          }
+          
+          console.log('Processing wishlist:', wishlist.id, wishlist.title);
+          console.log('Wishlist gifts:', wishlist.gifts);
+          
+          if (wishlist.gifts && Array.isArray(wishlist.gifts)) {
+            wishlist.gifts.forEach((gift: any) => {
+              if (!gift) {
+                console.warn('Invalid gift item:', gift);
+                return;
+              }
+              
+              const giftData = {
+                id: gift.id || gift.giftId || `gift-${wishlist.id}-${allGifts.length}`,
+                name: gift.name || gift.title || 'Untitled Gift',
+                price: gift.price,
+                imageUrl: gift.imageUrl,
+                description: gift.description,
+                category: gift.category,
+                wishlistId: wishlist.id,
+                wishlistTitle: wishlist.title,
+              };
+              
+              console.log('Adding gift:', giftData);
+              allGifts.push(giftData);
+            });
+          } else {
+            console.log('Wishlist has no gifts or gifts is not an array:', wishlist.id, 'gifts:', wishlist.gifts);
+          }
+        });
+      }
       
+      console.log('Total gifts extracted:', allGifts.length);
       setGifts(allGifts);
     } catch (error: any) {
-      console.log('Error fetching gifts:', error);
+      console.error('Error fetching gifts:', error.message);
+      console.error('Error details:', error.response?.data || error);
+      console.error('Error status:', error.response?.status);
       setGifts([]);
     } finally {
       setLoadingGifts(false);
@@ -546,7 +676,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     );
   }
 
-  const displayName = profile.name || profile.username;
+  const displayName = profile.name || profile.username || '';
   const followersCount = profile.followersCount ?? profile.followers?.length ?? 0;
   const followingCount = profile.followingCount ?? profile.following?.length ?? 0;
   const likesCount = wishlists.reduce((sum, w) => sum + (w.likeCount || 0), 0);
@@ -597,7 +727,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
         <View style={styles.profileInfo}>
           <Text style={styles.profileName}>{displayName}</Text>
           <View style={styles.usernameContainer}>
-            <Text style={styles.username}>@{profile.username}</Text>
+            <Text style={styles.username}>@{profile.username || ''}</Text>
           </View>
 
           {/* Action Buttons */}
@@ -627,19 +757,19 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               </TouchableOpacity>
             )}
           </View>
-            
-            {/* Stats */}
-            <View style={styles.statsContainer}>
+
+          {/* Stats */}
+          <View style={styles.statsContainer}>
             <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('Following', { userId: profile.id })}>
-              <Text style={styles.statNumber}>{followingCount.toLocaleString()}</Text>
+              <Text style={styles.statNumber}>{Number(followingCount).toLocaleString()}</Text>
               <Text style={styles.statLabel}>Following</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('Followers', { userId: profile.id })}>
-              <Text style={styles.statNumber}>{followersCount.toLocaleString()}</Text>
-                <Text style={styles.statLabel}>Followers</Text>
+              <Text style={styles.statNumber}>{Number(followersCount).toLocaleString()}</Text>
+              <Text style={styles.statLabel}>Followers</Text>
             </TouchableOpacity>
             <View style={styles.statItem}>
-              <Text style={styles.statNumber}>{likesCount.toLocaleString()}</Text>
+              <Text style={styles.statNumber}>{Number(likesCount).toLocaleString()}</Text>
               <Text style={styles.statLabel}>Likes</Text>
             </View>
           </View>

@@ -61,6 +61,19 @@ const useCases = [
   { title: 'Holiday Gifts', iconName: 'star' as const, description: 'Plan holiday gift exchanges', color: colors.warning },
 ];
 
+// Helper function to convert hex to rgba
+const hexToRgba = (hex: string, opacity: number): string => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+  // Fallback for rgba or other formats
+  return hex.includes('rgba') ? hex : `rgba(99, 102, 241, ${opacity})`;
+};
+
 // Enhanced Icon Component with Gradient and Glow
 const GradientIcon: React.FC<{
   name: keyof typeof Ionicons.glyphMap;
@@ -132,10 +145,7 @@ const GradientIcon: React.FC<{
             borderRadius: borderRadius * 1.3,
             backgroundColor: gradientColors[0],
             opacity: glowOpacity,
-            shadowColor: gradientColors[0],
-            shadowOffset: { width: 0, height: 0 },
-            shadowRadius: 20,
-            shadowOpacity: 1,
+            boxShadow: `0 0 20px 0 ${gradientColors[0]}`,
             elevation: 10,
           },
         ]}
@@ -152,10 +162,7 @@ const GradientIcon: React.FC<{
             borderRadius: borderRadius,
             justifyContent: 'center',
             alignItems: 'center',
-            shadowColor: gradientColors[0],
-            shadowOffset: { width: 0, height: 8 },
-            shadowOpacity: 0.4,
-            shadowRadius: 16,
+            boxShadow: `0 8px 16px 0 ${hexToRgba(gradientColors[0], 0.4)}`,
             elevation: 15,
           }}
         >
@@ -567,7 +574,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
     <View style={styles.container}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
       
-      <View style={styles.blobContainer} pointerEvents="none">
+      <View style={[styles.blobContainer, { pointerEvents: 'none' }]}>
         <Animated.View
           style={[
             styles.blob,
@@ -729,10 +736,9 @@ const createStyles = () =>
     glassCard: {
       borderRadius: width < 400 ? 16 : 24,
       overflow: 'hidden',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: width < 400 ? 6 : 12 },
-      shadowOpacity: 0.3,
-      shadowRadius: width < 400 ? 12 : 20,
+      boxShadow: width < 400 
+        ? `0 6px 12px 0 rgba(99, 102, 241, 0.3)`
+        : `0 12px 20px 0 rgba(99, 102, 241, 0.3)`,
       elevation: width < 400 ? 10 : 16,
       width: '100%',
       maxWidth: width < 400 ? width - 32 : 400,
@@ -779,10 +785,7 @@ const createStyles = () =>
       padding: width < 400 ? 32 : 48,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.2,
-      shadowRadius: 16,
+      boxShadow: '0 8px 16px 0 rgba(99, 102, 241, 0.2)',
       elevation: 8,
       minHeight: width < 400 ? 280 : 300,
     },
@@ -816,10 +819,7 @@ const createStyles = () =>
       backgroundColor: '#1a1a1a',
       borderRadius: 28,
       padding: 6,
-      shadowColor: '#000',
-      shadowOffset: { width: 0, height: 20 },
-      shadowOpacity: 0.5,
-      shadowRadius: 35,
+      boxShadow: '0 20px 35px 0 rgba(0, 0, 0, 0.5)',
       elevation: 25,
       alignSelf: 'center',
     },
@@ -920,10 +920,7 @@ const createStyles = () =>
       paddingVertical: 12,
       backgroundColor: colors.surface,
       borderRadius: 24,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.1,
-      shadowRadius: 12,
+      boxShadow: '0 4px 12px 0 rgba(99, 102, 241, 0.1)',
       elevation: 6,
     },
     cardLabelText: {
@@ -939,10 +936,7 @@ const createStyles = () =>
       padding: width < 400 ? 32 : 48,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.2,
-      shadowRadius: 16,
+      boxShadow: '0 8px 16px 0 rgba(99, 102, 241, 0.2)',
       elevation: 8,
       minHeight: width < 400 ? 320 : 350,
     },
@@ -955,10 +949,7 @@ const createStyles = () =>
       borderRadius: width < 400 ? 30 : 36,
       justifyContent: 'center',
       alignItems: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 6 },
-      shadowOpacity: 0.4,
-      shadowRadius: 12,
+      boxShadow: '0 6px 12px 0 rgba(99, 102, 241, 0.4)',
       elevation: 10,
     },
     stepNumberText: {
@@ -988,10 +979,7 @@ const createStyles = () =>
       padding: width < 400 ? 32 : 48,
       alignItems: 'center',
       justifyContent: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 8 },
-      shadowOpacity: 0.2,
-      shadowRadius: 16,
+      boxShadow: '0 8px 16px 0 rgba(99, 102, 241, 0.2)',
       elevation: 8,
       minHeight: width < 400 ? 320 : 350,
     },
@@ -1013,10 +1001,7 @@ const createStyles = () =>
     socialFeaturesCard: {
       borderRadius: 28,
       overflow: 'hidden',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.2,
-      shadowRadius: 20,
+      boxShadow: '0 12px 20px 0 rgba(99, 102, 241, 0.2)',
       elevation: 12,
       width: '100%',
       maxWidth: 500,
@@ -1050,10 +1035,7 @@ const createStyles = () =>
       padding: 20,
       borderRadius: 16,
       marginBottom: 16,
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 4 },
-      shadowOpacity: 0.1,
-      shadowRadius: 8,
+      boxShadow: '0 4px 8px 0 rgba(99, 102, 241, 0.1)',
       elevation: 4,
     },
     socialFeatureText: {
@@ -1067,10 +1049,7 @@ const createStyles = () =>
       borderRadius: 28,
       padding: 48,
       alignItems: 'center',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.15,
-      shadowRadius: 20,
+      boxShadow: '0 12px 20px 0 rgba(99, 102, 241, 0.15)',
       elevation: 12,
       width: '100%',
       maxWidth: 500,
@@ -1110,10 +1089,7 @@ const createStyles = () =>
     buttonContainer: {
       borderRadius: 20,
       overflow: 'hidden',
-      shadowColor: colors.primary,
-      shadowOffset: { width: 0, height: 12 },
-      shadowOpacity: 0.4,
-      shadowRadius: 20,
+      boxShadow: '0 12px 20px 0 rgba(99, 102, 241, 0.4)',
       elevation: 15,
       marginBottom: 20,
       width: '100%',
