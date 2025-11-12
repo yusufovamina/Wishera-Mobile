@@ -7,6 +7,7 @@ import { usePreferences } from '../state/preferences';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
+import { SafeImage } from '../components/SafeImage';
 import { useAuthStore } from '../state/auth';
 import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
@@ -137,36 +138,58 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       console.log('Data length:', data.length);
       
       // Transform data to match our UI structure
-      const transformedData: WishlistItem[] = data.map((item: any) => {
-        if (!item || !item.id) {
-          console.warn('Invalid wishlist item:', item);
-          return null;
-        }
-        return {
-          id: item.id,
-          title: item.title || 'Untitled Wishlist',
-          description: item.description || null,
-          category: item.category || 'Other',
-          isPublic: item.isPublic !== undefined ? item.isPublic : true,
-          gifts: (item.gifts || []).map((gift: any) => ({
-            id: gift.giftId || gift.id || '',
-            name: gift.title || gift.name || '',
-            price: gift.price,
-            imageUrl: gift.imageUrl,
-            description: gift.description,
-            category: gift.category,
-          })),
-          likes: item.likeCount || item.likes || 0,
-          isLiked: item.isLiked || false,
-          createdAt: item.createdAt || new Date().toISOString(),
-          user: {
-            id: item.userId || item.user?.id || '',
-            name: item.username || item.user?.username || item.user?.name || 'Unknown',
-            avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
-            username: item.username || item.user?.username || 'unknown',
-          },
-        };
-      }).filter((item): item is WishlistItem => item !== null);
+      const transformedData = data
+        .map((item: any): WishlistItem | null => {
+          if (!item || !item.id) {
+            console.warn('Invalid wishlist item:', item);
+            return null;
+          }
+          // Log gift data for debugging
+          console.log(`Wishlist ${item.id} - Raw gifts:`, item.gifts);
+          console.log(`Wishlist ${item.id} - Gifts array?:`, Array.isArray(item.gifts));
+          console.log(`Wishlist ${item.id} - Gifts length:`, item.gifts?.length || 0);
+          
+          const transformedGifts = (item.gifts || []).map((gift: any, idx: number) => {
+            const transformed = {
+              id: gift.giftId || gift.id || `gift-${idx}`,
+              name: gift.title || gift.name || gift.name || 'Unnamed Gift',
+              price: gift.price,
+              imageUrl: gift.imageUrl || gift.image || gift.imageUrl,
+              description: gift.description,
+              category: gift.category,
+            };
+            console.log(`  Gift ${idx}:`, transformed);
+            return transformed;
+          }).filter((gift: any) => gift.name && gift.name !== 'Unnamed Gift' || gift.id);
+          
+          console.log(`Wishlist ${item.id} - Transformed gifts:`, transformedGifts);
+          console.log(`Wishlist ${item.id} - Transformed gifts length:`, transformedGifts.length);
+          
+          const result: WishlistItem = {
+            id: item.id,
+            title: item.title || 'Untitled Wishlist',
+            isPublic: item.isPublic !== undefined ? item.isPublic : true,
+            gifts: transformedGifts,
+            likes: item.likeCount || item.likes || 0,
+            isLiked: item.isLiked || false,
+            createdAt: item.createdAt || new Date().toISOString(),
+            user: {
+              id: item.userId || item.user?.id || '',
+              name: item.username || item.user?.username || item.user?.name || 'Unknown',
+              avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
+              username: item.username || item.user?.username || 'unknown',
+            },
+          };
+          if (item.description) {
+            result.description = item.description;
+          }
+          if (item.category) {
+            result.category = item.category;
+          }
+          console.log(`Wishlist ${item.id} - Final result gifts:`, result.gifts);
+          return result;
+        })
+        .filter((item): item is WishlistItem => item !== null);
       
       console.log('Transformed data length:', transformedData.length);
       setWishlists(transformedData);
@@ -308,29 +331,46 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         data = res.data.items;
       }
       
-      const transformedData: WishlistItem[] = data.map((item: any) => {
-        if (!item || !item.id) {
-          console.warn('Invalid liked wishlist item:', item);
-          return null;
-        }
-        return {
-          id: item.id,
-          title: item.title || 'Untitled Wishlist',
-          description: item.description || null,
-          category: item.category || 'Other',
-          isPublic: item.isPublic !== undefined ? item.isPublic : true,
-          gifts: item.gifts || [],
-          likes: item.likeCount || item.likes || 0,
-          isLiked: item.isLiked || true,
-          createdAt: item.createdAt || new Date().toISOString(),
-          user: {
-            id: item.userId || item.user?.id || '',
-            name: item.username || item.user?.username || item.user?.name || 'Unknown',
-            avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
-            username: item.username || item.user?.username || 'unknown',
-          },
-        };
-      }).filter((item): item is WishlistItem => item !== null);
+      const transformedData = data
+        .map((item: any): WishlistItem | null => {
+          if (!item || !item.id) {
+            console.warn('Invalid liked wishlist item:', item);
+            return null;
+          }
+          // Transform gifts for liked wishlists
+          const transformedGifts = (item.gifts || []).map((gift: any, idx: number) => ({
+            id: gift.giftId || gift.id || `gift-${idx}`,
+            name: gift.title || gift.name || 'Unnamed Gift',
+            price: gift.price,
+            imageUrl: gift.imageUrl || gift.image,
+            description: gift.description,
+            category: gift.category,
+          })).filter((gift: any) => gift.name || gift.id);
+          
+          const result: WishlistItem = {
+            id: item.id,
+            title: item.title || 'Untitled Wishlist',
+            isPublic: item.isPublic !== undefined ? item.isPublic : true,
+            gifts: transformedGifts,
+            likes: item.likeCount || item.likes || 0,
+            isLiked: item.isLiked || true,
+            createdAt: item.createdAt || new Date().toISOString(),
+            user: {
+              id: item.userId || item.user?.id || '',
+              name: item.username || item.user?.username || item.user?.name || 'Unknown',
+              avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.username || item.user?.username || 'User')}`,
+              username: item.username || item.user?.username || 'unknown',
+            },
+          };
+          if (item.description) {
+            result.description = item.description;
+          }
+          if (item.category) {
+            result.category = item.category;
+          }
+          return result;
+        })
+        .filter((item): item is WishlistItem => item !== null);
       
       console.log('Transformed liked wishlists length:', transformedData.length);
       setLikedWishlists(transformedData);
@@ -363,29 +403,46 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         data = res.data.items;
       }
       
-      const transformedData: WishlistItem[] = data.map((item: any) => {
-        if (!item || !item.id) {
-          console.warn('Invalid my wishlist item:', item);
-          return null;
-        }
-        return {
-          id: item.id,
-          title: item.title || 'Untitled Wishlist',
-          description: item.description || null,
-          category: item.category || 'Other',
-          isPublic: item.isPublic !== undefined ? item.isPublic : true,
-          gifts: item.gifts || [],
-          likes: item.likeCount || item.likes || 0,
-          isLiked: item.isLiked || false,
-          createdAt: item.createdAt || new Date().toISOString(),
-          user: {
-            id: item.userId || user.id,
-            name: item.username || user.username || 'You',
-            avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || user.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || 'User')}`,
-            username: item.username || user.username || 'you',
-          },
-        };
-      }).filter((item): item is WishlistItem => item !== null);
+      const transformedData = data
+        .map((item: any): WishlistItem | null => {
+          if (!item || !item.id) {
+            console.warn('Invalid my wishlist item:', item);
+            return null;
+          }
+          // Transform gifts for my wishlists
+          const transformedGifts = (item.gifts || []).map((gift: any, idx: number) => ({
+            id: gift.giftId || gift.id || `gift-${idx}`,
+            name: gift.title || gift.name || 'Unnamed Gift',
+            price: gift.price,
+            imageUrl: gift.imageUrl || gift.image,
+            description: gift.description,
+            category: gift.category,
+          })).filter((gift: any) => gift.name || gift.id);
+          
+          const result: WishlistItem = {
+            id: item.id,
+            title: item.title || 'Untitled Wishlist',
+            isPublic: item.isPublic !== undefined ? item.isPublic : true,
+            gifts: transformedGifts,
+            likes: item.likeCount || item.likes || 0,
+            isLiked: item.isLiked || false,
+            createdAt: item.createdAt || new Date().toISOString(),
+            user: {
+              id: item.userId || user.id,
+              name: item.username || user.username || 'You',
+              avatar: item.avatarUrl || item.user?.avatarUrl || item.user?.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || 'User')}`,
+              username: item.username || user.username || 'you',
+            },
+          };
+          if (item.description) {
+            result.description = item.description;
+          }
+          if (item.category) {
+            result.category = item.category;
+          }
+          return result;
+        })
+        .filter((item): item is WishlistItem => item !== null);
       
       console.log('Transformed my wishlists length:', transformedData.length);
       setMyWishlists(transformedData);
@@ -488,7 +545,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           user: {
             id: user?.id || '',
             name: user?.username || 'You',
-            avatar: user?.avatar || '',
+            avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user?.username || 'User')}`,
             username: user?.username || 'you',
           },
         }));
@@ -576,7 +633,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     console.log('Bookmark toggled for wishlist:', wishlistId);
   };
 
-  const renderWishlistCard = ({ item }: { item: WishlistItem }) => (
+  const renderWishlistCard = React.useCallback(({ item }: { item: WishlistItem }) => (
     <Animated.View
       style={[
         styles.wishlistCard,
@@ -593,7 +650,12 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         {/* Header with user info */}
         <View style={styles.cardHeader}>
           <View style={styles.userInfo}>
-            <Image source={{ uri: item.user.avatar }} style={styles.userAvatar} />
+            <SafeImage 
+              source={{ uri: item.user.avatar }} 
+              style={styles.userAvatar}
+              fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(item.user.username || 'User')}`}
+              placeholder={item.user.username?.charAt(0).toUpperCase() || 'U'}
+            />
             <View>
               <Text style={styles.userName}>{item.user.name}</Text>
               <Text style={styles.userHandle}>@{item.user.username}</Text>
@@ -618,56 +680,72 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           )}
           
           {/* Gifts preview with photos, names, prices, and descriptions */}
-          {item.gifts && Array.isArray(item.gifts) && item.gifts.length > 0 && (
-            <View style={styles.giftsPreview}>
-              {item.gifts.slice(0, 3).map((gift: any, index: number) => {
-                if (!gift || (!gift.id && !gift.name)) return null;
-                const giftKey = gift.id || `gift-${index}`;
-                return (
-                  <View key={giftKey} style={styles.giftItem}>
-                    {/* Gift Image */}
-                    {gift.imageUrl && gift.imageUrl.trim() ? (
-                      <Image 
-                        source={{ uri: gift.imageUrl }} 
-                        style={styles.giftImage}
-                        resizeMode="cover"
-                      />
-                    ) : (
-                      <View style={styles.giftImagePlaceholder}>
-                        <Text style={styles.giftImagePlaceholderText}>
-                          {gift.name && gift.name.length > 0 ? gift.name.charAt(0).toUpperCase() : 'G'}
-                        </Text>
-                      </View>
-                    )}
-                    
-                    {/* Gift Info */}
-                    <View style={styles.giftInfo}>
-                      {gift.name && gift.name.trim() ? (
+          {(() => {
+            console.log(`Rendering wishlist ${item.id} - Gifts:`, item.gifts);
+            console.log(`  - Is array?:`, Array.isArray(item.gifts));
+            console.log(`  - Length:`, item.gifts?.length || 0);
+            console.log(`  - Has gifts?:`, item.gifts && item.gifts.length > 0);
+            
+            if (!item.gifts || !Array.isArray(item.gifts) || item.gifts.length === 0) {
+              console.log(`  - Not rendering gifts for wishlist ${item.id}`);
+              return null;
+            }
+            
+            const visibleGifts = item.gifts.slice(0, 3).filter((gift: any) => gift && (gift.id || gift.name));
+            console.log(`  - Visible gifts:`, visibleGifts.length);
+            
+            return (
+              <View style={styles.giftsPreview}>
+                {visibleGifts.map((gift: any, index: number) => {
+                  const giftKey = gift.id || `gift-${index}`;
+                  const giftName = gift.name || gift.title || 'Gift';
+                  const firstLetter = giftName.charAt(0).toUpperCase();
+                  
+                  return (
+                    <View key={giftKey} style={styles.giftItem}>
+                      {/* Gift Image */}
+                      {gift.imageUrl && gift.imageUrl.trim() ? (
+                        <SafeImage 
+                          source={{ uri: gift.imageUrl }} 
+                          style={styles.giftImage}
+                          resizeMode="cover"
+                          placeholder={firstLetter}
+                        />
+                      ) : (
+                        <View style={styles.giftImagePlaceholder}>
+                          <Text style={styles.giftImagePlaceholderText}>
+                            {firstLetter}
+                          </Text>
+                        </View>
+                      )}
+                      
+                      {/* Gift Info */}
+                      <View style={styles.giftInfo}>
                         <Text style={styles.giftName} numberOfLines={1}>
-                          {gift.name}
+                          {giftName}
                         </Text>
-                      ) : null}
-                      {gift.price !== undefined && gift.price !== null && gift.price !== '' ? (
-                        <Text style={styles.giftPrice}>
-                          ${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}
-                        </Text>
-                      ) : null}
-                      {gift.description && gift.description.trim() ? (
-                        <Text style={styles.giftDescription} numberOfLines={2}>
-                          {gift.description}
-                        </Text>
-                      ) : null}
+                        {gift.price !== undefined && gift.price !== null && gift.price !== '' && (
+                          <Text style={styles.giftPrice}>
+                            ${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}
+                          </Text>
+                        )}
+                        {gift.description && gift.description.trim() && (
+                          <Text style={styles.giftDescription} numberOfLines={2}>
+                            {gift.description}
+                          </Text>
+                        )}
+                      </View>
                     </View>
+                  );
+                })}
+                {item.gifts.length > 3 && (
+                  <View style={styles.moreGifts}>
+                    <Text style={styles.moreGiftsText}>+{item.gifts.length - 3} more</Text>
                   </View>
-                );
-              }).filter(Boolean)}
-              {item.gifts.length > 3 && (
-                <View style={styles.moreGifts}>
-                  <Text style={styles.moreGiftsText}>+{item.gifts.length - 3} more</Text>
-                </View>
-              )}
-            </View>
-          )}
+                )}
+              </View>
+            );
+          })()}
         </TouchableOpacity>
 
         {/* Card footer with actions */}
@@ -718,7 +796,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
       </TouchableOpacity>
     </Animated.View>
-  );
+  ), [navigation, user, fadeIn, slideUp, handleLike, handleBookmark, handleEditWishlist, handleDeleteWishlist]);
 
   const Header = useMemo(() => (
     <Animated.View 
@@ -759,13 +837,14 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       <View style={styles.headerContent}>
         <View style={styles.headerTop}>
           <View style={styles.userSection}>
-            <Image 
-              source={{ uri: user?.avatar || 'https://api.dicebear.com/7.x/initials/svg?seed=User' }} 
-              style={styles.headerAvatar} 
+            <SafeImage 
+              source={{ uri: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user?.username || 'User')}` }} 
+              style={styles.headerAvatar}
+              placeholder={user?.username?.charAt(0).toUpperCase() || 'U'}
             />
             <View>
               <Text style={styles.greeting}>{t('home.welcomeBack', 'Welcome back!')}</Text>
-              <Text style={styles.userName}>{user?.username || 'User'}</Text>
+              <Text style={styles.headerUserName}>{user?.username || 'User'}</Text>
             </View>
           </View>
           
@@ -839,9 +918,11 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
                       navigation.navigate('UserProfile', { userId: user.id });
                     }}
                   >
-                    <Image 
+                    <SafeImage 
                       source={{ uri: user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}` }} 
                       style={styles.searchSuggestionAvatar}
+                      fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}`}
+                      placeholder={user.username?.charAt(0).toUpperCase() || 'U'}
                     />
                     <View style={styles.searchSuggestionInfo}>
                       <Text style={styles.searchSuggestionUsername}>@{user.username || 'Unknown'}</Text>
@@ -945,6 +1026,11 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         data={getCurrentData()}
         keyExtractor={(item) => item.id}
         renderItem={renderWishlistCard}
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={10}
+        updateCellsBatchingPeriod={50}
+        windowSize={10}
+        initialNumToRender={10}
         contentContainerStyle={[
           styles.listContent,
           loading && getCurrentData().length === 0 && { justifyContent: 'center', flex: 1 }
@@ -1068,7 +1154,7 @@ const createStyles = () => StyleSheet.create({
     color: colors.textSecondary,
     fontWeight: '500',
   },
-  userName: {
+  headerUserName: {
     fontSize: 18,
     color: colors.text,
     fontWeight: '700',

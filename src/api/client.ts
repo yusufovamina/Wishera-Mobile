@@ -112,6 +112,26 @@ wishlistApi.interceptors.response.use(
     console.error('Wishlist API Error:', error.message);
     console.error('Request URL:', error.config?.url);
     console.error('Response:', error.response?.data);
+    console.error('Response Status:', error.response?.status);
+    
+    // Handle 500 errors - might be "already reserved" error from backend
+    if (error?.response?.status === 500) {
+      const errorData = error.response.data;
+      const errorMessage = typeof errorData === 'string' 
+        ? errorData 
+        : errorData?.message || errorData?.error || errorData?.title || '';
+      
+      // If the error message contains "already reserved", convert to 400 error
+      if (errorMessage.includes('already reserved') || errorMessage.includes('Already reserved') || errorMessage.includes('Gift is already reserved')) {
+        // Create a more user-friendly error response
+        error.response.status = 400;
+        error.response.data = {
+          ...(typeof errorData === 'object' ? errorData : {}),
+          message: 'This gift is already reserved by someone else.',
+          error: 'Gift is already reserved!',
+        };
+      }
+    }
     
     // Handle 401 Unauthorized - token expired or invalid
     if (error?.response?.status === 401) {

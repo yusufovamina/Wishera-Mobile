@@ -300,11 +300,14 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     
     try {
       setLoadingEvents(true);
-      const res = await api.get(endpoints.myEvents(1, 50));
+      // Events are handled by user service, not auth service
+      const res = await userApi.get(endpoints.myEvents(1, 50));
       const data = res.data?.events || res.data?.items || res.data || [];
       setEvents(Array.isArray(data) ? data : []);
     } catch (error: any) {
       console.log('Error fetching events:', error);
+      console.log('Error status:', error?.response?.status);
+      console.log('Error response:', error?.response?.data);
       setEvents([]);
     } finally {
       setLoadingEvents(false);

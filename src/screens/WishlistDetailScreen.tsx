@@ -28,6 +28,7 @@ interface Gift {
   imageUrl?: string;
   isReserved: boolean;
   reservedBy?: string;
+  reservedByUserId?: string;
 }
 
 export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ route, navigation }) => {
@@ -121,6 +122,7 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
           isReserved: item.isReserved || false,
           // Only show reservedBy if user is not the owner (backend already handles this, but double-check)
           reservedBy: isCurrentUserOwner ? undefined : (item.reservedByUsername || item.reservedBy || undefined),
+          reservedByUserId: item.reservedByUserId || undefined,
         }));
         setGifts(giftsData);
       } else {
@@ -277,17 +279,65 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
       return;
     }
     
+    // Check if gift is reserved by current user
+    const isReservedByCurrentUser = gift.isReserved && gift.reservedByUserId === user?.id;
+    
+    // If gift is reserved by someone else, show error
+    if (gift.isReserved && !isReservedByCurrentUser) {
+      Alert.alert('Already Reserved', `This gift is already reserved by ${gift.reservedBy || 'someone else'}.`);
+      // Refresh to get latest state
+      await fetchGifts();
+      return;
+    }
+    
     try {
-      if (gift.isReserved) {
+      setGiftLoading(true);
+      
+      // Optimistically update UI
+      const updateGiftState = (gifts: Gift[], newState: boolean) => {
+        return gifts.map(g => 
+          g.id === gift.id 
+            ? { ...g, isReserved: newState, reservedBy: newState ? (user?.username || user?.name || 'You') : undefined, reservedByUserId: newState ? user?.id : undefined }
+            : g
+        );
+      };
+      
+      if (isReservedByCurrentUser) {
+        // Unreserve gift
+        console.log('[WishlistDetailScreen] Canceling reservation for gift:', gift.id);
+        setGifts(prev => updateGiftState(prev, false));
         await wishlistApi.post(`/api/gift/${gift.id}/cancel-reserve`);
       } else {
+        // Reserve gift
+        console.log('[WishlistDetailScreen] Reserving gift:', gift.id);
+        setGifts(prev => updateGiftState(prev, true));
         await wishlistApi.post(`/api/gift/${gift.id}/reserve`);
       }
+      
+      // Refresh to get latest state from server
       await fetchGifts();
     } catch (error: any) {
-      console.log('Error reserving gift:', error);
-      const errorMessage = error?.response?.data?.message || error?.message || 'Failed to reserve gift';
-      Alert.alert('Error', errorMessage);
+      console.error('[WishlistDetailScreen] Error reserving gift:', error);
+      
+      // Revert optimistic update on error
+      await fetchGifts();
+      
+      // Handle specific error cases
+      const errorMessage = error?.response?.data?.message || error?.response?.data?.error || error?.message || 'Failed to reserve gift';
+      
+      if (errorMessage.includes('already reserved') || errorMessage.includes('Already reserved')) {
+        Alert.alert('Already Reserved', 'This gift has already been reserved by someone else. Refreshing...');
+        await fetchGifts();
+      } else if (error?.response?.status === 400) {
+        Alert.alert('Error', errorMessage || 'Unable to reserve this gift. Please try again.');
+      } else if (error?.response?.status === 404) {
+        Alert.alert('Not Found', 'Gift not found. It may have been deleted.');
+        await fetchGifts();
+      } else {
+        Alert.alert('Error', errorMessage || 'Failed to reserve gift. Please try again.');
+      }
+    } finally {
+      setGiftLoading(false);
     }
   };
 
@@ -401,11 +451,12 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
                 <View style={styles.giftActions}>
                   {!isOwner && (
                     <TouchableOpacity
-                      style={[styles.actionButton, gift.isReserved ? styles.unreserveButton : styles.reserveButton]}
+                      style={[styles.actionButton, gift.isReserved && gift.reservedByUserId === user?.id ? styles.unreserveButton : styles.reserveButton, giftLoading && styles.actionButtonDisabled]}
                       onPress={() => handleReserveGift(gift)}
+                      disabled={giftLoading || (gift.isReserved && gift.reservedByUserId !== user?.id)}
                     >
-                      <Text style={[styles.actionButtonText, gift.isReserved ? styles.unreserveButtonText : styles.reserveButtonText]}>
-                        {gift.isReserved ? 'Unreserve' : 'Reserve'}
+                      <Text style={[styles.actionButtonText, gift.isReserved && gift.reservedByUserId === user?.id ? styles.unreserveButtonText : styles.reserveButtonText]}>
+                        {giftLoading ? 'Loading...' : (gift.isReserved && gift.reservedByUserId === user?.id ? 'Unreserve' : gift.isReserved ? 'Reserved' : 'Reserve')}
                       </Text>
                     </TouchableOpacity>
                   )}
@@ -644,6 +695,9 @@ const createStyles = () => StyleSheet.create({
   },
   unreserveButtonText: {
     color: colors.warning,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
   deleteButton: {
     backgroundColor: colors.dangerLight,

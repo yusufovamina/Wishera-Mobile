@@ -69,8 +69,11 @@ export function useSignalRChat({
     return url;
   }, [currentUserId]);
 
-  // Heartbeat mechanism to keep connection alive
+  // Heartbeat mechanism to keep connection alive - disabled for now as it causes 404 errors
+  // SignalR handles connection management internally
   const startHeartbeat = useCallback(() => {
+    // Disable heartbeat - SignalR manages connection lifecycle
+    return;
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
@@ -447,16 +450,25 @@ export function useSignalRChat({
 
   // Send message to user with metadata (matches front-end)
   const sendToUserWithMeta = useCallback(async (userId: string, message: string, replyToMessageId?: string | null, clientMessageId?: string | null) => {
+    console.log('[useSignalRChat] sendToUserWithMeta called:', { userId, message: message?.substring(0, 50), replyToMessageId, clientMessageId, connected });
+    
     if (!connectionRef.current || !connected) {
-      console.error('SignalR not connected');
+      console.error('[useSignalRChat] SignalR not connected. connectionRef.current:', !!connectionRef.current, 'connected:', connected);
       return false;
     }
 
     try {
+      console.log('[useSignalRChat] Invoking SendMessageToUserWithMeta on SignalR...');
       await connectionRef.current.invoke("SendMessageToUserWithMeta", userId, message, replyToMessageId ?? null, clientMessageId ?? null);
+      console.log('[useSignalRChat] ✓ SendMessageToUserWithMeta invoked successfully');
       return true;
-    } catch (error) {
-      console.error('Error sending message to user:', error);
+    } catch (error: any) {
+      console.error('[useSignalRChat] ✗ Error sending message to user:', error);
+      console.error('[useSignalRChat] Error details:', {
+        message: error?.message,
+        name: error?.name,
+        stack: error?.stack
+      });
       return false;
     }
   }, [connected]);
@@ -564,6 +576,11 @@ export function useSignalRChat({
     return () => connectionRef.current?.off("MessageReactionUpdated", handler as any);
   }, []);
 
+  const onMessageDeleted = useCallback((handler: (data: { id: string }) => void) => {
+    connectionRef.current?.on("MessageDeleted", handler as any);
+    return () => connectionRef.current?.off("MessageDeleted", handler as any);
+  }, []);
+
   const startTyping = useCallback(async (targetUserId: string) => {
     return connectionRef.current?.invoke("StartTyping", targetUserId);
   }, []);
@@ -572,32 +589,62 @@ export function useSignalRChat({
     return connectionRef.current?.invoke("StopTyping", targetUserId);
   }, []);
 
-  // React to message
+  // React to message (toggles reaction - adds if not present, removes if present)
   const reactToMessage = useCallback(async (messageId: string, emoji: string) => {
-    if (!connectionRef.current || !connected) {
-      console.error('SignalR not connected');
+    const connection = connectionRef.current;
+    if (!connection) {
+      console.error('SignalR not connected - no connection object');
       return false;
     }
+    
+    // Check actual connection state, not just the connected flag
+    if (connection.state !== signalR.HubConnectionState.Connected) {
+      console.error(`SignalR not connected - state: ${connection.state}`);
+      // Try to reconnect
+      if (connection.state === signalR.HubConnectionState.Disconnected) {
+        try {
+          await connection.start();
+        } catch (reconnectError) {
+          console.error('Failed to reconnect:', reconnectError);
+        }
+      }
+      return false;
+    }
+    
     try {
-      await connectionRef.current.invoke("ReactToMessage", messageId, emoji);
+      // First check if user already reacted - this will be handled by the UI
+      // The backend ReactToMessage will add the reaction
+      await connection.invoke("ReactToMessage", messageId, emoji);
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error reacting to message:', error);
+      // If connection was lost, try to reconnect
+      if (error?.message?.includes('404') || error?.message?.includes('No Connection')) {
+        console.log('Connection lost, attempting to reconnect...');
+        setConnected(false);
+        setConnectionState('Reconnecting');
+        // The automatic reconnect should handle this
+      }
       return false;
     }
   }, [connected]);
 
   // Unreact to message
   const unreactToMessage = useCallback(async (messageId: string, emoji: string) => {
-    if (!connectionRef.current || !connected) {
+    const connection = connectionRef.current;
+    if (!connection || connection.state !== signalR.HubConnectionState.Connected) {
       console.error('SignalR not connected');
       return false;
     }
     try {
-      await connectionRef.current.invoke("UnreactToMessage", messageId, emoji);
+      await connection.invoke("UnreactToMessage", messageId, emoji);
       return true;
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error unreacting to message:', error);
+      if (error?.message?.includes('404') || error?.message?.includes('No Connection')) {
+        setConnected(false);
+        setConnectionState('Reconnecting');
+      }
       return false;
     }
   }, [connected]);
@@ -619,15 +666,40 @@ export function useSignalRChat({
 
   // Delete message
   const deleteMessage = useCallback(async (messageId: string) => {
-    if (!connectionRef.current || !connected) {
-      console.error('SignalR not connected');
+    if (!connectionRef.current) {
+      console.error('[useSignalRChat] DeleteMessage: connectionRef.current is null');
       return false;
     }
+    
+    if (connectionRef.current.state !== signalR.HubConnectionState.Connected) {
+      console.error(`[useSignalRChat] DeleteMessage: SignalR not connected, state: ${connectionRef.current.state}`);
+      // Try to reconnect
+      if (connectionRef.current.state === signalR.HubConnectionState.Disconnected) {
+        try {
+          await connectionRef.current.start();
+          console.log('[useSignalRChat] DeleteMessage: Reconnected to SignalR');
+        } catch (reconnectError) {
+          console.error('[useSignalRChat] DeleteMessage: Failed to reconnect:', reconnectError);
+          return false;
+        }
+      } else {
+        return false;
+      }
+    }
+    
     try {
-      await connectionRef.current.invoke("DeleteMessage", messageId);
-      return true;
-    } catch (error) {
-      console.error('Error deleting message:', error);
+      console.log('[useSignalRChat] DeleteMessage: Invoking DeleteMessage with messageId:', messageId);
+      const result = await connectionRef.current.invoke("DeleteMessage", messageId);
+      console.log('[useSignalRChat] DeleteMessage: Result from server:', result);
+      return result === true;
+    } catch (error: any) {
+      console.error('[useSignalRChat] DeleteMessage: Error:', error);
+      console.error('[useSignalRChat] DeleteMessage: Error message:', error?.message);
+      console.error('[useSignalRChat] DeleteMessage: Error stack:', error?.stack);
+      if (error?.message?.includes('404') || error?.message?.includes('No Connection')) {
+        setConnected(false);
+        setConnectionState('Reconnecting');
+      }
       return false;
     }
   }, [connected]);
@@ -646,6 +718,104 @@ export function useSignalRChat({
       return 0;
     }
   }, [connected]);
+
+  // Call functionality
+  const initiateCall = useCallback(async (calleeUserId: string, callType: 'audio' | 'video', callId?: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      const finalCallId = callId || `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      await connectionRef.current.invoke("InitiateCall", calleeUserId, callType, finalCallId);
+      return true;
+    } catch (error) {
+      console.error('Error initiating call:', error);
+      return false;
+    }
+  }, [connected]);
+
+  const acceptCall = useCallback(async (callerUserId: string, callId: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("AcceptCall", callerUserId, callId);
+      return true;
+    } catch (error) {
+      console.error('Error accepting call:', error);
+      return false;
+    }
+  }, [connected]);
+
+  const rejectCall = useCallback(async (callerUserId: string, callId: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("RejectCall", callerUserId, callId);
+      return true;
+    } catch (error) {
+      console.error('Error rejecting call:', error);
+      return false;
+    }
+  }, [connected]);
+
+  const endCall = useCallback(async (otherUserId: string, callId: string) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("EndCall", otherUserId, callId);
+      return true;
+    } catch (error) {
+      console.error('Error ending call:', error);
+      return false;
+    }
+  }, [connected]);
+
+  const sendCallSignal = useCallback(async (otherUserId: string, callId: string, signalType: string, signalData: any) => {
+    if (!connectionRef.current || !connected) {
+      console.error('SignalR not connected');
+      return false;
+    }
+    try {
+      await connectionRef.current.invoke("SendCallSignal", otherUserId, callId, signalType, signalData);
+      return true;
+    } catch (error) {
+      console.error('Error sending call signal:', error);
+      return false;
+    }
+  }, [connected]);
+
+  // Call event handlers
+  const onCallInitiated = useCallback((handler: (data: { callerUserId: string; calleeUserId: string; callType: string; callId: string; timestamp: string }) => void) => {
+    connectionRef.current?.on("callinitiated", handler as any);
+    return () => connectionRef.current?.off("callinitiated", handler as any);
+  }, []);
+
+  const onCallAccepted = useCallback((handler: (data: { callerUserId: string; calleeUserId: string; callId: string; timestamp: string }) => void) => {
+    connectionRef.current?.on("callaccepted", handler as any);
+    return () => connectionRef.current?.off("callaccepted", handler as any);
+  }, []);
+
+  const onCallRejected = useCallback((handler: (data: { callerUserId: string; calleeUserId: string; callId: string; timestamp: string }) => void) => {
+    connectionRef.current?.on("callrejected", handler as any);
+    return () => connectionRef.current?.off("callrejected", handler as any);
+  }, []);
+
+  const onCallEnded = useCallback((handler: (data: { callerUserId: string; calleeUserId: string; callId: string; timestamp: string }) => void) => {
+    connectionRef.current?.on("callended", handler as any);
+    return () => connectionRef.current?.off("callended", handler as any);
+  }, []);
+
+  const onCallSignal = useCallback((handler: (data: { callerUserId: string; calleeUserId: string; callId: string; signalType: string; signalData: any; timestamp: string }) => void) => {
+    connectionRef.current?.on("callsignal", handler as any);
+    return () => connectionRef.current?.off("callsignal", handler as any);
+  }, []);
 
   // Get connection ID
   const getConnectionId = useCallback(async () => {
@@ -704,6 +874,7 @@ export function useSignalRChat({
     onTyping,
     onMessagesRead,
     onMessageReactionUpdated,
+    onMessageDeleted,
     startTyping,
     stopTyping,
     reactToMessage,
@@ -715,5 +886,17 @@ export function useSignalRChat({
     addUser,
     connect,
     disconnect,
+    // Call functionality
+    initiateCall,
+    acceptCall,
+    rejectCall,
+    endCall,
+    sendCallSignal,
+    onCallInitiated,
+    onCallAccepted,
+    onCallRejected,
+    onCallEnded,
+    onCallSignal,
   };
 }
+
