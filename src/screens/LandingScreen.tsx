@@ -317,6 +317,23 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
             <Text style={styles.cardSubtitle}>
               {t('landing.cardSubtitle', 'Share your dreams with loved ones')}
             </Text>
+            <TouchableOpacity
+            onPress={() => navigation.navigate('Login')}
+            activeOpacity={0.9}
+            style={styles.buttonContainer}
+          >
+            <LinearGradient
+              colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.button}
+            >
+              <Text style={styles.buttonText}>
+                {t('landing.getStarted', 'Get Started')}
+              </Text>
+            </LinearGradient>
+          </TouchableOpacity>
+
           </LinearGradient>
         </View>
       </View>

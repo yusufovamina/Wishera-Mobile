@@ -228,7 +228,20 @@ export function useSignalRChat({
         setConnected(false);
         setConnectionState('Disconnected');
         stopHeartbeat();
-        // Always attempt to reconnect, even without an explicit error
+        
+        const isCorsError = error?.message?.includes('access control checks') || 
+                           error?.message?.includes('Load failed') ||
+                           error?.message?.includes('CORS') ||
+                           String(error).includes('access control checks') ||
+                           String(error).includes('Load failed');
+        
+        if (isCorsError) {
+          console.warn('CORS error detected - backend needs to allow CORS for SignalR endpoint');
+          console.warn('Connection will not auto-reconnect until CORS is fixed');
+          setConnectionState('CORS Error');
+          return;
+        }
+        
         reconnect();
       });
 
@@ -339,6 +352,19 @@ export function useSignalRChat({
               setConnected(false);
               setConnectionState('Disconnected');
               stopHeartbeat();
+              
+              const isCorsError = error?.message?.includes('access control checks') || 
+                                 error?.message?.includes('Load failed') ||
+                                 error?.message?.includes('CORS') ||
+                                 String(error).includes('access control checks') ||
+                                 String(error).includes('Load failed');
+              
+              if (isCorsError) {
+                console.warn('CORS error detected (LP) - backend needs to allow CORS');
+                setConnectionState('CORS Error');
+                return;
+              }
+              
               reconnect();
             });
             connection.onreconnecting((error) => {

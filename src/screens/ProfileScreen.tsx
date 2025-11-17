@@ -8,6 +8,10 @@ import { ProfileEditModal } from '../components/ProfileEditModal';
 import { useAuthStore } from '../state/auth';
 import { api, userApi, wishlistApi, endpoints } from '../api/client';
 import { usePreferences } from '../state/preferences';
+import { 
+  GiftIcon, HeartIcon, CalendarIcon, EditIcon, 
+  ChatIcon, CheckIcon, AddIcon, ListIcon 
+} from '../components/Icon';
 
 const { width, height } = Dimensions.get('window');
 
@@ -458,13 +462,16 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               <Image source={{ uri: wishlist.imageUrl }} style={styles.gridImage} />
             ) : (
               <View style={styles.gridImagePlaceholder}>
-                <Text style={styles.gridPlaceholderText}>🎁</Text>
+                <GiftIcon size={32} color={colors.textSecondary} />
               </View>
             )}
             <View style={styles.gridOverlay}>
               <Text style={styles.gridTitle} numberOfLines={2}>{wishlist.title}</Text>
               {wishlist.likeCount !== undefined && wishlist.likeCount > 0 && (
-                <Text style={styles.gridLikes}>❤️ {wishlist.likeCount}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <HeartIcon size={14} color={colors.danger || '#FF3B30'} />
+                  <Text style={styles.gridLikes}>{wishlist.likeCount}</Text>
+                </View>
               )}
             </View>
           </TouchableOpacity>
@@ -507,7 +514,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               <Image source={{ uri: gift.imageUrl }} style={styles.gridImage} />
             ) : (
               <View style={styles.gridImagePlaceholder}>
-                <Text style={styles.gridPlaceholderText}>🎁</Text>
+                <GiftIcon size={32} color={colors.textSecondary} />
               </View>
             )}
             <View style={styles.gridOverlay}>
@@ -556,7 +563,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
             onPress={() => navigation.navigate('MyEvents')}
           >
             <View style={styles.gridImagePlaceholder}>
-              <Text style={styles.gridPlaceholderText}>📅</Text>
+              <CalendarIcon size={32} color={colors.textSecondary} />
             </View>
             <View style={styles.gridOverlay}>
               <Text style={styles.gridTitle} numberOfLines={2}>{event.title || 'Event'}</Text>
@@ -721,7 +728,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
           </View>
           {!isViewingOtherUser && (
               <TouchableOpacity style={styles.editAvatarButton} onPress={pickAndUploadAvatar}>
-              <Text style={styles.editAvatarIcon}>✏️</Text>
+              <EditIcon size={20} color={colors.text} />
             </TouchableOpacity>
           )}
         </View>
@@ -741,13 +748,17 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   style={[styles.actionButton, profile.isFollowing && styles.actionButtonFollowing]}
                   onPress={handleFollow}
                 >
-                  <Text style={styles.actionButtonIcon}>{profile.isFollowing ? '✓' : '+'}</Text>
+                  {profile.isFollowing ? (
+                    <CheckIcon size={18} color={colors.text} />
+                  ) : (
+                    <AddIcon size={18} color={colors.text} />
+                  )}
                   <Text style={[styles.actionButtonText, profile.isFollowing && styles.actionButtonTextFollowing]}>
                     {profile.isFollowing ? 'Following' : 'Follow'}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.actionButton, styles.actionButtonMessage]}>
-                  <Text style={styles.actionButtonIcon}>💬</Text>
+                  <ChatIcon size={18} color={colors.text} />
                   <Text style={styles.actionButtonText}>Message</Text>
                 </TouchableOpacity>
               </>
@@ -788,7 +799,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               style={[styles.tab, activeTab === 'wishlists' && styles.tabActive]}
               onPress={() => setActiveTab('wishlists')}
             >
-              <Text style={styles.tabIcon}>☰</Text>
+              <ListIcon size={20} color={activeTab === 'wishlists' ? colors.primary : colors.textSecondary} />
               <Text style={[styles.tabText, activeTab === 'wishlists' && styles.tabTextActive]}>Wishlists</Text>
               {activeTab === 'wishlists' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
@@ -796,7 +807,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               style={[styles.tab, activeTab === 'gifts' && styles.tabActive]}
               onPress={() => setActiveTab('gifts')}
             >
-              <Text style={styles.tabIcon}>🎁</Text>
+              <GiftIcon size={20} color={activeTab === 'gifts' ? colors.primary : colors.textSecondary} />
               <Text style={[styles.tabText, activeTab === 'gifts' && styles.tabTextActive]}>Gifts</Text>
               {activeTab === 'gifts' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
@@ -804,7 +815,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               style={[styles.tab, activeTab === 'events' && styles.tabActive]}
               onPress={() => setActiveTab('events')}
             >
-              <Text style={styles.tabIcon}>📅</Text>
+              <CalendarIcon size={20} color={activeTab === 'events' ? colors.primary : colors.textSecondary} />
               <Text style={[styles.tabText, activeTab === 'events' && styles.tabTextActive]}>Events</Text>
               {activeTab === 'events' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>

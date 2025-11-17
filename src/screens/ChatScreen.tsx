@@ -14,6 +14,11 @@ import { SafeImage } from '../components/SafeImage';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { Video } from 'expo-av';
+import { 
+  CallIcon, VideoCallIcon, MicIcon, CameraIcon, FlipCameraIcon, 
+  CloseIcon, CheckIcon, VoiceMessageIcon, ImageIcon, VideoIcon, 
+  SendIcon, EmojiIcon, PaletteIcon, MoreIcon, BackIcon 
+} from '../components/Icon';
 
 interface ChatContact {
   id: string;
@@ -32,6 +37,7 @@ interface ChatMessage {
   userId: string;
   username: string;
   createdAt: string;
+  sentAt?: string; // Message sent timestamp (preferred for display)
   messageType?: 'text' | 'voice' | 'image' | 'video';
   audioUrl?: string;
   audioDuration?: number;
@@ -125,11 +131,51 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     return conversationId;
   };
 
+  // Helper function to sort contacts by last message time (most recent first)
+  const sortContactsByTime = (contacts: ChatContact[]): ChatContact[] => {
+    return [...contacts].sort((a, b) => {
+      // If both have valid timestamps, sort by time (most recent first)
+      if (a.lastMessageTime && b.lastMessageTime) {
+        const timeA = new Date(a.lastMessageTime).getTime();
+        const timeB = new Date(b.lastMessageTime).getTime();
+        // Check for invalid dates (like "0001-01-01")
+        if (!isNaN(timeA) && !isNaN(timeB) && timeA > 0 && timeB > 0) {
+          return timeB - timeA; // Most recent first
+        }
+      }
+      
+      // If one has a timestamp and the other doesn't, prioritize the one with timestamp
+      if (a.lastMessageTime && !b.lastMessageTime) {
+        const timeA = new Date(a.lastMessageTime).getTime();
+        if (!isNaN(timeA) && timeA > 0) {
+          return -1; // a has valid timestamp, put it first
+        }
+      }
+      if (b.lastMessageTime && !a.lastMessageTime) {
+        const timeB = new Date(b.lastMessageTime).getTime();
+        if (!isNaN(timeB) && timeB > 0) {
+          return 1; // b has valid timestamp, put it first
+        }
+      }
+      
+      // Both have no messages or invalid timestamps, sort alphabetically
+      return a.name.localeCompare(b.name);
+    });
+  };
+
   const updateConversationMessages = (conversationId: string, messages: ChatMessage[]) => {
-    setConversations(prev => ({
+    setConversations(prev => {
+      const sorted = [...messages].sort((a, b) => {
+        const timeA = new Date(a.sentAt || a.createdAt).getTime();
+        const timeB = new Date(b.sentAt || b.createdAt).getTime();
+        if (isNaN(timeA) || isNaN(timeB)) return 0;
+        return timeA - timeB;
+      });
+      return {
       ...prev,
-      [conversationId]: messages
-    }));
+        [conversationId]: sorted
+      };
+    });
   };
 
   // Helper functions to detect image/video URLs (matching web frontend)
@@ -175,7 +221,15 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const addMessageToConversation = (conversationId: string, message: ChatMessage) => {
     setConversations(prev => {
       const currentMessages = prev[conversationId] || [];
-      const newMessages = [...currentMessages, message];
+      if (currentMessages.some(m => m.id === message.id)) {
+        return prev;
+      }
+      const newMessages = [...currentMessages, message].sort((a, b) => {
+        const timeA = new Date(a.sentAt || a.createdAt).getTime();
+        const timeB = new Date(b.sentAt || b.createdAt).getTime();
+        if (isNaN(timeA) || isNaN(timeB)) return 0;
+        return timeA - timeB;
+      });
       return {
         ...prev,
         [conversationId]: newMessages
@@ -334,12 +388,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         userId: sender,
         username: username || 'Unknown',
         createdAt: serverTimestamp,
+          sentAt: serverTimestamp, // Also set sentAt for consistency
         replyToMessageId,
-        messageType: messageType as 'text' | 'voice' | 'image' | 'video',
-        ...(audioUrl && { audioUrl }),
-        ...(audioDuration !== null && audioDuration !== undefined && { audioDuration }),
-        ...(imageUrl && { imageUrl })
-      };
+          messageType: messageType as 'text' | 'voice' | 'image' | 'video',
+          ...(audioUrl && { audioUrl }),
+          ...(audioDuration !== null && audioDuration !== undefined && { audioDuration }),
+          ...(imageUrl && { imageUrl })
+        };
 
       // Check if this is a confirmation of a message we already sent (to prevent duplicates)
       const isOwnMessage = sender === user?.id;
@@ -359,7 +414,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             console.log('[ChatScreen] Updating existing optimistic voice message with server data:', {
               clientMessageId,
               serverId: id,
-              messageType,
+        messageType,
               audioUrl,
               audioDuration,
               conversationId: targetConversationId
@@ -377,7 +432,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                     id: id, // Use server ID
                     createdAt: serverTimestamp,
                     messageType: messageType || m.messageType || 'text',
-                    ...(audioUrl && { audioUrl }),
+        ...(audioUrl && { audioUrl }),
                     ...(audioDuration !== null && audioDuration !== undefined && { audioDuration })
                   };
                   if (messageType === 'voice') {
@@ -414,23 +469,15 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           addMessageToConversation(targetConversationId, newMessage);
         }
         
-        // Update contact's last message and sort
-        const lastMessagePreview = messageType === 'voice' ? '🎤 Voice message' : text;
+        const lastMessagePreview = messageType === 'voice' ? 'Voice message' : text;
         setContacts(prev => {
           const updated = prev.map(contact => 
             contact.id === selectedContact.id 
               ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
               : contact
           );
-          return updated.sort((a, b) => {
-            if (!a.lastMessageTime && !b.lastMessageTime) return 0;
-            if (!a.lastMessageTime) return 1;
-            if (!b.lastMessageTime) return -1;
-            return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
-          });
+          return sortContactsByTime(updated);
         });
-        
-        // Don't process further - message is handled
         return;
       }
 
@@ -449,7 +496,17 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           addMessageToConversation(targetConversationId, newMessage);
           
           // Update the contact's last message and time
-          const lastMessagePreview = messageType === 'voice' ? '🎤 Voice message' : text;
+          let lastMessagePreview = text;
+          if (messageType === 'voice') {
+            lastMessagePreview = 'Voice message';
+          } else if (messageType === 'image') {
+            lastMessagePreview = 'Image';
+          } else if (messageType === 'video') {
+            lastMessagePreview = 'Video';
+          } else if (text && text.length > 50) {
+            lastMessagePreview = text.substring(0, 50) + '...';
+          }
+          
           setContacts(prev => {
             const updated = prev.map(contact => 
               contact.id === targetContactId 
@@ -457,42 +514,62 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 : contact
             );
             // Sort contacts by last message time (most recent first)
-            return updated.sort((a, b) => {
-              if (!a.lastMessageTime && !b.lastMessageTime) return 0;
-              if (!a.lastMessageTime) return 1;
-              if (!b.lastMessageTime) return -1;
-              return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
-            });
+            const sorted = sortContactsByTime(updated);
+            console.log('[ChatScreen] Reordered contacts after sending message:', sorted.map(c => ({ 
+              name: c.name, 
+              lastMessageTime: c.lastMessageTime 
+            })));
+            return sorted;
           });
         }
       } else {
         // Message received from another user
-        // If it's from the current selected contact, add to current conversation
-        if (selectedContact && sender === selectedContact.id) {
-          if (currentConversationId) {
-            addMessageToConversation(currentConversationId, newMessage);
-          }
+      // If it's from the current selected contact, add to current conversation
+      if (selectedContact && sender === selectedContact.id) {
+        if (currentConversationId) {
+          addMessageToConversation(currentConversationId, newMessage);
+        }
         } else {
-          // If it's from another contact, add to their conversation
-          const senderConversationId = getConversationId(sender);
-          addMessageToConversation(senderConversationId, newMessage);
+        // If it's from another contact, add to their conversation
+        const senderConversationId = getConversationId(sender);
+        addMessageToConversation(senderConversationId, newMessage);
         }
         
         // Update the contact's last message in the sidebar and move to top
-        const lastMessagePreview = messageType === 'voice' ? '🎤 Voice message' : text;
+        let lastMessagePreview = text;
+        if (messageType === 'voice') {
+          lastMessagePreview = 'Voice message';
+        } else if (messageType === 'image') {
+          lastMessagePreview = 'Image';
+        } else if (messageType === 'video') {
+          lastMessagePreview = 'Video';
+        } else if (text && text.length > 50) {
+          lastMessagePreview = text.substring(0, 50) + '...';
+        }
+        
+        const isViewingThisConversation = selectedContact?.id === sender && currentConversationId === getConversationId(sender);
+        
         setContacts(prev => {
-          const updated = prev.map(contact => 
-            contact.id === sender 
-              ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
-              : contact
-          );
-          // Sort contacts by last message time (most recent first)
-          return updated.sort((a, b) => {
-            if (!a.lastMessageTime && !b.lastMessageTime) return 0;
-            if (!a.lastMessageTime) return 1;
-            if (!b.lastMessageTime) return -1;
-            return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
+          const contactExists = prev.find(c => c.id === sender);
+          if (!contactExists) {
+            return prev;
+          }
+
+          const updated = prev.map(contact => {
+            if (contact.id === sender) {
+              const currentUnread = contact.unreadCount || 0;
+              const newUnreadCount = !isViewingThisConversation ? currentUnread + 1 : 0;
+              return { 
+                ...contact, 
+                lastMessage: lastMessagePreview, 
+                lastMessageTime: serverTimestamp,
+                unreadCount: newUnreadCount
+              };
+            }
+            return contact;
           });
+          
+          return sortContactsByTime(updated);
         });
       }
 
@@ -643,38 +720,35 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       // Create peer connection
       createPeerConnection();
       
-      // Set up ICE candidate callback
+      const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
       setIceCandidateCallback(async (candidate) => {
-        if (activeCall) {
-          await sendCallSignal(selectedContact.id, activeCall.callId, 'ice-candidate', candidate);
+        try {
+          await sendCallSignal(selectedContact.id, callId, 'ice-candidate', candidate);
+        } catch (error) {
+          console.error('[ChatScreen] Error sending ICE candidate:', error);
         }
       });
       
-      const callId = `call_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      console.log('[ChatScreen] Starting call:', { callType, callId, targetUserId: selectedContact.id });
-      
-      // Create WebRTC offer
-      const offer = await createOffer();
-      
-      // Send call initiation via SignalR with offer
       const success = await initiateCall(selectedContact.id, callType, callId);
       if (success) {
         setActiveCall({ otherUserId: selectedContact.id, callType, callId });
+        setCallStartTime(new Date());
+        setCallDuration(0);
+        startCallDurationTimer();
         
-        // Send WebRTC offer via SignalR
+        const offer = await createOffer();
         await sendCallSignal(selectedContact.id, callId, 'offer', offer);
         
-        // Start a timeout to auto-advance if call isn't accepted/rejected within 30 seconds
         setTimeout(() => {
           if (activeCall?.callId === callId && callDuration === 0) {
-            console.log('[ChatScreen] Call timeout - no response from callee');
             handleEndCall();
           }
         }, 30000);
-        console.log('[ChatScreen] Call initiated successfully');
       } else {
         endWebRTCCall();
-        setError('Failed to start call. Please try again.');
+        setError('Failed to start call');
+        setTimeout(() => setError(null), 3000);
       }
     } catch (error) {
       console.error('[ChatScreen] Error starting call:', error);
@@ -687,21 +761,19 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     if (!incomingCall || !user?.id) return;
     
     try {
-      // Get local media stream
-      await getLocalStream(incomingCall.callType === 'video');
+      const callToAccept = { ...incomingCall };
       
-      // Create peer connection
+      await getLocalStream(callToAccept.callType === 'video');
       createPeerConnection();
       
-      // Set up ICE candidate callback
       setIceCandidateCallback(async (candidate) => {
-        if (activeCall) {
-          await sendCallSignal(incomingCall.callerUserId, incomingCall.callId, 'ice-candidate', candidate);
+        try {
+          await sendCallSignal(callToAccept.callerUserId, callToAccept.callId, 'ice-candidate', candidate);
+        } catch (error) {
+          console.error('[ChatScreen] Error sending ICE candidate:', error);
         }
       });
       
-      // Immediately update UI state - don't wait for SignalR response
-      const callToAccept = { ...incomingCall };
       setActiveCall({ 
         otherUserId: callToAccept.callerUserId, 
         callType: callToAccept.callType, 
@@ -709,22 +781,18 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       });
       setIncomingCall(null);
       
-      // Start call duration timer immediately
       setCallStartTime(new Date());
       setCallDuration(0);
       startCallDurationTimer();
       
-      console.log('[ChatScreen] Accepting call:', callToAccept);
-      const success = await acceptCall(callToAccept.callerUserId, callToAccept.callId);
-      if (success) {
-        console.log('[ChatScreen] Call accepted successfully via SignalR');
-      } else {
-        console.warn('[ChatScreen] AcceptCall returned false, but UI already updated');
-      }
+      await acceptCall(callToAccept.callerUserId, callToAccept.callId);
     } catch (error) {
       console.error('[ChatScreen] Error accepting call:', error);
       endWebRTCCall();
-      setError('Failed to accept call. Please try again.');
+      setActiveCall(null);
+      setIncomingCall(null);
+      setError('Failed to accept call');
+      setTimeout(() => setError(null), 3000);
     }
   };
   
@@ -948,20 +1016,20 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     });
 
     const offCallSignal = onCallSignal(async (data) => {
-      console.log('[ChatScreen] Call signal received:', data);
-      // Handle WebRTC signaling (offer, answer, ice-candidate)
-      if (!activeCall || activeCall.callId !== data.callId) return;
+      const currentCall = activeCall || incomingCall;
+      if (!currentCall || currentCall.callId !== data.callId) return;
       
       try {
         if (data.signalType === 'offer') {
-          // We're the callee - create answer
+          if (!activeCall && incomingCall) {
+            await getLocalStream(data.callType === 'video');
+            createPeerConnection();
+          }
           const answer = await createAnswer(data.signalData);
           await sendCallSignal(data.callerUserId, data.callId, 'answer', answer);
         } else if (data.signalType === 'answer') {
-          // We're the caller - set remote description
           await setRemoteDescription(data.signalData);
         } else if (data.signalType === 'ice-candidate') {
-          // Add ICE candidate
           await addIceCandidate(data.signalData);
         }
       } catch (error) {
@@ -969,7 +1037,6 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       }
     });
 
-    // Mark messages as read when viewing conversation
     const markCurrentMessagesRead = async () => {
       if (!selectedContact?.id || !user?.id || currentMessages.length === 0) return;
       try {
@@ -978,7 +1045,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           .map(m => m.id);
         if (unreadMessageIds.length > 0) {
           await markMessagesRead(selectedContact.id, unreadMessageIds);
-          // Update local state
+          
           setConversations(prev => {
             const updated = { ...prev };
             if (currentConversationId && updated[currentConversationId]) {
@@ -988,13 +1055,18 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             }
             return updated;
           });
+          
+          setContacts(prev => prev.map(c => 
+            c.id === selectedContact.id 
+              ? { ...c, unreadCount: 0 }
+              : c
+          ));
         }
       } catch (error) {
         console.error('Error marking messages as read:', error);
       }
     };
 
-    // Mark messages as read when conversation is opened
     if (selectedContact?.id && currentMessages.length > 0) {
       markCurrentMessagesRead();
     }
@@ -1038,31 +1110,117 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       setLoading(true);
       // Get following users as contacts
       const response = await userApi.get(endpoints.getFollowing(user.id, 1, 50));
-      const contactsData: ChatContact[] = response.data.map((user: any) => ({
-        id: user.id,
-        name: user.username,
-        avatar: user.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(user.username)}`,
+      const followingUsers = Array.isArray(response.data) 
+        ? response.data 
+        : (response.data?.items || response.data?.data || []);
+      
+      // Fetch last message for each conversation
+      const contactsWithMessages = await Promise.all(
+        followingUsers.map(async (contactUser: any) => {
+          const contactId = contactUser.id;
+          const conversationId = getConversationId(contactId);
+          
+          // Initialize contact with default values
+          const contact: ChatContact = {
+            id: contactId,
+            name: contactUser.username,
+            avatar: contactUser.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(contactUser.username)}`,
         lastMessage: "Start a conversation!",
         lastMessageTime: "",
         unreadCount: 0,
         isOnline: false,
         isFollowing: true
-      }));
+          };
+          
+          // Try to fetch messages for this conversation to get last message and unread count
+          try {
+            const historyResponse = await chatApi.get(endpoints.chatHistory(user.id, contactId, 1, 50));
+            const messages = Array.isArray(historyResponse.data) 
+              ? historyResponse.data 
+              : (historyResponse.data?.items || historyResponse.data?.data || []);
+            
+            if (messages.length > 0) {
+              const sortedMessages = [...messages].sort((a, b) => {
+                const timeA = new Date(a.sentAt || a.createdAt).getTime();
+                const timeB = new Date(b.sentAt || b.createdAt).getTime();
+                if (isNaN(timeA) || isNaN(timeB)) return 0;
+                return timeB - timeA;
+              });
+              const lastMsg = sortedMessages[0];
+              
+              let timestamp: string = "";
+              if (lastMsg.sentAt) {
+                timestamp = typeof lastMsg.sentAt === 'string' 
+                  ? lastMsg.sentAt 
+                  : new Date(lastMsg.sentAt).toISOString();
+              } else if (lastMsg.createdAt) {
+                timestamp = typeof lastMsg.createdAt === 'string'
+                  ? lastMsg.createdAt
+                  : new Date(lastMsg.createdAt).toISOString();
+              }
+              
+              if (timestamp && !isNaN(new Date(timestamp).getTime())) {
+                contact.lastMessageTime = timestamp;
+                
+                const messageType = lastMsg.messageType || 'text';
+                const messageText = lastMsg.text || lastMsg.message || '';
+                
+                if (messageType === 'voice') {
+                  contact.lastMessage = 'Voice message';
+                } else if (messageType === 'image') {
+                  contact.lastMessage = 'Image';
+                } else if (messageType === 'video') {
+                  contact.lastMessage = 'Video';
+                } else if (messageText) {
+                  contact.lastMessage = messageText.length > 50 
+                    ? messageText.substring(0, 50) + '...' 
+                    : messageText;
+                }
+                
+                // Calculate unread count (messages not from current user and not read)
+                // Check multiple possible field names for read status
+                contact.unreadCount = messages.filter((m: any) => {
+                  const senderId = m.userId || m.senderId || m.fromUserId;
+                  const isFromOtherUser = senderId !== user.id;
+                  // Message is unread if read field is false, undefined, or doesn't exist
+                  // Message is read only if read field is explicitly true
+                  const readStatus = m.read !== undefined ? m.read : (m.isRead !== undefined ? m.isRead : false);
+                  const isUnread = !readStatus; // false, undefined, or missing means unread
+                  const shouldCount = isFromOtherUser && isUnread;
+                  if (shouldCount) {
+                    console.log(`[ChatScreen] Unread message from ${contact.name}:`, { 
+                      messageId: m.id, 
+                      senderId, 
+                      read: m.read, 
+                      isRead: m.isRead,
+                      text: m.text?.substring(0, 20) 
+                    });
+                  }
+                  return shouldCount;
+                }).length;
+                console.log(`[ChatScreen] Calculated unread count for ${contact.name}: ${contact.unreadCount} out of ${messages.length} messages`);
+              }
+            }
+          } catch (error: any) {
+            // If no messages exist (404) or other error, keep default "Start a conversation!"
+            console.log(`No messages found for conversation ${conversationId} or error:`, error?.response?.status || error?.message);
+          }
+          
+          return contact;
+        })
+      );
       
-      // Sort contacts by last message time (most recent first), then alphabetically if no messages
-      const sortedContacts = contactsData.sort((a, b) => {
-        if (!a.lastMessageTime && !b.lastMessageTime) {
-          // Both have no messages, sort alphabetically
-          return a.name.localeCompare(b.name);
-        }
-        if (!a.lastMessageTime) return 1;
-        if (!b.lastMessageTime) return -1;
-        return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
-      });
+      // Sort contacts by last message time (most recent first)
+      const sortedContacts = sortContactsByTime(contactsWithMessages);
+      console.log('[ChatScreen] Sorted contacts:', sortedContacts.map(c => ({ 
+        name: c.name, 
+        lastMessageTime: c.lastMessageTime, 
+        unreadCount: c.unreadCount 
+      })));
       
       setContacts(sortedContacts);
     } catch (error) {
-      console.log('Error fetching contacts:', error);
+      console.error('Error fetching contacts:', error);
       // Fallback to empty array if API fails
       setContacts([]);
     } finally {
@@ -1098,54 +1256,89 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       const messagesData: ChatMessage[] = messagesArray.map((msg: any) => {
         console.log('Processing message:', msg);
         
-        // Parse timestamp properly - prefer sentAt, then createdAt, then fallback
         let timestamp: string;
-        if (msg.sentAt) {
-          if (typeof msg.sentAt === 'string') {
-            timestamp = msg.sentAt;
+        let parsedDate: Date | null = null;
+        
+        const parseTimestamp = (ts: any): Date | null => {
+          if (!ts) return null;
+          
+          let date: Date;
+          if (typeof ts === 'string') {
+            if (ts.trim() === '' || ts === '0001-01-01T00:00:00.0000000+00:00' || ts.includes('0001-01-01')) {
+              return null;
+            }
+            date = new Date(ts);
+            if (isNaN(date.getTime())) {
+              const num = parseInt(ts, 10);
+              if (!isNaN(num) && num > 0) {
+                date = new Date(num);
+              } else {
+                return null;
+              }
+            }
+          } else if (typeof ts === 'number') {
+            if (ts <= 0) return null;
+            date = new Date(ts);
           } else {
-            // It's a Date object or number
-            timestamp = new Date(msg.sentAt).toISOString();
+            date = new Date(ts);
           }
-        } else if (msg.createdAt) {
-          if (typeof msg.createdAt === 'string') {
-            timestamp = msg.createdAt;
-          } else {
-            timestamp = new Date(msg.createdAt).toISOString();
+          
+          if (isNaN(date.getTime()) || date.getTime() <= 0) {
+            return null;
           }
+          
+          const year = date.getFullYear();
+          if (year < 2000 || year > 2100) {
+            return null;
+          }
+          
+          return date;
+        };
+        
+        const rawSentAt = msg.sentAt;
+        const rawCreatedAt = msg.createdAt;
+        
+        parsedDate = parseTimestamp(rawSentAt) || parseTimestamp(rawCreatedAt);
+        
+        if (parsedDate) {
+          timestamp = parsedDate.toISOString();
         } else {
-          timestamp = new Date().toISOString();
-        }
-        
-        // Validate timestamp is valid
-        const testDate = new Date(timestamp);
-        if (isNaN(testDate.getTime())) {
-          console.warn('Invalid timestamp for message:', msg.id, 'sentAt:', msg.sentAt, 'createdAt:', msg.createdAt, 'parsed:', timestamp);
-          // Try to get a valid date from the raw values
-          if (msg.sentAt && typeof msg.sentAt !== 'string') {
-            timestamp = new Date(msg.sentAt).toISOString();
-          } else if (msg.createdAt && typeof msg.createdAt !== 'string') {
-            timestamp = new Date(msg.createdAt).toISOString();
+          const rawTimestamp = rawSentAt || rawCreatedAt;
+          if (rawTimestamp && typeof rawTimestamp === 'string') {
+            if (rawTimestamp.includes('0001-01-01') || rawTimestamp.trim() === '') {
+              if (messagesArray.indexOf(msg) < 3) {
+                console.warn('[ChatScreen] Invalid timestamp (MinValue) for message:', msg.id, 'raw:', rawTimestamp);
+              }
+              timestamp = '';
+            } else {
+              timestamp = rawTimestamp;
+            }
+          } else if (rawTimestamp && typeof rawTimestamp === 'number' && rawTimestamp > 946684800000) {
+            timestamp = new Date(rawTimestamp).toISOString();
           } else {
-            timestamp = new Date().toISOString();
+            if (messagesArray.indexOf(msg) < 3) {
+              console.warn('[ChatScreen] No valid timestamp for message:', msg.id, 'sentAt:', rawSentAt, 'createdAt:', rawCreatedAt);
+            }
+            timestamp = '';
           }
         }
         
-        // Log for debugging
-        console.log('Message timestamp parsed:', {
-          id: msg.id,
-          rawSentAt: msg.sentAt,
-          rawCreatedAt: msg.createdAt,
-          finalTimestamp: timestamp,
-          parsedDate: new Date(timestamp).toISOString()
-        });
+        if (messagesArray.indexOf(msg) < 3) {
+          console.log('Message timestamp parsed:', {
+            id: msg.id,
+            rawSentAt: msg.sentAt,
+            rawCreatedAt: msg.createdAt,
+            finalTimestamp: timestamp,
+            parsedDate: timestamp ? new Date(timestamp).toISOString() : 'INVALID'
+          });
+        }
         
         // Log ALL message fields for debugging (especially voice messages)
         console.log('[ChatScreen] Processing message from API:', {
           id: msg.id,
           messageType: msg.messageType,
-          audioUrl: msg.audioUrl,
-          audioDuration: msg.audioDuration,
+        audioUrl: msg.audioUrl,
+        audioDuration: msg.audioDuration,
           text: msg.text || msg.message,
           userId: msg.userId || msg.senderId,
           hasMessageType: !!msg.messageType,
@@ -1195,28 +1388,30 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           });
         }
         
-        const message: ChatMessage = {
-        id: msg.id,
-        text: messageText,
-        userId: msg.userId || msg.senderId,
-        username: msg.username || msg.senderName || 'Unknown',
-          createdAt: timestamp,
-        messageType: messageType as 'text' | 'voice' | 'image' | 'video',
-        audioUrl: audioUrl || undefined,
-        audioDuration: audioDuration || undefined,
-        imageUrl: imageUrl || undefined,
-        videoUrl: videoUrl || undefined,
-        replyToMessageId: msg.replyToMessageId || undefined,
-        reactions: msg.reactions || {},
-        };
+        const finalTimestamp = timestamp || (rawSentAt && typeof rawSentAt === 'string' && !rawSentAt.includes('0001-01-01') ? rawSentAt : (rawCreatedAt && typeof rawCreatedAt === 'string' && !rawCreatedAt.includes('0001-01-01') ? rawCreatedAt : ''));
         
-        return message;
+        return {
+          id: msg.id,
+          text: messageText,
+          userId: msg.userId || msg.senderId || msg.senderUserId || '',
+          username: msg.username || msg.senderName || 'Unknown',
+          createdAt: finalTimestamp || new Date().toISOString(),
+          sentAt: finalTimestamp || new Date().toISOString(),
+          messageType: messageType as 'text' | 'voice' | 'image' | 'video',
+          audioUrl: audioUrl || undefined,
+          audioDuration: audioDuration || undefined,
+          imageUrl: imageUrl || undefined,
+          videoUrl: videoUrl || undefined,
+          replyToMessageId: msg.replyToMessageId || undefined,
+          reactions: msg.reactions || {},
+          read: msg.read !== undefined ? msg.read : (msg.isRead !== undefined ? msg.isRead : false)
+        };
       });
       
-      // Sort messages by timestamp (ascending - oldest first)
       messagesData.sort((a, b) => {
-        const timeA = new Date(a.createdAt).getTime();
-        const timeB = new Date(b.createdAt).getTime();
+        const timeA = new Date(a.sentAt || a.createdAt).getTime();
+        const timeB = new Date(b.sentAt || b.createdAt).getTime();
+        if (isNaN(timeA) || isNaN(timeB)) return 0;
         return timeA - timeB;
       });
       
@@ -1270,25 +1465,38 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         console.log('[ChatScreen] All message types:', messagesData.map(m => m.messageType));
       }
       
-      // Update contact's last message from fetched messages
+      // Update contact's last message from fetched messages and calculate unread count
       if (messagesData.length > 0) {
         const lastMessage = messagesData[messagesData.length - 1]; // Messages are sorted by time
-        const lastMessagePreview = lastMessage.messageType === 'voice' ? '🎤 Voice message' : lastMessage.text;
-        const lastMessageTime = lastMessage.createdAt;
+        const lastMessagePreview = lastMessage.messageType === 'voice' 
+          ? 'Voice message' 
+          : lastMessage.messageType === 'image'
+          ? 'Image'
+          : lastMessage.messageType === 'video'
+          ? 'Video'
+          : lastMessage.text;
+        const lastMessageTime = lastMessage.sentAt || lastMessage.createdAt;
+        
+        const unreadCount = messagesData.filter((m: any) => {
+          const senderId = m.userId || m.senderId || m.fromUserId;
+          const isFromOtherUser = senderId !== user?.id;
+          const readStatus = m.read !== undefined ? m.read : (m.isRead !== undefined ? m.isRead : false);
+          return isFromOtherUser && !readStatus;
+        }).length;
         
         setContacts(prev => {
           const updated = prev.map(contact => 
             contact.id === contactId 
-              ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: lastMessageTime }
+              ? { 
+                  ...contact, 
+                  lastMessage: lastMessagePreview, 
+                  lastMessageTime: lastMessageTime,
+                  unreadCount: unreadCount
+                }
               : contact
           );
           // Sort contacts by last message time (most recent first)
-          return updated.sort((a, b) => {
-            if (!a.lastMessageTime && !b.lastMessageTime) return 0;
-            if (!a.lastMessageTime) return 1;
-            if (!b.lastMessageTime) return -1;
-            return new Date(b.lastMessageTime).getTime() - new Date(a.lastMessageTime).getTime();
-          });
+          return sortContactsByTime(updated);
         });
       }
     } catch (error: any) {
@@ -1359,31 +1567,35 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     const conversationId = getConversationId(contact.id);
     setCurrentConversationId(conversationId);
     
-    // Load messages for this conversation
-    await fetchMessages(contact.id);
+    setContacts(prev => prev.map(c => 
+      c.id === contact.id ? { ...c, unreadCount: 0 } : c
+    ));
     
-    // Load wallpaper for this conversation
+    await fetchMessages(contact.id);
     await loadWallpaper(contact.id);
     
-    // Mark messages as read after loading
     setTimeout(async () => {
-      if (currentConversationId && user?.id && contact.id) {
+      if (conversationId && user?.id && contact.id) {
         try {
-          const unreadMessages = conversations[conversationId]?.filter(m => 
+          const conversationMessages = conversations[conversationId] || [];
+          const unreadMessages = conversationMessages.filter(m => 
             m.userId !== user.id && !m.read
-          ) || [];
+          );
           
           if (unreadMessages.length > 0) {
             const messageIds = unreadMessages.map(m => m.id);
             await markMessagesRead(contact.id, messageIds);
             
-            // Update messages to mark as read locally
             setConversations(prev => ({
               ...prev,
               [conversationId]: prev[conversationId]?.map(m => 
                 messageIds.includes(m.id) ? { ...m, read: true } : m
               ) || []
             }));
+            
+            setContacts(prev => prev.map(c => 
+              c.id === contact.id ? { ...c, unreadCount: 0 } : c
+            ));
           }
         } catch (error) {
           console.error('Failed to mark messages as read:', error);
@@ -1432,6 +1644,22 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       if (pendingAttachment) {
         const attachment = pendingAttachment;
         setPendingAttachment(null);
+        
+        // Update contact list immediately for media messages
+        if (selectedContact) {
+          const serverTimestamp = new Date().toISOString();
+          const mediaPreview = attachment.mediaType === 'image' ? 'Image' : 'Video';
+          
+          setContacts(prev => {
+            const updated = prev.map(contact => 
+              contact.id === selectedContact.id 
+                ? { ...contact, lastMessage: mediaPreview, lastMessageTime: serverTimestamp }
+                : contact
+            );
+            // Sort contacts by last message time (most recent first)
+            return sortContactsByTime(updated);
+          });
+        }
         
         // Send the URL as a regular text message - backend will auto-detect it as image/video
         await sendText(attachment.url);
@@ -1631,7 +1859,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       // Show uploading indicator
       const uploadingMessage: ChatMessage = {
         id: `uploading_${Date.now()}`,
-        text: '🎤 Uploading voice message...',
+        text: 'Uploading voice message...',
         userId: user.id,
         username: user.username || 'You',
         createdAt: new Date().toISOString(),
@@ -1691,7 +1919,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       
       const success = await sendToUserWithCustomData(
         selectedContact.id,
-        '🎤 Voice message',
+        'Voice message',
         customData,
         replyTo?.id || null,
         clientMessageId
@@ -1702,12 +1930,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       if (success) {
         // Add message to conversation optimistically
         // SignalR will send it back with the server ID, so we'll update it then
+        const serverTimestamp = new Date().toISOString();
         const voiceMessage: ChatMessage = {
           id: clientMessageId,
-          text: '🎤 Voice message',
+          text: 'Voice message',
           userId: user.id,
           username: user.username || 'You',
-          createdAt: new Date().toISOString(),
+          createdAt: serverTimestamp,
           messageType: 'voice',
           audioUrl,
           audioDuration: duration,
@@ -1729,6 +1958,19 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           console.log('[ChatScreen] ✅ Voice message will be saved to MongoDB via SignalR backend');
         } else {
           console.error('[ChatScreen] ⚠️ Could not compute conversation ID for voice message');
+        }
+
+        // Immediately update contact list with the sent voice message and reorder
+        if (selectedContact) {
+          setContacts(prev => {
+            const updated = prev.map(contact => 
+              contact.id === selectedContact.id 
+                ? { ...contact, lastMessage: 'Voice message', lastMessageTime: serverTimestamp }
+                : contact
+            );
+            // Sort contacts by last message time (most recent first)
+            return sortContactsByTime(updated);
+          });
         }
 
         setReplyTo(null);
@@ -1952,12 +2194,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
     
     const id = Date.now().toString();
+    const serverTimestamp = new Date().toISOString();
     const newMessage: ChatMessage = {
       id,
       text: text.trim(),
       userId: user.id,
       username: user.username || 'You',
-      createdAt: new Date().toISOString(),
+      createdAt: serverTimestamp,
       messageType: 'text',
       replyToMessageId: replyTo?.id ?? null,
     };
@@ -1969,8 +2212,26 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       addMessageToConversation(currentConversationId, newMessage);
     }
     
+    // Immediately update contact list with the sent message and reorder
     if (selectedContact) {
       const targetId = selectedContact.id;
+      const lastMessagePreview = text.trim().length > 50 ? text.trim().substring(0, 50) + '...' : text.trim();
+      
+      setContacts(prev => {
+        const updated = prev.map(contact => 
+          contact.id === targetId 
+            ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
+            : contact
+        );
+        // Sort contacts by last message time (most recent first)
+        const sorted = sortContactsByTime(updated);
+        console.log('[ChatScreen] Reordered contacts after sendText:', sorted.map(c => ({ 
+          name: c.name, 
+          lastMessageTime: c.lastMessageTime 
+        })));
+        return sorted;
+      });
+      
       console.log('[ChatScreen] Sending message to contact:', { targetId, contactName: selectedContact.name });
       if (targetId && typeof targetId === 'string') {
         const result = await sendToUserWithMeta(targetId, newMessage.text, replyTo?.id ?? undefined, id);
@@ -2104,29 +2365,81 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  // Helper function to format timestamp for display
+  const formatMessageTime = (timestamp: string): string => {
+    if (!timestamp || timestamp === "" || timestamp.includes("0001-01-01")) {
+      return "";
+    }
+    
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) {
+        return "";
+      }
+      
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffMins = Math.floor(diffMs / 60000);
+      const diffHours = Math.floor(diffMs / 3600000);
+      const diffDays = Math.floor(diffMs / 86400000);
+      
+      // Today - show time
+      if (diffDays === 0) {
+        if (diffMins < 1) return "Just now";
+        if (diffMins < 60) return `${diffMins}m`;
+        return `${diffHours}h`;
+      }
+      
+      // Yesterday
+      if (diffDays === 1) {
+        return "Yesterday";
+      }
+      
+      // This week - show day name
+      if (diffDays < 7) {
+        return date.toLocaleDateString('en-US', { weekday: 'short' });
+      }
+      
+      // Older - show date
+      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    } catch (error) {
+      console.error('Error formatting timestamp:', timestamp, error);
+      return "";
+    }
+  };
+
   const renderContact = ({ item }: { item: ChatContact }) => (
     <TouchableOpacity
       style={styles.contactItem}
       onPress={() => handleContactSelect(item)}
     >
       <View style={styles.contactAvatar}>
-        <Image source={{ uri: item.avatar }} style={styles.avatarImage} />
+        <SafeImage 
+          source={{ uri: item.avatar }} 
+          style={styles.avatarImage}
+          fallbackUri={`https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(item.name)}`}
+          placeholder={item.name?.charAt(0).toUpperCase() || 'U'}
+        />
         {item.isOnline && <View style={styles.onlineIndicator} />}
       </View>
       
       <View style={styles.contactInfo}>
         <View style={styles.contactHeader}>
           <Text style={styles.contactName}>{item.name}</Text>
-          <Text style={styles.lastMessageTime}>{item.lastMessageTime}</Text>
+          {item.lastMessageTime && item.lastMessageTime !== "" && !item.lastMessageTime.includes("0001-01-01") && (
+            <Text style={styles.lastMessageTime}>{formatMessageTime(item.lastMessageTime)}</Text>
+          )}
         </View>
         <Text style={styles.lastMessage} numberOfLines={1}>
           {item.lastMessage}
         </Text>
       </View>
       
-      {item.unreadCount && item.unreadCount > 0 && (
+      {(item.unreadCount !== undefined && item.unreadCount !== null && item.unreadCount > 0) && (
         <View style={styles.unreadBadge}>
-          <Text style={styles.unreadCount}>{item.unreadCount}</Text>
+          <Text style={styles.unreadCount}>
+            {item.unreadCount > 99 ? '99+' : String(item.unreadCount)}
+          </Text>
         </View>
       )}
     </TouchableOpacity>
@@ -2233,7 +2546,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 source={{ uri: item.imageUrl || item.text }}
                 style={styles.messageImage}
                 resizeMode="cover"
-                placeholder="📷"
+                placeholder=""
                 fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
               />
             </TouchableOpacity>
@@ -2271,64 +2584,75 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             </View>
           )}
           
-          {/* Message time */}
+          {/* Message time - Telegram style */}
           <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime]}>
             {(() => {
               try {
-                // Parse the timestamp - handle various formats
+                const timestamp = item.sentAt || item.createdAt;
+                if (!timestamp) {
+                  return '';
+                }
+                
+                if (typeof timestamp === 'string' && (timestamp.includes('0001-01-01') || timestamp.trim() === '')) {
+                  return '';
+                }
+                
                 let date: Date;
-                if (typeof item.createdAt === 'string') {
-                  // Try parsing the ISO string
-                  date = new Date(item.createdAt);
-                  // If parsing failed, try to fix common issues
+                if (typeof timestamp === 'string') {
+                  date = new Date(timestamp);
                   if (isNaN(date.getTime())) {
-                    // Try removing timezone info and parsing as UTC
-                    const cleaned = item.createdAt.replace(/[+-]\d{2}:\d{2}$/, '').replace('Z', '');
-                    date = new Date(cleaned + 'Z');
+                    const num = parseInt(timestamp, 10);
+                    if (!isNaN(num) && num > 0) {
+                      date = new Date(num);
+                    } else {
+                      return '';
+                    }
                   }
+                } else if (typeof timestamp === 'number') {
+                  if (timestamp <= 0) return '';
+                  date = new Date(timestamp);
                 } else {
-                  date = new Date(item.createdAt);
+                  date = new Date(timestamp);
                 }
                 
-                if (isNaN(date.getTime())) {
-                  console.warn('Invalid date for message:', item.id, item.createdAt);
-                  return 'Invalid time';
+                if (isNaN(date.getTime()) || date.getTime() <= 0) {
+                  return '';
                 }
                 
-                // Show relative time for recent messages, absolute time for older ones
+                const year = date.getFullYear();
+                if (year < 2000 || year > 2100) {
+                  return '';
+                }
+                
                 const now = new Date();
-                const diffMs = now.getTime() - date.getTime();
-                
-                // Handle negative differences (future dates) - shouldn't happen but handle gracefully
-                if (diffMs < 0) {
-                  console.warn('Message timestamp is in the future:', item.id, date, 'now:', now);
-                  // Show the actual time if it's in the future
-                  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                }
-                
-                const diffMins = Math.floor(diffMs / 60000);
-                const diffHours = Math.floor(diffMs / 3600000);
+                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+                const diffMs = today.getTime() - messageDate.getTime();
                 const diffDays = Math.floor(diffMs / 86400000);
                 
-                if (diffMins < 1) {
-                  return 'Just now';
-                } else if (diffMins < 60) {
-                  return `${diffMins}m ago`;
-                } else if (diffHours < 24) {
-                  return `${diffHours}h ago`;
-                } else if (diffDays < 7) {
-                  return `${diffDays}d ago`;
-                } else {
-                  // For older messages, show date and time
-                  // Use UTC to avoid timezone issues
-                  const day = date.getDate();
-                  const month = date.toLocaleDateString('en-US', { month: 'short' });
-                  const time = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-                  return `${day} ${month} ${time}`;
+                const hours = date.getHours();
+                const minutes = date.getMinutes();
+                const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
+                
+                if (diffDays === 0) {
+                  return timeStr;
                 }
+                
+                if (diffDays === 1) {
+                  return `Yesterday ${timeStr}`;
+                }
+                
+                if (diffDays < 7) {
+                  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
+                  return `${dayName} ${timeStr}`;
+                }
+                
+                const day = date.getDate();
+                const month = date.toLocaleDateString('en-US', { month: 'short' });
+                return `${day} ${month} ${timeStr}`;
               } catch (error) {
-                console.error('Error formatting message time:', error, item.createdAt, 'Type:', typeof item.createdAt);
-                return 'Invalid time';
+                console.error('[ChatScreen] Error formatting message time:', error, 'timestamp:', item.sentAt || item.createdAt);
+                return '';
               }
             })()}
           </Text>
@@ -2343,7 +2667,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               }}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.actionButtonText}>😊</Text>
+              <EmojiIcon size={20} color={colors.text} />
             </TouchableOpacity>
             <TouchableOpacity
               style={styles.actionButton}
@@ -2432,7 +2756,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           style={styles.backButton}
           onPress={() => setShowContacts(true)}
         >
-          <Text style={styles.backButtonText}>←</Text>
+          <BackIcon size={24} color={colors.text} />
         </TouchableOpacity>
         
         <View style={styles.chatHeaderInfo}>
@@ -2451,23 +2775,23 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             onPress={() => handleStartCall('audio')}
             disabled={!connected || !!activeCall}
           >
-            <Text style={styles.callButtonText}>📞</Text>
+            <CallIcon size={20} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.callButton}
             onPress={() => handleStartCall('video')}
             disabled={!connected || !!activeCall}
           >
-            <Text style={styles.callButtonText}>📹</Text>
+            <VideoCallIcon size={20} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity 
             style={styles.wallpaperButton}
             onPress={() => setShowWallpaperPicker(true)}
           >
-            <Text style={styles.wallpaperButtonText}>🎨</Text>
+            <PaletteIcon size={20} color={colors.text} />
           </TouchableOpacity>
         <TouchableOpacity style={styles.moreButton}>
-          <Text style={styles.moreButtonText}>⋯</Text>
+          <MoreIcon size={20} color={colors.text} />
         </TouchableOpacity>
         </View>
       </View>
@@ -2482,9 +2806,16 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 style={styles.incomingCallAvatar}
               />
             </View>
-            <Text style={styles.incomingCallTitle}>
-              {incomingCall.callType === 'video' ? '📹' : '📞'} Incoming {incomingCall.callType === 'video' ? 'Video' : 'Audio'} Call
-            </Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+              {incomingCall.callType === 'video' ? (
+                <VideoCallIcon size={28} color={colors.primary} />
+              ) : (
+                <CallIcon size={28} color={colors.primary} />
+              )}
+              <Text style={styles.incomingCallTitle}>
+                Incoming {incomingCall.callType === 'video' ? 'Video' : 'Audio'} Call
+              </Text>
+            </View>
             <Text style={styles.incomingCallSubtitle}>
               {contacts.find(c => c.id === incomingCall.callerUserId)?.name || 'Unknown'}
             </Text>
@@ -2493,13 +2824,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 style={[styles.callActionButton, styles.rejectCallButton]}
                 onPress={handleRejectCall}
               >
-                <Text style={styles.callActionButtonText}>✕</Text>
+                <CloseIcon size={28} color="white" />
               </TouchableOpacity>
               <TouchableOpacity 
                 style={[styles.callActionButton, styles.acceptCallButton]}
                 onPress={handleAcceptCall}
               >
-                <Text style={styles.callActionButtonText}>✓</Text>
+                <CheckIcon size={28} color="white" />
               </TouchableOpacity>
             </View>
           </View>
@@ -2534,27 +2865,27 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                     style={[styles.callControlButton, isMuted && styles.callControlButtonActive]}
                     onPress={toggleMute}
                   >
-                    <Text style={styles.callControlButtonText}>{isMuted ? '🔇' : '🎤'}</Text>
+                    <MicIcon size={24} color="white" muted={isMuted} />
                   </TouchableOpacity>
                   <TouchableOpacity 
                     style={[styles.callControlButton, !isVideoEnabled && styles.callControlButtonActive]}
                     onPress={toggleVideo}
                   >
-                    <Text style={styles.callControlButtonText}>{isVideoEnabled ? '📹' : '📷'}</Text>
+                    <CameraIcon size={24} color="white" enabled={isVideoEnabled} />
                   </TouchableOpacity>
                   {isVideoEnabled && (
                     <TouchableOpacity 
                       style={styles.callControlButton}
                       onPress={switchCamera}
                     >
-                      <Text style={styles.callControlButtonText}>🔄</Text>
+                      <FlipCameraIcon size={24} color="white" />
                     </TouchableOpacity>
                   )}
                   <TouchableOpacity 
                     style={[styles.callControlButton, styles.endCallButton]}
                     onPress={handleEndCall}
                   >
-                    <Text style={styles.callControlButtonText}>✕</Text>
+                    <CloseIcon size={24} color="white" />
                   </TouchableOpacity>
                 </View>
               </View>
@@ -2568,9 +2899,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   style={styles.activeCallAvatar}
                 />
               </View>
-              <Text style={styles.activeCallTitle}>
-                📞 Audio Call
-              </Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                <CallIcon size={28} color={colors.primary} />
+                <Text style={styles.activeCallTitle}>
+                  Audio Call
+                </Text>
+              </View>
               <Text style={styles.activeCallSubtitle}>
                 {contacts.find(c => c.id === activeCall.otherUserId)?.name || 'Unknown'}
               </Text>
@@ -2591,13 +2925,16 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   style={[styles.callActionButton, isMuted && styles.callActionButtonActive]}
                   onPress={toggleMute}
                 >
-                  <Text style={styles.callActionButtonText}>{isMuted ? '🔇' : '🎤'}</Text>
+                  <MicIcon size={24} color="white" muted={isMuted} />
                 </TouchableOpacity>
                 <TouchableOpacity 
                   style={[styles.callActionButton, styles.endCallButton]}
                   onPress={handleEndCall}
                 >
-                  <Text style={styles.callActionButtonText}>✕ End Call</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <CloseIcon size={20} color="white" />
+                    <Text style={styles.callActionButtonText}>End Call</Text>
+                  </View>
                 </TouchableOpacity>
               </View>
             </View>
@@ -2645,7 +2982,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 style={styles.wallpaperModalClose}
                 onPress={() => setShowWallpaperPicker(false)}
               >
-                <Text style={styles.wallpaperModalCloseText}>✕</Text>
+                <CloseIcon size={24} color={colors.text} />
               </TouchableOpacity>
             </View>
 
@@ -2725,7 +3062,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             onPress={() => setEnlargedImage(null)}
             activeOpacity={0.7}
           >
-            <Text style={styles.imageModalCloseText}>✕</Text>
+                <CloseIcon size={24} color={colors.text} />
           </TouchableOpacity>
           <TouchableOpacity
             style={styles.imageModalContainer}
@@ -2736,7 +3073,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               source={{ uri: enlargedImage }}
               style={styles.imageModalImage}
               resizeMode="contain"
-              placeholder="📷"
+              placeholder=""
               fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
             />
           </TouchableOpacity>
@@ -2784,7 +3121,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               style={styles.replyPreviewClose}
               onPress={() => setReplyTo(null)}
             >
-              <Text style={styles.replyPreviewCloseText}>✕</Text>
+              <CloseIcon size={18} color={colors.text} />
             </TouchableOpacity>
           </View>
         </View>
@@ -2841,7 +3178,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               activeOpacity={0.7}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.cancelRecordingButtonTextInInput}>✕</Text>
+              <CloseIcon size={20} color={colors.text} />
             </TouchableOpacity>
             <View style={styles.recordingWaveformContainer}>
               <View style={{ flex: 1 }}>
@@ -2860,11 +3197,11 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               activeOpacity={0.7}
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             >
-              <Text style={styles.sendRecordingButtonText}>✓</Text>
+              <CheckIcon size={20} color={colors.text} />
             </TouchableOpacity>
           </View>
         ) : (
-          <View style={styles.inputWrapper}>
+        <View style={styles.inputWrapper}>
             {/* Attach Button */}
             <View style={styles.attachButtonContainer}>
               <TouchableOpacity
@@ -2880,7 +3217,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                     style={styles.attachMenuItem}
                     onPress={pickImage}
                   >
-                    <Text style={styles.attachMenuIcon}>📷</Text>
+                    <ImageIcon size={24} color={colors.text} />
                     <Text style={styles.attachMenuText}>Photo</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
@@ -2913,7 +3250,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   style={styles.pendingAttachmentRemove}
                   onPress={() => setPendingAttachment(null)}
                 >
-                  <Text style={styles.pendingAttachmentRemoveText}>✕</Text>
+                  <CloseIcon size={18} color={colors.text} />
                 </TouchableOpacity>
               </View>
             )}
@@ -2936,41 +3273,45 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 delayPressOut={0}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Text style={styles.recordButtonText}>🎤</Text>
+                <VoiceMessageIcon size={24} color={colors.text} />
               </TouchableOpacity>
             )}
 
-            <TextInput
-              style={styles.messageInput}
-              placeholder={editingId ? t('chat.editPlaceholder', 'Edit message...') : t('chat.inputPlaceholder', 'Type a message...')}
-              placeholderTextColor={colors.textMuted}
-              value={inputText}
-              onChangeText={(text) => {
-                setInputText(text);
-                if (text.trim()) {
-                  handleTyping();
+          <TextInput
+            style={styles.messageInput}
+            placeholder={editingId ? t('chat.editPlaceholder', 'Edit message...') : t('chat.inputPlaceholder', 'Type a message...')}
+            placeholderTextColor={colors.textMuted}
+            value={inputText}
+            onChangeText={(text) => {
+              setInputText(text);
+              if (text.trim()) {
+                handleTyping();
                   setIsRecordingMode(false);
-                } else {
-                  handleStopTyping();
-                }
-              }}
-              onBlur={handleStopTyping}
-              multiline
-              maxLength={1000}
-            />
-            <TouchableOpacity 
+              } else {
+                handleStopTyping();
+              }
+            }}
+            onBlur={handleStopTyping}
+            multiline
+            maxLength={1000}
+          />
+          <TouchableOpacity 
               style={[styles.sendButton, (!inputText.trim() && !editingId && !pendingAttachment) && styles.sendButtonDisabled]}
-              onPress={handleSendMessage}
+            onPress={handleSendMessage}
               disabled={!inputText.trim() && !editingId && !pendingAttachment}
-            >
-              <LinearGradient
+          >
+            <LinearGradient
                 colors={(inputText.trim() || editingId || pendingAttachment) ? [colors.gradientStart, colors.gradientMid, colors.gradientEnd] : [colors.muted, colors.muted]}
-                style={styles.sendButtonGradient}
-              >
-                <Text style={styles.sendButtonText}>{editingId ? '✓' : '→'}</Text>
-              </LinearGradient>
-            </TouchableOpacity>
-          </View>
+              style={styles.sendButtonGradient}
+            >
+                {editingId ? (
+                  <CheckIcon size={20} color={colors.text} />
+                ) : (
+                  <SendIcon size={20} color={colors.text} />
+                )}
+            </LinearGradient>
+          </TouchableOpacity>
+        </View>
         )}
       </View>
     </KeyboardAvoidingView>
