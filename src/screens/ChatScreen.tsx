@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, TextInput, KeyboardAvoidingView, Platform, Alert, Animated, PanResponder } from 'react-native';
+import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, TextInput, KeyboardAvoidingView, Platform, Alert, Animated, PanResponder, Linking } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -10,7 +10,10 @@ import { useSignalRChat } from '../hooks/useSignalRChat';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { VoiceMessagePlayer } from '../components/VoiceMessagePlayer';
+import { SafeImage } from '../components/SafeImage';
 import * as FileSystem from 'expo-file-system';
+import * as ImagePicker from 'expo-image-picker';
+import { Video } from 'expo-av';
 
 interface ChatContact {
   id: string;
@@ -33,6 +36,7 @@ interface ChatMessage {
   audioUrl?: string;
   audioDuration?: number;
   imageUrl?: string;
+  videoUrl?: string;
   replyToMessageId?: string | null;
   reactions?: Record<string, string[]>;
   read?: boolean;
@@ -128,6 +132,46 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }));
   };
 
+  // Helper functions to detect image/video URLs (matching web frontend)
+  const isCloudinaryUrl = useCallback((url: string): boolean => {
+    try {
+      return new URL(url).hostname.includes('cloudinary.com') || new URL(url).hostname.includes('res.cloudinary.com');
+    } catch { return false; }
+  }, []);
+
+  const looksLikeImageUrl = useCallback((url: string): boolean => {
+    const lower = url.toLowerCase();
+    return /(\.png|\.jpg|\.jpeg|\.gif|\.webp|\.avif)(\?|#|$)/.test(lower) || (isCloudinaryUrl(url) && /\/image\//i.test(lower));
+  }, [isCloudinaryUrl]);
+
+  const looksLikeVideoUrl = useCallback((url: string): boolean => {
+    const lower = url.toLowerCase();
+    return /(\.mp4|\.webm|\.ogg|\.mov)(\?|#|$)/.test(lower) || (isCloudinaryUrl(url) && /\/video\//i.test(lower));
+  }, [isCloudinaryUrl]);
+
+  const isYouTubeUrl = useCallback((url: string): boolean => {
+    const lower = url.toLowerCase();
+    return /youtube\.com\/watch\?v=|youtu\.be\//.test(lower);
+  }, []);
+
+  const getYouTubeThumbnail = useCallback((url: string): string | null => {
+    if (!isYouTubeUrl(url)) return null;
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+    if (match && match[1]) {
+      return `https://img.youtube.com/vi/${match[1]}/maxresdefault.jpg`;
+    }
+    return null;
+  }, [isYouTubeUrl]);
+
+  const getYouTubeEmbedUrl = useCallback((url: string): string | null => {
+    if (!isYouTubeUrl(url)) return null;
+    const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
+    if (match && match[1]) {
+      return `https://www.youtube.com/embed/${match[1]}`;
+    }
+    return null;
+  }, [isYouTubeUrl]);
+
   const addMessageToConversation = (conversationId: string, message: ChatMessage) => {
     setConversations(prev => {
       const currentMessages = prev[conversationId] || [];
@@ -176,6 +220,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const recordButtonPressInRef = useRef(false);
   const recordButtonPressOutTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const recordingStartedRef = useRef(false); // Track if we successfully started recording
+
+  // Media attachment state
+  const [pendingAttachment, setPendingAttachment] = useState<{ url: string; mediaType: 'image' | 'video'; name?: string } | null>(null);
+  const [showAttachMenu, setShowAttachMenu] = useState(false);
+  
+  // Full-screen image viewer state
+  const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
 
   // SignalR hook for real-time messaging
   const {
@@ -237,13 +288,26 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         serverTimestamp = new Date().toISOString();
       }
       
-      // Extract custom data for voice messages
+      // Extract custom data for voice/media messages
       const customData = typeof payload === 'object' ? payload?.customData : null;
-      const messageType = customData?.messageType || 'text';
+      let messageType = customData?.messageType || 'text';
+      
+      // Auto-detect image/video/YouTube from URL if messageType is not set
+      if (messageType === 'text' && text) {
+        if (looksLikeImageUrl(text)) {
+          messageType = 'image';
+        } else if (isYouTubeUrl(text)) {
+          messageType = 'video';
+        } else if (looksLikeVideoUrl(text)) {
+          messageType = 'video';
+        }
+      }
+      
       const audioUrl = customData?.audioUrl;
       const audioDuration = customData?.audioDuration;
+      const imageUrl = customData?.imageUrl || (messageType === 'image' ? text : null);
       
-      // Log voice messages for debugging
+      // Log voice/media messages for debugging
       if (messageType === 'voice') {
         console.log('[ChatScreen] onMessageReceived - Voice message received:', {
           id,
@@ -252,6 +316,14 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           audioDuration,
           hasAudioUrl: !!audioUrl,
           hasAudioDuration: audioDuration !== null && audioDuration !== undefined,
+          customData: JSON.stringify(customData)
+        });
+      } else if (messageType === 'image' || messageType === 'video') {
+        console.log('[ChatScreen] onMessageReceived - Media message received:', {
+          id,
+          sender,
+          messageType,
+          imageUrl: imageUrl || text,
           customData: JSON.stringify(customData)
         });
       }
@@ -263,9 +335,10 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         username: username || 'Unknown',
         createdAt: serverTimestamp,
         replyToMessageId,
-        messageType,
+        messageType: messageType as 'text' | 'voice' | 'image' | 'video',
         ...(audioUrl && { audioUrl }),
-        ...(audioDuration !== null && audioDuration !== undefined && { audioDuration })
+        ...(audioDuration !== null && audioDuration !== undefined && { audioDuration }),
+        ...(imageUrl && { imageUrl })
       };
 
       // Check if this is a confirmation of a message we already sent (to prevent duplicates)
@@ -1081,14 +1154,29 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           rawMsg: JSON.stringify(msg).substring(0, 200) // First 200 chars for debugging
         });
         
-        // Extract voice message fields - check multiple possible field names
-        const messageType = msg.messageType || (msg.customData?.messageType) || 'text';
+        // Extract message type and media fields - check multiple possible field names
+        let messageType = msg.messageType || (msg.customData?.messageType) || 'text';
+        const messageText = msg.text || msg.message || '';
+        
+        // Auto-detect image/video/YouTube from URL if messageType is not set
+        if (messageType === 'text' && messageText) {
+          if (looksLikeImageUrl(messageText)) {
+            messageType = 'image';
+          } else if (isYouTubeUrl(messageText)) {
+            messageType = 'video';
+          } else if (looksLikeVideoUrl(messageText)) {
+            messageType = 'video';
+          }
+        }
+        
         const audioUrl = msg.audioUrl || (msg.customData?.audioUrl) || null;
         const audioDuration = msg.audioDuration !== undefined && msg.audioDuration !== null 
           ? msg.audioDuration 
           : (msg.customData?.audioDuration !== undefined && msg.customData?.audioDuration !== null 
               ? msg.customData.audioDuration 
               : null);
+        const imageUrl = msg.imageUrl || (msg.customData?.imageUrl) || (messageType === 'image' ? messageText : null);
+        const videoUrl = msg.videoUrl || (msg.customData?.videoUrl) || (messageType === 'video' ? messageText : null);
         
         if (messageType === 'voice') {
           console.log('[ChatScreen] ✓ Voice message detected:', {
@@ -1098,18 +1186,26 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             audioDuration,
             willBeDisplayed: !!(audioUrl && audioDuration)
           });
+        } else if (messageType === 'image' || messageType === 'video') {
+          console.log('[ChatScreen] ✓ Media message detected:', {
+            id: msg.id,
+            messageType,
+            imageUrl: imageUrl || messageText,
+            willBeDisplayed: !!(imageUrl || messageText)
+          });
         }
         
         const message: ChatMessage = {
         id: msg.id,
-        text: msg.text || msg.message || '',
+        text: messageText,
         userId: msg.userId || msg.senderId,
         username: msg.username || msg.senderName || 'Unknown',
           createdAt: timestamp,
-        messageType,
+        messageType: messageType as 'text' | 'voice' | 'image' | 'video',
         audioUrl: audioUrl || undefined,
         audioDuration: audioDuration || undefined,
-        imageUrl: msg.imageUrl || undefined,
+        imageUrl: imageUrl || undefined,
+        videoUrl: videoUrl || undefined,
         replyToMessageId: msg.replyToMessageId || undefined,
         reactions: msg.reactions || {},
         };
@@ -1298,7 +1394,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
   const handleSendMessage = async () => {
     try {
-      if (!inputText.trim() && !editingId) return;
+      if (!inputText.trim() && !editingId && !pendingAttachment) return;
       if (!user?.id) return;
       if (!connected) {
         setError('Connection lost. Please wait for reconnection...');
@@ -1329,6 +1425,18 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           console.error('Failed to edit message:', error);
           setError('Failed to edit message. Please try again.');
         }
+        return;
+      }
+
+      // Handle media attachment - send URL as text message (backend auto-detects image/video)
+      if (pendingAttachment) {
+        const attachment = pendingAttachment;
+        setPendingAttachment(null);
+        
+        // Send the URL as a regular text message - backend will auto-detect it as image/video
+        await sendText(attachment.url);
+        setInputText('');
+        setReplyTo(null);
         return;
       }
       
@@ -1398,6 +1506,115 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       console.error('[ChatScreen] Failed to upload audio file:', error);
       console.error('[ChatScreen] Error details:', error.response?.data || error.message);
       return null;
+    }
+  };
+
+  const uploadImageOrVideo = async (uri: string, mediaType: 'image' | 'video'): Promise<string | null> => {
+    try {
+      if (!user?.id || !selectedContact?.id) {
+        console.error('Missing user or contact ID');
+        return null;
+      }
+
+      const formData = new FormData();
+      const extension = mediaType === 'image' ? 'jpg' : 'mp4';
+      const fileName = `${mediaType}_${Date.now()}.${extension}`;
+      const fileType = mediaType === 'image' ? 'image/jpeg' : 'video/mp4';
+
+      // Handle blob URIs on web platform
+      if (Platform.OS === 'web' && uri.startsWith('blob:')) {
+        try {
+          const response = await fetch(uri);
+          const blob = await response.blob();
+          const file = new File([blob], fileName, { type: fileType });
+          formData.append('file', file);
+        } catch (blobError: any) {
+          console.error('[ChatScreen] Failed to convert blob to File:', blobError);
+          formData.append('file', uri);
+        }
+      } else {
+        // @ts-ignore - FormData typing issue
+        formData.append('file', {
+          uri: uri,
+          name: fileName,
+          type: fileType,
+        } as any);
+      }
+
+      console.log('[ChatScreen] Uploading media file:', { uri, mediaType, fileName, platform: Platform.OS });
+
+      const response = await chatApi.post(endpoints.uploadChatMedia, formData, {
+        headers: {
+          'Content-Type': 'multipart/form-data',
+        },
+      });
+
+      console.log('[ChatScreen] Media upload response:', response.data);
+      return response.data?.url || null;
+    } catch (error: any) {
+      console.error('[ChatScreen] Failed to upload media file:', error);
+      console.error('[ChatScreen] Error details:', error.response?.data || error.message);
+      return null;
+    }
+  };
+
+  const pickImage = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please allow access to your photos to send images.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        const mediaUrl = await uploadImageOrVideo(asset.uri, 'image');
+        if (mediaUrl) {
+          setPendingAttachment({ url: mediaUrl, mediaType: 'image', name: asset.fileName || 'image.jpg' });
+          setShowAttachMenu(false);
+        } else {
+          Alert.alert('Error', 'Failed to upload image. Please try again.');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  const pickVideo = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please allow access to your videos to send videos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+        allowsEditing: false,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const asset = result.assets[0];
+        const mediaUrl = await uploadImageOrVideo(asset.uri, 'video');
+        if (mediaUrl) {
+          setPendingAttachment({ url: mediaUrl, mediaType: 'video', name: asset.fileName || 'video.mp4' });
+          setShowAttachMenu(false);
+        } else {
+          Alert.alert('Error', 'Failed to upload video. Please try again.');
+        }
+      }
+    } catch (error: any) {
+      console.error('Error picking video:', error);
+      Alert.alert('Error', 'Failed to pick video. Please try again.');
     }
   };
 
@@ -1919,6 +2136,18 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     const isOwnMessage = item.userId === user?.id;
     const repliedToMessage = item.replyToMessageId && currentMessages.find(m => m.id === item.replyToMessageId);
     
+    // Debug logging for video detection
+    if (item.messageType === 'video' || (item.text && (looksLikeVideoUrl(item.text) || isYouTubeUrl(item.text)))) {
+      console.log('[ChatScreen] Rendering video message:', {
+        id: item.id,
+        messageType: item.messageType,
+        text: item.text?.substring(0, 50),
+        videoUrl: item.videoUrl,
+        isYouTube: isYouTubeUrl(item.text || ''),
+        looksLikeVideo: looksLikeVideoUrl(item.text || ''),
+      });
+    }
+    
     return (
       <View style={[styles.messageContainer, isOwnMessage && styles.ownMessageContainer]}>
         <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble]}>
@@ -1939,6 +2168,75 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               duration={item.audioDuration || 0}
               isOwnMessage={isOwnMessage}
             />
+          ) : item.messageType === 'video' || (item.text && (looksLikeVideoUrl(item.text) || isYouTubeUrl(item.text))) ? (
+            // Check for videos FIRST (before images) to prevent videos from being shown as images
+            <View style={styles.messageVideoContainer}>
+              {isYouTubeUrl(item.text) ? (
+                <TouchableOpacity
+                  onPress={() => {
+                    if (item.text) Linking.openURL(item.text);
+                  }}
+                  activeOpacity={0.9}
+                  style={styles.youtubeContainer}
+                >
+                  <SafeImage
+                    source={{ uri: getYouTubeThumbnail(item.text) || '' }}
+                    style={styles.youtubeThumbnail}
+                    resizeMode="cover"
+                    placeholder="▶"
+                    fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=YouTube`}
+                  />
+                  <View style={styles.youtubeOverlay}>
+                    <View style={styles.youtubePlayButton}>
+                      <Text style={styles.youtubePlayIcon}>▶</Text>
+                    </View>
+                    <Text style={styles.youtubeText}>YouTube</Text>
+                  </View>
+                </TouchableOpacity>
+              ) : (
+                <View style={styles.messageVideoPlayerContainer}>
+                  <Video
+                    source={{ uri: item.videoUrl || item.text }}
+                    style={styles.messageVideoPlayer}
+                    useNativeControls={true}
+                    resizeMode="contain"
+                    shouldPlay={false}
+                    isLooping={false}
+                    isMuted={false}
+                    onError={(error) => {
+                      console.error('[ChatScreen] Video playback error:', error);
+                      console.error('[ChatScreen] Video URL:', item.videoUrl || item.text);
+                      Alert.alert('Video Error', 'Unable to play this video.');
+                    }}
+                    onLoadStart={() => {
+                      console.log('[ChatScreen] Video loading started:', item.videoUrl || item.text);
+                    }}
+                    onLoad={() => {
+                      console.log('[ChatScreen] Video loaded successfully');
+                    }}
+                  />
+                </View>
+              )}
+            </View>
+          ) : item.messageType === 'image' || (item.text && looksLikeImageUrl(item.text)) ? (
+            <TouchableOpacity
+              style={styles.messageImageContainer}
+              onPress={() => {
+                const imageUrl = item.imageUrl || item.text;
+                if (imageUrl) {
+                  setEnlargedImage(imageUrl);
+                }
+              }}
+              activeOpacity={0.9}
+            >
+              <SafeImage
+                source={{ uri: item.imageUrl || item.text }}
+                style={styles.messageImage}
+                resizeMode="cover"
+                placeholder="📷"
+                fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
+              />
+            </TouchableOpacity>
           ) : (
             <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText]}>
               {item.text}
@@ -2419,6 +2717,32 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         </View>
       )}
 
+      {/* Full-Screen Image Viewer Modal */}
+      {enlargedImage && (
+        <View style={styles.imageModalOverlay}>
+          <TouchableOpacity
+            style={styles.imageModalCloseButton}
+            onPress={() => setEnlargedImage(null)}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.imageModalCloseText}>✕</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.imageModalContainer}
+            activeOpacity={1}
+            onPress={() => setEnlargedImage(null)}
+          >
+            <SafeImage
+              source={{ uri: enlargedImage }}
+              style={styles.imageModalImage}
+              resizeMode="contain"
+              placeholder="📷"
+              fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
+            />
+          </TouchableOpacity>
+        </View>
+      )}
+
       {/* Connection Status */}
       {!connected && (
         <View style={styles.connectionStatus}>
@@ -2541,8 +2865,61 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           </View>
         ) : (
           <View style={styles.inputWrapper}>
+            {/* Attach Button */}
+            <View style={styles.attachButtonContainer}>
+              <TouchableOpacity
+                style={styles.attachButton}
+                onPress={() => setShowAttachMenu(!showAttachMenu)}
+                activeOpacity={0.7}
+              >
+                <Text style={styles.attachButtonText}>+</Text>
+              </TouchableOpacity>
+              {showAttachMenu && (
+                <View style={styles.attachMenu}>
+                  <TouchableOpacity
+                    style={styles.attachMenuItem}
+                    onPress={pickImage}
+                  >
+                    <Text style={styles.attachMenuIcon}>📷</Text>
+                    <Text style={styles.attachMenuText}>Photo</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.attachMenuItem}
+                    onPress={pickVideo}
+                  >
+                    <Text style={styles.attachMenuIcon}>🎬</Text>
+                    <Text style={styles.attachMenuText}>Video</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+
+            {/* Pending Attachment Preview */}
+            {pendingAttachment && (
+              <View style={styles.pendingAttachmentContainer}>
+                {pendingAttachment.mediaType === 'image' ? (
+                  <Image
+                    source={{ uri: pendingAttachment.url }}
+                    style={styles.pendingAttachmentImage}
+                    resizeMode="cover"
+                  />
+                ) : (
+                  <View style={styles.pendingAttachmentVideo}>
+                    <Text style={styles.pendingAttachmentVideoIcon}>▶</Text>
+                    <Text style={styles.pendingAttachmentVideoText}>Video</Text>
+                  </View>
+                )}
+                <TouchableOpacity
+                  style={styles.pendingAttachmentRemove}
+                  onPress={() => setPendingAttachment(null)}
+                >
+                  <Text style={styles.pendingAttachmentRemoveText}>✕</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             {/* Record Button (when input is empty) */}
-            {!inputText.trim() && !editingId && (
+            {!inputText.trim() && !editingId && !pendingAttachment && (
               <TouchableOpacity
                 ref={recordingButtonRef}
                 style={styles.recordButton}
@@ -2582,12 +2959,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               maxLength={1000}
             />
             <TouchableOpacity 
-              style={[styles.sendButton, (!inputText.trim() && !editingId) && styles.sendButtonDisabled]}
+              style={[styles.sendButton, (!inputText.trim() && !editingId && !pendingAttachment) && styles.sendButtonDisabled]}
               onPress={handleSendMessage}
-              disabled={!inputText.trim() && !editingId}
+              disabled={!inputText.trim() && !editingId && !pendingAttachment}
             >
               <LinearGradient
-                colors={(inputText.trim() || editingId) ? [colors.gradientStart, colors.gradientMid, colors.gradientEnd] : [colors.muted, colors.muted]}
+                colors={(inputText.trim() || editingId || pendingAttachment) ? [colors.gradientStart, colors.gradientMid, colors.gradientEnd] : [colors.muted, colors.muted]}
                 style={styles.sendButtonGradient}
               >
                 <Text style={styles.sendButtonText}>{editingId ? '✓' : '→'}</Text>
@@ -2801,6 +3178,96 @@ const createStyles = () => StyleSheet.create({
   },
   ownMessageText: {
     color: 'white',
+  },
+  messageImageContainer: {
+    position: 'relative',
+    marginVertical: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.muted,
+  },
+  messageImage: {
+    width: 250,
+    height: 250,
+    borderRadius: 16,
+    backgroundColor: colors.muted,
+  },
+  messageVideoContainer: {
+    marginVertical: 4,
+  },
+  messageVideoPlaceholder: {
+    width: 250,
+    height: 200,
+    backgroundColor: colors.muted,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  messageVideoPlayIcon: {
+    fontSize: 48,
+    color: colors.text,
+    marginBottom: 8,
+  },
+  messageVideoText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  messageVideoPlayerContainer: {
+    position: 'relative',
+    width: 250,
+    height: 200,
+    borderRadius: 16,
+    overflow: 'hidden',
+    backgroundColor: colors.muted,
+  },
+  messageVideoPlayer: {
+    width: '100%',
+    height: '100%',
+  },
+  youtubeContainer: {
+    position: 'relative',
+    width: 250,
+    height: 200,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  youtubeThumbnail: {
+    width: '100%',
+    height: '100%',
+  },
+  youtubeOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  youtubePlayButton: {
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: 'rgba(255, 0, 0, 0.9)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  youtubePlayIcon: {
+    fontSize: 24,
+    color: 'white',
+    marginLeft: 4,
+  },
+  youtubeText: {
+    fontSize: 12,
+    color: 'white',
+    fontWeight: '600',
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 4,
   },
   messageTime: {
     fontSize: 11,
@@ -3550,5 +4017,141 @@ const createStyles = () => StyleSheet.create({
     fontSize: 20,
     color: 'white',
     fontWeight: 'bold',
+  },
+  attachButtonContainer: {
+    position: 'relative',
+    marginRight: 8,
+  },
+  attachButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  attachButtonText: {
+    fontSize: 24,
+    color: 'white',
+    fontWeight: '600',
+  },
+  attachMenu: {
+    position: 'absolute',
+    bottom: 50,
+    left: 0,
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    padding: 8,
+    minWidth: 120,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
+    zIndex: 1000,
+  },
+  attachMenuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+  },
+  attachMenuIcon: {
+    fontSize: 20,
+    marginRight: 8,
+  },
+  attachMenuText: {
+    fontSize: 14,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  pendingAttachmentContainer: {
+    position: 'relative',
+    marginRight: 8,
+    marginBottom: 8,
+  },
+  pendingAttachmentImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: colors.muted,
+  },
+  pendingAttachmentVideo: {
+    width: 80,
+    height: 80,
+    borderRadius: 12,
+    backgroundColor: colors.muted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pendingAttachmentVideoIcon: {
+    fontSize: 24,
+    color: colors.text,
+    marginBottom: 4,
+  },
+  pendingAttachmentVideoText: {
+    fontSize: 10,
+    color: colors.textSecondary,
+    fontWeight: '600',
+  },
+  pendingAttachmentRemove: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.danger,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pendingAttachmentRemoveText: {
+    fontSize: 14,
+    color: 'white',
+    fontWeight: '700',
+  },
+  
+  // Full-screen image viewer styles
+  imageModalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    zIndex: 2000,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  imageModalContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  imageModalImage: {
+    width: '100%',
+    height: '100%',
+    maxWidth: '100%',
+    maxHeight: '100%',
+  },
+  imageModalCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2001,
+  },
+  imageModalCloseText: {
+    fontSize: 24,
+    color: 'white',
+    fontWeight: '700',
   },
 });

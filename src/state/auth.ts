@@ -5,7 +5,7 @@ import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
 
-type User = { id: string; username: string } | null;
+type User = { id: string; username: string; avatar?: string; avatarUrl?: string } | null;
 
 type AuthState = {
   user: User;

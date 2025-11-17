@@ -13,8 +13,6 @@ import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
 const { width, height } = Dimensions.get('window');
 
-const CATEGORIES = ['All', 'Electronics', 'Books', 'Clothing', 'Home & Garden', 'Sports', 'Beauty', 'Toys', 'Food', 'Health', 'Other'];
-
 type WishlistItem = {
   id: string;
   title: string;
@@ -48,7 +46,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [wishlists, setWishlists] = useState<WishlistItem[]>([]);
   const [likedWishlists, setLikedWishlists] = useState<WishlistItem[]>([]);
   const [myWishlists, setMyWishlists] = useState<WishlistItem[]>([]);
-  const [gifts, setGifts] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -59,8 +56,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
-  const [selectedCategory, setSelectedCategory] = useState<string>('');
-  const [sortBy, setSortBy] = useState<string>('');
   const { user, logout } = useAuthStore();
   
   // Animation refs
@@ -146,10 +141,15 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           }
           // Log gift data for debugging
           console.log(`Wishlist ${item.id} - Raw gifts:`, item.gifts);
+          console.log(`Wishlist ${item.id} - Raw items:`, item.items);
           console.log(`Wishlist ${item.id} - Gifts array?:`, Array.isArray(item.gifts));
+          console.log(`Wishlist ${item.id} - Items array?:`, Array.isArray(item.items));
           console.log(`Wishlist ${item.id} - Gifts length:`, item.gifts?.length || 0);
+          console.log(`Wishlist ${item.id} - Items length:`, item.items?.length || 0);
           
-          const transformedGifts = (item.gifts || []).map((gift: any, idx: number) => {
+          // Check both gifts and items (backend may use either)
+          const giftSource = item.gifts || item.items || [];
+          const transformedGifts = giftSource.map((gift: any, idx: number) => {
             const transformed = {
               id: gift.giftId || gift.id || `gift-${idx}`,
               name: gift.title || gift.name || gift.name || 'Unnamed Gift',
@@ -221,22 +221,98 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       );
     }
     
-    // Apply category filter
-    if (selectedCategory && selectedCategory !== 'All') {
-      result = result.filter(w => w.category === selectedCategory);
-    }
-    
-    // Apply sorting
-    if (sortBy === 'likes') {
-      result = [...result].sort((a, b) => b.likes - a.likes);
-    } else if (sortBy === 'recent') {
-      result = [...result].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    } else if (sortBy === 'title') {
-      result = [...result].sort((a, b) => a.title.localeCompare(b.title));
-    }
-    
     setFilteredWishlists(result);
-  }, [searchQuery, wishlists, selectedCategory, sortBy]);
+  }, [searchQuery, wishlists]);
+
+  // Hydrate wishlists with gifts if missing
+  useEffect(() => {
+    if (!user?.id || wishlists.length === 0) return;
+
+    const hydrateItems = async () => {
+      const wishlistsToHydrate = wishlists.filter(w => !w.gifts || w.gifts.length === 0);
+      
+      if (wishlistsToHydrate.length === 0) return;
+
+      console.log(`[HomeScreen] Hydrating ${wishlistsToHydrate.length} wishlists with missing gifts`);
+      
+      for (const w of wishlistsToHydrate) {
+        try {
+          console.log(`[HomeScreen] Fetching detailed wishlist for ${w.id}`);
+          const res = await wishlistApi.get(endpoints.wishlistById(w.id));
+          const detailedWishlist = res.data;
+          
+          // Extract gifts from detailed response (check both gifts and items)
+          const gifts = detailedWishlist.gifts || detailedWishlist.items || [];
+          const transformedGifts = gifts.map((gift: any, idx: number) => ({
+            id: gift.giftId || gift.id || `gift-${idx}`,
+            name: gift.title || gift.name || 'Unnamed Gift',
+            price: gift.price,
+            imageUrl: gift.imageUrl || gift.image,
+            description: gift.description,
+            category: gift.category,
+          })).filter((gift: any) => gift.name && gift.name !== 'Unnamed Gift' || gift.id);
+          
+          console.log(`[HomeScreen] Hydrated wishlist ${w.id} with ${transformedGifts.length} gifts`);
+          
+          // Update the wishlist in state
+          setWishlists(prev => prev.map(wishlist => 
+            wishlist.id === w.id 
+              ? { ...wishlist, gifts: transformedGifts }
+              : wishlist
+          ));
+        } catch (error: any) {
+          console.error(`[HomeScreen] Error hydrating wishlist ${w.id}:`, error.message);
+        }
+      }
+    };
+
+    hydrateItems();
+  }, [wishlists, user?.id]);
+
+  // Hydrate liked wishlists with gifts if missing
+  useEffect(() => {
+    if (!user?.id || likedWishlists.length === 0) return;
+
+    const hydrateLikedItems = async () => {
+      const wishlistsToHydrate = likedWishlists.filter(w => !w.gifts || w.gifts.length === 0);
+      
+      if (wishlistsToHydrate.length === 0) return;
+
+      console.log(`[HomeScreen] Hydrating ${wishlistsToHydrate.length} liked wishlists with missing gifts`);
+      
+      for (const w of wishlistsToHydrate) {
+        try {
+          console.log(`[HomeScreen] Fetching detailed liked wishlist for ${w.id}`);
+          const res = await wishlistApi.get(endpoints.wishlistById(w.id));
+          const detailedWishlist = res.data;
+          
+          // Extract gifts from detailed response (check both gifts and items)
+          const gifts = detailedWishlist.gifts || detailedWishlist.items || [];
+          const transformedGifts = gifts.map((gift: any, idx: number) => ({
+            id: gift.giftId || gift.id || `gift-${idx}`,
+            name: gift.title || gift.name || 'Unnamed Gift',
+            price: gift.price,
+            imageUrl: gift.imageUrl || gift.image,
+            description: gift.description,
+            category: gift.category,
+          })).filter((gift: any) => gift.name && gift.name !== 'Unnamed Gift' || gift.id);
+          
+          console.log(`[HomeScreen] Hydrated liked wishlist ${w.id} with ${transformedGifts.length} gifts`);
+          
+          // Update the liked wishlist in state
+          setLikedWishlists(prev => prev.map(wishlist => 
+            wishlist.id === w.id 
+              ? { ...wishlist, gifts: transformedGifts }
+              : wishlist
+          ));
+        } catch (error: any) {
+          console.error(`[HomeScreen] Error hydrating liked wishlist ${w.id}:`, error.message);
+        }
+      }
+    };
+
+    hydrateLikedItems();
+  }, [likedWishlists, user?.id]);
 
   useEffect(() => {
     // Only fetch feed if user is authenticated
@@ -301,9 +377,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           case 'my-wishlists':
             await fetchMyWishlists();
             break;
-          case 'my-gifts':
-            await fetchMyGifts();
-            break;
         }
       } catch (error) {
         console.error('Error loading tab data:', error);
@@ -337,8 +410,9 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             console.warn('Invalid liked wishlist item:', item);
             return null;
           }
-          // Transform gifts for liked wishlists
-          const transformedGifts = (item.gifts || []).map((gift: any, idx: number) => ({
+          // Transform gifts for liked wishlists (check both gifts and items)
+          const giftSource = item.gifts || item.items || [];
+          const transformedGifts = giftSource.map((gift: any, idx: number) => ({
             id: gift.giftId || gift.id || `gift-${idx}`,
             name: gift.title || gift.name || 'Unnamed Gift',
             price: gift.price,
@@ -409,8 +483,9 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             console.warn('Invalid my wishlist item:', item);
             return null;
           }
-          // Transform gifts for my wishlists
-          const transformedGifts = (item.gifts || []).map((gift: any, idx: number) => ({
+          // Transform gifts for my wishlists (check both gifts and items)
+          const giftSource = item.gifts || item.items || [];
+          const transformedGifts = giftSource.map((gift: any, idx: number) => ({
             id: gift.giftId || gift.id || `gift-${idx}`,
             name: gift.title || gift.name || 'Unnamed Gift',
             price: gift.price,
@@ -453,15 +528,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
-  const fetchMyGifts = async () => {
-    try {
-      const res = await wishlistApi.get(endpoints.giftsForUser);
-      setGifts(res.data || []);
-    } catch (error) {
-      console.log('Error fetching my gifts:', error);
-      setGifts([]);
-    }
-  };
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
@@ -531,25 +597,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       case 'my-wishlists':
         data = myWishlists;
         break;
-      case 'my-gifts':
-        data = gifts.map(gift => ({
-          id: gift.id,
-          title: gift.name,
-          description: `$${gift.price}`,
-          category: gift.category,
-          isPublic: true,
-          gifts: [gift],
-          likes: 0,
-          isLiked: false,
-          createdAt: new Date().toISOString(),
-          user: {
-            id: user?.id || '',
-            name: user?.username || 'You',
-            avatar: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user?.username || 'User')}`,
-            username: user?.username || 'you',
-          },
-        }));
-        break;
       default:
         data = filteredWishlists;
     }
@@ -565,8 +612,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         return t('home.emptyLiked', 'No liked wishlists yet');
       case 'my-wishlists':
         return t('home.emptyMyWishlists', "You haven't created any wishlists yet");
-      case 'my-gifts':
-        return t('home.emptyGifts', 'No gifts in your wishlist yet');
       default:
         return t('common.empty', 'No data available');
     }
@@ -838,23 +883,15 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         <View style={styles.headerTop}>
           <View style={styles.userSection}>
             <SafeImage 
-              source={{ uri: `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user?.username || 'User')}` }} 
+              source={{ uri: user?.avatar || user?.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user?.username || 'User')}` }} 
               style={styles.headerAvatar}
               placeholder={user?.username?.charAt(0).toUpperCase() || 'U'}
+              fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user?.username || 'User')}`}
             />
             <View>
               <Text style={styles.greeting}>{t('home.welcomeBack', 'Welcome back!')}</Text>
               <Text style={styles.headerUserName}>{user?.username || 'User'}</Text>
             </View>
-          </View>
-          
-          <View style={styles.headerActions}>
-            <TouchableOpacity style={styles.headerButton} onPress={() => console.log('Notifications')}>
-              <Text style={styles.headerButtonIcon}>Icon</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.headerButton} onPress={() => console.log('Messages')}>
-              <Text style={styles.headerButtonIcon}>Icon</Text>
-            </TouchableOpacity>
           </View>
         </View>
 
@@ -961,62 +998,11 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             >
               <Text style={[styles.tabText, activeTab === 'liked' && styles.activeTabText]}>{t('tabs.liked', 'Liked')}</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.tab, activeTab === 'my-gifts' && styles.activeTab]} 
-              onPress={() => setActiveTab('my-gifts')}
-            >
-              <Text style={[styles.tabText, activeTab === 'my-gifts' && styles.activeTabText]}>{t('tabs.myGifts', 'My Gifts')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.tab, activeTab === 'profile' && styles.activeTab]} 
-              onPress={() => setActiveTab('profile')}
-            >
-              <Text style={[styles.tabText, activeTab === 'profile' && styles.activeTabText]}>{t('tabs.profile', 'Profile')}</Text>
-            </TouchableOpacity>
           </ScrollView>
-        </View>
-
-        {/* Filter & Sort Controls */}
-        <View style={styles.filtersContainer}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterScrollContent}>
-            {CATEGORIES.map((category) => (
-              <TouchableOpacity
-                key={category}
-                style={[styles.filterChip, selectedCategory === category && styles.filterChipActive]}
-                onPress={() => setSelectedCategory(category === selectedCategory ? '' : category)}
-              >
-                <Text style={[styles.filterChipText, selectedCategory === category && styles.filterChipTextActive]}>
-                  {category}
-                </Text>
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-          
-          <View style={styles.sortContainer}>
-            <Text style={styles.sortLabel}>{t('home.sort', 'Sort:')}</Text>
-            <TouchableOpacity
-              style={[styles.sortButton, sortBy === 'recent' && styles.sortButtonActive]}
-              onPress={() => setSortBy(sortBy === 'recent' ? '' : 'recent')}
-            >
-              <Text style={[styles.sortButtonText, sortBy === 'recent' && styles.sortButtonTextActive]}>{t('home.sortRecent', 'Recent')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.sortButton, sortBy === 'likes' && styles.sortButtonActive]}
-              onPress={() => setSortBy(sortBy === 'likes' ? '' : 'likes')}
-            >
-              <Text style={[styles.sortButtonText, sortBy === 'likes' && styles.sortButtonTextActive]}>{t('home.sortPopular', 'Popular')}</Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[styles.sortButton, sortBy === 'title' && styles.sortButtonActive]}
-              onPress={() => setSortBy(sortBy === 'title' ? '' : 'title')}
-            >
-              <Text style={[styles.sortButtonText, sortBy === 'title' && styles.sortButtonTextActive]}>{t('home.sortAZ', 'A-Z')}</Text>
-            </TouchableOpacity>
-          </View>
         </View>
       </View>
     </Animated.View>
-  ), [user, fadeIn, slideUp, floatY, activeTab, selectedCategory, sortBy, theme, searchQuery, t]);
+  ), [user, fadeIn, slideUp, floatY, activeTab, theme, searchQuery, t]);
 
   return (
     <View style={styles.container}>
