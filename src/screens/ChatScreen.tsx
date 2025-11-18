@@ -18,7 +18,7 @@ import { VideoView, useVideoPlayer } from 'expo-video';
 import { 
   CallIcon, VideoCallIcon, MicIcon, CameraIcon, FlipCameraIcon, 
   CloseIcon, CheckIcon, VoiceMessageIcon, ImageIcon, VideoIcon, 
-  SendIcon, EmojiIcon, PaletteIcon, MoreIcon, BackIcon 
+  SendIcon, EmojiIcon, PaletteIcon, MoreIcon, BackIcon, ReplyIcon, EditIcon, DeleteIcon 
 } from '../components/Icon';
 
 // Conditionally import RTCView for native platforms
@@ -2963,7 +2963,15 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
     
     try {
-      const date = new Date(timestamp);
+      // Ensure UTC timestamps are properly parsed
+      // If timestamp doesn't have timezone indicator, assume it's UTC if it looks like ISO format
+      let timestampToParse = timestamp;
+      if (typeof timestamp === 'string' && timestamp.includes('T') && !timestamp.includes('Z') && !timestamp.match(/[+-]\d{2}:\d{2}$/)) {
+        // ISO format without timezone - assume UTC and append Z
+        timestampToParse = timestamp + 'Z';
+      }
+      
+      const date = new Date(timestampToParse);
       if (isNaN(date.getTime())) {
         return "";
       }
@@ -3403,7 +3411,14 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 
                 let date: Date;
                 if (typeof timestamp === 'string') {
-                  date = new Date(timestamp);
+                  // Ensure UTC timestamps are properly parsed
+                  // If timestamp doesn't have timezone indicator, assume it's UTC if it looks like ISO format
+                  let timestampToParse = timestamp;
+                  if (timestamp.includes('T') && !timestamp.includes('Z') && !timestamp.match(/[+-]\d{2}:\d{2}$/)) {
+                    // ISO format without timezone - assume UTC and append Z
+                    timestampToParse = timestamp + 'Z';
+                  }
+                  date = new Date(timestampToParse);
                   if (isNaN(date.getTime())) {
                     const num = parseInt(timestamp, 10);
                     if (!isNaN(num) && num > 0) {
@@ -3428,12 +3443,14 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   return '';
                 }
                 
+                // Use local time methods which automatically convert from UTC
                 const now = new Date();
                 const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
                 const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
                 const diffMs = today.getTime() - messageDate.getTime();
                 const diffDays = Math.floor(diffMs / 86400000);
                 
+                // getHours() and getMinutes() automatically return local time
                 const hours = date.getHours();
                 const minutes = date.getMinutes();
                 const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
@@ -3477,7 +3494,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               style={styles.actionButton}
               onPress={() => setReplyTo(item)}
             >
-              <Text style={styles.actionButtonText}>↩️</Text>
+              <ReplyIcon size={18} color={colors.text} />
             </TouchableOpacity>
             {isOwnMessage && (
               <>
@@ -3493,7 +3510,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                       setInputText(item.text);
                     }}
                   >
-                    <Text style={styles.actionButtonText}>✏️</Text>
+                    <EditIcon size={18} color={colors.text} />
                   </TouchableOpacity>
                 )}
                 <TouchableOpacity
@@ -3505,7 +3522,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.actionButtonText}>🗑️</Text>
+                  <DeleteIcon size={18} color={colors.text} />
                 </TouchableOpacity>
               </>
             )}
@@ -4931,9 +4948,6 @@ const createStyles = () => StyleSheet.create({
     minHeight: 36,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  actionButtonText: {
-    fontSize: 18,
   },
 
   // Emoji picker styles

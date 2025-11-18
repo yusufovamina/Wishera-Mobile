@@ -170,3 +170,81 @@ export const ListIcon: React.FC<{ size?: number; color?: string; style?: any }> 
   style 
 }) => <Icon name="list" size={size} color={color} style={style} />;
 
+export const RefreshIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="refresh" size={size} color={color} style={style} />;
+
+export const SearchIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="search" size={size} color={color} style={style} />;
+
+export const EyeIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="eye" size={size} color={color} style={style} />;
+
+export const DeleteIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="trash" size={size} color={color} style={style} />;
+
+export const TimeIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="time" size={size} color={color} style={style} />;
+
+export const ReplyIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="return-down-back" size={size} color={color} style={style} />;
+
+export const PersonIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="person" size={size} color={color} style={style} />;
+
+export const DocumentTextIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="document-text" size={size} color={color} style={style} />;
+
+export const LocationIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="location" size={size} color={color} style={style} />;
+
+export const BanIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="ban" size={size} color={color} style={style} />;
+
+export const ListIconAlt: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="list" size={size} color={color} style={style} />;
+
+export const PlayIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="play" size={size} color={color} style={style} />;
+
+export const PauseIcon: React.FC<{ size?: number; color?: string; style?: any }> = ({ 
+  size = 24, 
+  color = colors.text,
+  style 
+}) => <Icon name="pause" size={size} color={color} style={style} />;
+

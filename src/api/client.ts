@@ -280,6 +280,8 @@ export const endpoints = {
   markNotificationRead: (notificationId: string) => `/api/notifications/${notificationId}/read`,
   markAllNotificationsRead: '/api/notifications/read-all',
   deleteNotification: (notificationId: string) => `/api/notifications/${notificationId}`,
+  // Birthday endpoints
+  getUpcomingBirthdays: (daysAhead: number = 30) => `/api/notifications/birthdays?daysAhead=${daysAhead}`,
 };
 
 // Helper to use correct API client based on endpoint

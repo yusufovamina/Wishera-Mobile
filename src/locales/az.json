@@ -33,6 +33,46 @@
     "finalCTADescription": "Arzularını paylaşan minlərlə istifadəçiyə qoşulun",
     "getStarted": "Başla",
     "signUp": "Pulsuz Qeydiyyatdan Keç"
+  },
+  "calendar": {
+    "title": "Ad Günü Təqvimi",
+    "today": "Bu Gün",
+    "tomorrow": "Sabah",
+    "inDays": "{{days}} gün sonra",
+    "noBirthdays": "Bu gün ad günü yoxdur",
+    "upcomingBirthdays": "Yaxınlaşan Ad Günləri",
+    "alreadyPassed": "Bu il artıq keçdi",
+    "months": {
+      "january": "Yanvar",
+      "february": "Fevral",
+      "march": "Mart",
+      "april": "Aprel",
+      "may": "May",
+      "june": "İyun",
+      "july": "İyul",
+      "august": "Avqust",
+      "september": "Sentyabr",
+      "october": "Oktyabr",
+      "november": "Noyabr",
+      "december": "Dekabr"
+    },
+    "days": {
+      "sun": "B",
+      "mon": "B.e",
+      "tue": "Ç.a",
+      "wed": "Ç",
+      "thu": "C.a",
+      "fri": "C",
+      "sat": "Ş"
+    }
+  },
+  "notifications": {
+    "birthdayToday": "🎉 {{username}}-in ad günü bu gündür!",
+    "birthdayTomorrow": "🎂 {{username}}-in ad günü sabahdır!",
+    "birthdayThisWeek": "📅 {{username}}-in ad günü {{days}} gün sonradır!",
+    "birthdayThisMonth": "📅 {{username}}-in ad günü {{days}} gün sonradır!",
+    "birthdayNextMonth": "📅 {{username}}-in ad günü {{days}} gün sonradır!",
+    "browseWishlist": "Arzu siyahısına bax!"
   }
 }
 

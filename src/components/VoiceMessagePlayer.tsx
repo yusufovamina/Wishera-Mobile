@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Animated } from 'react-native';
 import { Audio } from 'expo-av';
 import { colors } from '../theme/colors';
+import { TimeIcon, PlayIcon, PauseIcon } from './Icon';
 
 interface VoiceMessagePlayerProps {
   audioUrl: string;
@@ -188,9 +189,13 @@ export const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({
         onPress={togglePlayback}
         disabled={isLoading}
       >
-        <Text style={styles.playButtonText}>
-          {isLoading ? '⏳' : isPlaying ? '⏸' : '▶'}
-        </Text>
+        {isLoading ? (
+          <TimeIcon size={20} color={isOwnMessage ? 'white' : colors.primary} />
+        ) : isPlaying ? (
+          <PauseIcon size={20} color={isOwnMessage ? 'white' : colors.primary} />
+        ) : (
+          <PlayIcon size={20} color={isOwnMessage ? 'white' : colors.primary} />
+        )}
       </TouchableOpacity>
 
       <View style={styles.waveformContainer}>
@@ -265,10 +270,6 @@ const styles = StyleSheet.create({
   },
   ownPlayButton: {
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
-  },
-  playButtonText: {
-    fontSize: 14,
-    color: 'white',
   },
   waveformContainer: {
     flex: 1,

@@ -6,6 +6,7 @@ import { usePreferences } from '../state/preferences';
 import { useAuthStore } from '../state/auth';
 import { endpoints, getApiClient } from '../api/client';
 import { EventModal } from '../components/EventModal';
+import { CalendarIcon, TimeIcon, LocationIcon, DocumentTextIcon, CheckIcon, CloseIcon, EditIcon, DeleteIcon, BanIcon } from '../components/Icon';
 
 type EventDetail = {
   id: string;
@@ -513,7 +514,7 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
         {/* Event Details */}
         <View style={styles.section}>
           <View style={styles.detailRow}>
-            <Text style={styles.detailIcon}>📅</Text>
+            <CalendarIcon size={20} color={colors.textSecondary} />
             <View style={styles.detailContent}>
               <Text style={styles.detailLabel}>Date</Text>
               <Text style={styles.detailValue}>{formatDate(event.eventDate)}</Text>
@@ -522,7 +523,7 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
 
           {event.eventTime && (
             <View style={styles.detailRow}>
-              <Text style={styles.detailIcon}>🕐</Text>
+              <TimeIcon size={20} color={colors.textSecondary} />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>Time</Text>
                 <Text style={styles.detailValue}>{formatTime(event.eventTime)}</Text>
@@ -532,7 +533,7 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
 
           {event.location && (
             <View style={styles.detailRow}>
-              <Text style={styles.detailIcon}>📍</Text>
+              <LocationIcon size={20} color={colors.textSecondary} />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>Location</Text>
                 <Text style={styles.detailValue}>{event.location}</Text>
@@ -542,7 +543,7 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
 
           {event.additionalNotes && (
             <View style={styles.detailRow}>
-              <Text style={styles.detailIcon}>📝</Text>
+              <DocumentTextIcon size={20} color={colors.textSecondary} />
               <View style={styles.detailContent}>
                 <Text style={styles.detailLabel}>Additional Notes</Text>
                 <Text style={styles.detailValue}>{event.additionalNotes}</Text>
@@ -564,8 +565,8 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
                                  normalizedStatus === 'declined' ? 'declined' : 'pending';
               
               const statusColor = getInvitationStatusColor(finalStatus);
-              const statusIcon = finalStatus === 'accepted' ? '✓' : 
-                               finalStatus === 'declined' ? '✕' : '⏳';
+              const StatusIconComponent = finalStatus === 'accepted' ? CheckIcon : 
+                                         finalStatus === 'declined' ? CloseIcon : TimeIcon;
               const statusText = finalStatus.charAt(0).toUpperCase() + finalStatus.slice(1);
               
               return (
@@ -586,9 +587,7 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
                     <View style={styles.invitationDetails}>
                       <Text style={styles.invitationUsername}>@{invitation.username}</Text>
                       <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
-                        <Text style={[styles.statusIcon, { color: statusColor }]}>
-                          {statusIcon}
-                        </Text>
+                        <StatusIconComponent size={14} color={statusColor} />
                         <Text style={[styles.statusText, { color: statusColor }]}>
                           {statusText}
                         </Text>
@@ -613,7 +612,8 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
               onPress={() => setShowEditModal(true)}
               disabled={editLoading || deleteLoading}
             >
-              <Text style={styles.actionButtonText}>✏️ Edit Event</Text>
+              <EditIcon size={18} color="white" />
+              <Text style={styles.actionButtonText}>Edit Event</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -621,7 +621,8 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
               onPress={handleCancel}
               disabled={editLoading || deleteLoading}
             >
-              <Text style={styles.actionButtonText}>🚫 Cancel Event</Text>
+              <BanIcon size={18} color="white" />
+              <Text style={styles.actionButtonText}>Cancel Event</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -629,7 +630,8 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
               onPress={handleDelete}
               disabled={editLoading || deleteLoading}
             >
-              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>🗑️ Delete Event</Text>
+              <DeleteIcon size={18} color="white" />
+              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Delete Event</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -769,11 +771,7 @@ const createStyles = () => StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     marginBottom: 16,
-  },
-  detailIcon: {
-    fontSize: 20,
-    marginRight: 12,
-    marginTop: 2,
+    gap: 12,
   },
   detailContent: {
     flex: 1,
@@ -836,9 +834,6 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 12,
     gap: 4,
   },
-  statusIcon: {
-    fontSize: 12,
-  },
   statusText: {
     fontSize: 12,
     fontWeight: '600',
@@ -862,6 +857,8 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   editButton: {
     backgroundColor: colors.primary,

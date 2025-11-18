@@ -151,13 +151,22 @@ export const InvitationsScreen: React.FC<any> = ({ navigation }) => {
           {(item.eventDate || item.eventTime) && (
             <View style={styles.details}>
               {item.eventDate && (
-                <Text style={styles.detailText}>📅 {formatDate(item.eventDate)}</Text>
+                <View style={styles.detailRow}>
+                  <CalendarIcon size={14} color={colors.textSecondary} />
+                  <Text style={styles.detailText}>{formatDate(item.eventDate)}</Text>
+                </View>
               )}
               {item.eventTime && (
-                <Text style={styles.detailText}>🕐 {formatTime(item.eventTime)}</Text>
+                <View style={styles.detailRow}>
+                  <TimeIcon size={14} color={colors.textSecondary} />
+                  <Text style={styles.detailText}>{formatTime(item.eventTime)}</Text>
+                </View>
               )}
               {item.location && (
-                <Text style={styles.detailText}>📍 {item.location}</Text>
+                <View style={styles.detailRow}>
+                  <LocationIcon size={14} color={colors.textSecondary} />
+                  <Text style={styles.detailText}>{item.location}</Text>
+                </View>
               )}
             </View>
           )}
@@ -176,13 +185,15 @@ export const InvitationsScreen: React.FC<any> = ({ navigation }) => {
               style={[styles.btn, styles.accept]} 
               onPress={() => respond(invitationId, true)}
             >
-              <Text style={styles.btnText}>✓ Accept</Text>
+              <CheckIcon size={16} color="white" />
+              <Text style={styles.btnText}>Accept</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.btn, styles.decline]} 
               onPress={() => respond(invitationId, false)}
             >
-              <Text style={styles.btnText}>✕ Decline</Text>
+              <CloseIcon size={16} color="white" />
+              <Text style={styles.btnText}>Decline</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -247,10 +258,15 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     gap: 4,
   },
+  detailRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 4,
+  },
   detailText: {
     color: colors.textSecondary,
     fontSize: 14,
-    marginBottom: 4,
   },
   statusBadge: {
     alignSelf: 'flex-start',
@@ -276,6 +292,8 @@ const styles = StyleSheet.create({
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
   accept: { 
     backgroundColor: colors.success,

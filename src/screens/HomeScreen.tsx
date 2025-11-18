@@ -8,6 +8,9 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
 import { SafeImage } from '../components/SafeImage';
+import { BirthdayCalendar } from '../components/BirthdayCalendar';
+import { BirthdayCountdownBanner } from '../components/BirthdayCountdownBanner';
+import { CalendarIcon, SearchIcon, CloseIcon } from '../components/Icon';
 import { useAuthStore } from '../state/auth';
 import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
@@ -56,12 +59,15 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [showBirthdayNotification, setShowBirthdayNotification] = useState(true);
+  const [showCalendar, setShowCalendar] = useState(false);
   const { user, logout } = useAuthStore();
   
   // Animation refs
   const fadeIn = useRef(new Animated.Value(0)).current;
   const slideUp = useRef(new Animated.Value(50)).current;
   const floatY = useRef(new Animated.Value(0)).current;
+  const calendarSlideAnim = useRef(new Animated.Value(width)).current;
 
   useEffect(() => {
     // Entrance animations
@@ -893,12 +899,34 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               <Text style={styles.headerUserName}>{user?.username || 'User'}</Text>
             </View>
           </View>
+          <TouchableOpacity 
+            onPress={() => {
+              setShowCalendar(true);
+              Animated.spring(calendarSlideAnim, {
+                toValue: 0,
+                useNativeDriver: true,
+                tension: 50,
+                friction: 8,
+              }).start();
+            }}
+            style={styles.calendarButton}
+          >
+            <CalendarIcon size={20} color={colors.text} />
+          </TouchableOpacity>
         </View>
+
+        {/* Birthday Countdown Banner */}
+        {showBirthdayNotification && (
+          <BirthdayCountdownBanner 
+            onClose={() => setShowBirthdayNotification(false)}
+            onUserPress={(userId) => navigation.navigate('UserProfile', { userId })}
+          />
+        )}
 
         {/* Search bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchBar}>
-            <Text style={styles.searchIcon}>🔎</Text>
+            <SearchIcon size={16} color={colors.textSecondary} />
             <TextInput
               style={styles.searchInput}
               placeholder={t('home.searchPlaceholder', 'Search wishlists or users...')}
@@ -930,7 +958,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
                 setSuggestedUsers([]);
                 setShowSearchDropdown(false);
               }} style={styles.clearButton}>
-                <Text style={styles.clearButtonText}>✕</Text>
+                <CloseIcon size={18} color={colors.textSecondary} />
               </TouchableOpacity>
             )}
           </View>
@@ -1000,9 +1028,10 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             </TouchableOpacity>
           </ScrollView>
         </View>
+
       </View>
     </Animated.View>
-  ), [user, fadeIn, slideUp, floatY, activeTab, theme, searchQuery, t]);
+  ), [user, fadeIn, slideUp, floatY, activeTab, theme, searchQuery, t, showBirthdayNotification, navigation, calendarSlideAnim]);
 
   return (
     <View style={styles.container}>
@@ -1070,6 +1099,58 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         onSubmit={handleCreateWishlist}
         loading={createLoading}
       />
+
+      {/* Birthday Calendar Slide-out Panel */}
+      {showCalendar && (
+        <>
+          {/* Backdrop */}
+          <TouchableOpacity
+            style={styles.calendarBackdrop}
+            activeOpacity={1}
+            onPress={() => {
+              Animated.spring(calendarSlideAnim, {
+                toValue: width,
+                useNativeDriver: true,
+                tension: 50,
+                friction: 8,
+              }).start(() => {
+                setShowCalendar(false);
+              });
+            }}
+          />
+          {/* Slide-out Panel */}
+          <Animated.View
+            style={[
+              styles.calendarPanel,
+              {
+                transform: [{ translateX: calendarSlideAnim }],
+              },
+            ]}
+          >
+            <View style={styles.calendarPanelHeader}>
+              <Text style={styles.calendarPanelTitle}>{t('calendar.title', 'Birthday Calendar')}</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  Animated.spring(calendarSlideAnim, {
+                    toValue: width,
+                    useNativeDriver: true,
+                    tension: 50,
+                    friction: 8,
+                  }).start(() => {
+                    setShowCalendar(false);
+                  });
+                }}
+                style={styles.calendarCloseButton}
+              >
+                <CloseIcon size={18} color={colors.text} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.calendarPanelContent} showsVerticalScrollIndicator={false}>
+              <BirthdayCalendar />
+            </ScrollView>
+          </Animated.View>
+        </>
+      )}
     </View>
   );
 };
@@ -1122,6 +1203,19 @@ const createStyles = () => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 20,
+  },
+  calendarButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: colors.surface,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: colors.primary,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 4,
   },
   userSection: {
     flexDirection: 'row',
@@ -1182,12 +1276,7 @@ const createStyles = () => StyleSheet.create({
     shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 4,
-  },
-  searchIcon: {
-    fontSize: 16,
-    marginRight: 8,
-    color: colors.textSecondary,
-    fontWeight: '600',
+    gap: 8,
   },
   searchInput: {
     fontSize: 16,
@@ -1196,11 +1285,6 @@ const createStyles = () => StyleSheet.create({
   },
   clearButton: {
     padding: 4,
-  },
-  clearButtonText: {
-    fontSize: 18,
-    color: colors.textSecondary,
-    fontWeight: '700',
   },
   searchDropdown: {
     position: 'absolute',
@@ -1568,5 +1652,58 @@ const createStyles = () => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     textAlign: 'center',
+  },
+  // Calendar Slide-out Panel
+  calendarBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    zIndex: 1000,
+  },
+  calendarPanel: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    width: width * 0.85,
+    maxWidth: 400,
+    backgroundColor: colors.background,
+    zIndex: 1001,
+    shadowColor: '#000',
+    shadowOffset: { width: -2, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 10,
+  },
+  calendarPanelHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.muted,
+    backgroundColor: colors.surface,
+  },
+  calendarPanelTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+  },
+  calendarCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: colors.muted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  calendarPanelContent: {
+    flex: 1,
+    paddingTop: 16,
   },
 });

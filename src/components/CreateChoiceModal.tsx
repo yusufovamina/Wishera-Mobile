@@ -4,6 +4,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
+import { GiftIcon, CalendarIcon, ListIconAlt } from './Icon';
 
 interface CreateChoiceModalProps {
   visible: boolean;
@@ -49,7 +50,7 @@ export const CreateChoiceModal: React.FC<CreateChoiceModalProps> = ({
                 colors={[colors.primary + '20', colors.primary + '10']}
                 style={styles.optionGradient}
               >
-                <Text style={styles.optionIcon}>🎁</Text>
+                <GiftIcon size={48} color={colors.primary} />
                 <Text style={styles.optionTitle}>Gift</Text>
                 <Text style={styles.optionDescription}>Add a gift to a wishlist</Text>
               </LinearGradient>
@@ -67,7 +68,7 @@ export const CreateChoiceModal: React.FC<CreateChoiceModalProps> = ({
                 colors={[colors.primary + '20', colors.primary + '10']}
                 style={styles.optionGradient}
               >
-                <Text style={styles.optionIcon}>📋</Text>
+                <ListIconAlt size={48} color={colors.primary} />
                 <Text style={styles.optionTitle}>Wishlist</Text>
                 <Text style={styles.optionDescription}>Create a new wishlist</Text>
               </LinearGradient>
@@ -85,7 +86,7 @@ export const CreateChoiceModal: React.FC<CreateChoiceModalProps> = ({
                 colors={[colors.primary + '20', colors.primary + '10']}
                 style={styles.optionGradient}
               >
-                <Text style={styles.optionIcon}>📅</Text>
+                <CalendarIcon size={48} color={colors.primary} />
                 <Text style={styles.optionTitle}>Event</Text>
                 <Text style={styles.optionDescription}>Create a new event</Text>
               </LinearGradient>
@@ -144,10 +145,6 @@ const createStyles = () => StyleSheet.create({
   optionGradient: {
     padding: 20,
     alignItems: 'center',
-  },
-  optionIcon: {
-    fontSize: 48,
-    marginBottom: 12,
   },
   optionTitle: {
     fontSize: 20,

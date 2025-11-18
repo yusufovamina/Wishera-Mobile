@@ -6,6 +6,7 @@ import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
 import { useAuthStore } from '../state/auth';
 import { userApi, endpoints, getApiClient } from '../api/client';
+import { HeartIcon, GiftIcon, CalendarIcon, ChatIcon, NotificationsIcon, CloseIcon, CheckIcon, PersonIcon, DocumentTextIcon } from '../components/Icon';
 
 interface Notification {
   id: string;
@@ -194,23 +195,25 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const getNotificationIcon = (type: string) => {
+    const iconSize = 24;
+    const iconColor = getNotificationColor(type);
     switch (type) {
       case 'like':
-        return '❤️';
+        return <HeartIcon size={iconSize} color={iconColor} />;
       case 'follow':
-        return '👤';
+        return <PersonIcon size={iconSize} color={iconColor} />;
       case 'gift':
-        return '🎁';
+        return <GiftIcon size={iconSize} color={iconColor} />;
       case 'message':
-        return '💬';
+        return <ChatIcon size={iconSize} color={iconColor} />;
       case 'event':
-        return '📅';
+        return <CalendarIcon size={iconSize} color={iconColor} />;
       case 'wishlist':
-        return '📝';
+        return <DocumentTextIcon size={iconSize} color={iconColor} />;
       case 'system':
-        return '🔔';
+        return <NotificationsIcon size={iconSize} color={iconColor} />;
       default:
-        return '📢';
+        return <NotificationsIcon size={iconSize} color={iconColor} />;
     }
   };
 
@@ -281,7 +284,7 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
             />
           ) : (
             <View style={styles.notificationIcon}>
-              <Text style={styles.notificationIconText}>{getNotificationIcon(item.type)}</Text>
+              {getNotificationIcon(item.type)}
             </View>
           )}
           
@@ -314,13 +317,15 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
               style={[styles.invitationButton, styles.acceptButton]}
               onPress={() => handleRespondToInvitation(item, true)}
             >
-              <Text style={styles.invitationButtonText}>✓ Accept</Text>
+              <CheckIcon size={16} color="white" />
+              <Text style={styles.invitationButtonText}>Accept</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.invitationButton, styles.declineButton]}
               onPress={() => handleRespondToInvitation(item, false)}
             >
-              <Text style={styles.invitationButtonText}>✕ Decline</Text>
+              <CloseIcon size={16} color="white" />
+              <Text style={styles.invitationButtonText}>Decline</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -447,9 +452,6 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 20,
     marginRight: 12,
     backgroundColor: colors.muted,
-  },
-  notificationIconText: {
-    fontSize: 18,
   },
   notificationInfo: {
     flex: 1,

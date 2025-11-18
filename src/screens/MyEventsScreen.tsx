@@ -111,21 +111,21 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
       <View style={styles.metaContainer}>
         {item.eventDate && (
           <View style={styles.metaItem}>
-            <Text style={styles.metaIcon}>📅</Text>
+            <CalendarIcon size={16} color={colors.textSecondary} />
             <Text style={styles.metaText}>{formatDate(item.eventDate)}</Text>
           </View>
         )}
         
         {item.eventTime && (
           <View style={styles.metaItem}>
-            <Text style={styles.metaIcon}>🕐</Text>
+            <TimeIcon size={16} color={colors.textSecondary} />
             <Text style={styles.metaText}>{formatTime(item.eventTime)}</Text>
           </View>
         )}
         
         {item.location && (
           <View style={styles.metaItem}>
-            <Text style={styles.metaIcon}>📍</Text>
+            <LocationIcon size={16} color={colors.textSecondary} />
             <Text style={styles.metaText} numberOfLines={1}>{item.location}</Text>
           </View>
         )}
@@ -149,7 +149,7 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
       
       {items.length === 0 && !loading ? (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyIcon}>📅</Text>
+          <CalendarIcon size={48} color={colors.textSecondary} />
           <Text style={styles.emptyText}>No events yet</Text>
           <Text style={styles.emptySubtext}>Create your first event to get started!</Text>
         </View>
@@ -230,15 +230,14 @@ const createStyles = () => StyleSheet.create({
   },
   metaContainer: {
     marginTop: 8,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
   },
   metaItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
-  },
-  metaIcon: {
-    fontSize: 14,
-    marginRight: 8,
+    gap: 8,
   },
   metaText: {
     color: colors.textSecondary,
@@ -271,10 +270,6 @@ const createStyles = () => StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 40,
-  },
-  emptyIcon: {
-    fontSize: 64,
-    marginBottom: 16,
   },
   emptyText: {
     fontSize: 20,

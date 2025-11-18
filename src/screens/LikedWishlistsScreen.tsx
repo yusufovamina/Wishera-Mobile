@@ -39,7 +39,17 @@ export const LikedWishlistsScreen: React.FC<any> = ({ navigation }) => {
           <TouchableOpacity style={styles.card} onPress={() => navigation.navigate('WishlistDetail', { id: item.id })}>
             <Text style={styles.title}>{item.title}</Text>
             {!!item.description && <Text style={styles.desc}>{item.description}</Text>}
-            <Text style={styles.meta}>❤ {item.likeCount ?? 0}   💬 {item.commentCount ?? 0}   by @{item.username || 'user'}</Text>
+            <View style={styles.meta}>
+              <View style={styles.metaItem}>
+                <HeartIcon size={14} color={colors.textSecondary} />
+                <Text style={styles.metaText}>{item.likeCount ?? 0}</Text>
+              </View>
+              <View style={styles.metaItem}>
+                <ChatIcon size={14} color={colors.textSecondary} />
+                <Text style={styles.metaText}>{item.commentCount ?? 0}</Text>
+              </View>
+              <Text style={styles.metaText}>by @{item.username || 'user'}</Text>
+            </View>
           </TouchableOpacity>
         )}
         ItemSeparatorComponent={() => <View style={{ height: 12 }} />}
@@ -56,7 +66,21 @@ const styles = StyleSheet.create({
   card: { backgroundColor: colors.surface, borderRadius: 12, padding: 12 },
   title: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
   desc: { color: colors.textSecondary, fontSize: 14, marginBottom: 6 },
-  meta: { color: colors.textSecondary, fontSize: 12 },
+  meta: { 
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginTop: 8,
+  },
+  metaItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  metaText: {
+    color: colors.textSecondary,
+    fontSize: 12,
+  },
 });
 
 
