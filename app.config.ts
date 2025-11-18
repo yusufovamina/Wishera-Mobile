@@ -6,6 +6,10 @@ export default ({ config }: any) => {
     name: config.name ?? 'Wishera-Mobile',
     slug: config.slug ?? 'wishera-mobile',
     scheme: 'wishera',
+    plugins: [
+      ...(config.plugins || []),
+      'expo-video',
+    ],
     extra: {
       apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5219',
     },
@@ -17,6 +21,10 @@ export default ({ config }: any) => {
       ...config.ios,
       bundleIdentifier: 'com.wishera.mobile',
       associatedDomains: ['applinks:yourdomain.com'], // Configure with your actual domain for universal links
+      infoPlist: {
+        NSCameraUsageDescription: 'This app needs access to your camera to make video calls.',
+        NSMicrophoneUsageDescription: 'This app needs access to your microphone to make audio and video calls.',
+      },
     },
     android: {
       ...config.android,

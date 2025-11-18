@@ -9,16 +9,28 @@ import { useAuthStore } from '../state/auth';
 import { useSignalRChat } from '../hooks/useSignalRChat';
 import { useWebRTC } from '../hooks/useWebRTC';
 import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
+import { useChatNotifications } from '../hooks/useChatNotifications';
 import { VoiceMessagePlayer } from '../components/VoiceMessagePlayer';
 import { SafeImage } from '../components/SafeImage';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
-import { Video } from 'expo-av';
+import { VideoView, useVideoPlayer } from 'expo-video';
 import { 
   CallIcon, VideoCallIcon, MicIcon, CameraIcon, FlipCameraIcon, 
   CloseIcon, CheckIcon, VoiceMessageIcon, ImageIcon, VideoIcon, 
   SendIcon, EmojiIcon, PaletteIcon, MoreIcon, BackIcon 
 } from '../components/Icon';
+
+// Conditionally import RTCView for native platforms
+let RTCView: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    const RTCModule = require('react-native-webrtc');
+    RTCView = RTCModule.RTCView;
+  } catch (e) {
+    console.warn('[ChatScreen] react-native-webrtc RTCView not available:', e);
+  }
+}
 
 interface ChatContact {
   id: string;
@@ -112,6 +124,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const [isTyping, setIsTyping] = useState(false);
   const [typingTimeoutRef, setTypingTimeoutRef] = useState<NodeJS.Timeout | null>(null);
   const { user, token } = useAuthStore();
+  const { updateContactUnreadCount } = useChatNotifications();
   const flatListRef = useRef<FlatList>(null);
   const restoredOnceRef = useRef(false);
 
@@ -225,6 +238,50 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     return null;
   }, [isYouTubeUrl]);
 
+  // Get video thumbnail for Cloudinary videos
+  const getVideoThumbnail = useCallback((videoUrl: string): string | null => {
+    if (!videoUrl || typeof videoUrl !== 'string') return null;
+    
+    // For Cloudinary videos, generate a thumbnail by converting to image
+    if (isCloudinaryUrl(videoUrl) && /\/video\//i.test(videoUrl.toLowerCase())) {
+      try {
+        // Cloudinary automatically extracts a frame when converting video to image
+        // URL structure examples:
+        // https://res.cloudinary.com/{cloud_name}/video/upload/{transformations}/v{version}/{public_id}.{format}
+        // https://res.cloudinary.com/{cloud_name}/video/upload/v{version}/{public_id}.{format}
+        // https://res.cloudinary.com/{cloud_name}/video/upload/{public_id}.{format}
+        
+        // Parse the URL to extract components
+        const urlParts = videoUrl.split('?');
+        const baseUrl = urlParts[0];
+        const queryParams = urlParts[1] ? `?${urlParts[1]}` : '';
+        
+        // Replace /video/ with /image/ to convert video resource to image
+        // Cloudinary will automatically extract the first frame
+        let thumbnailUrl = baseUrl.replace(/\/video\//i, '/image/');
+        
+        // Replace video file extensions with jpg, or add .jpg if no extension
+        if (/\.(mp4|webm|mov|avi|mkv|flv|wmv)(\?|#|$)/i.test(thumbnailUrl)) {
+          thumbnailUrl = thumbnailUrl.replace(/\.(mp4|webm|mov|avi|mkv|flv|wmv)(\?|#|$)/i, '.jpg$2');
+        } else if (!/\.(jpg|jpeg|png|gif|webp)(\?|#|$)/i.test(thumbnailUrl)) {
+          // Add .jpg extension if not present
+          thumbnailUrl = `${thumbnailUrl}.jpg`;
+        }
+        
+        // Add query params back
+        thumbnailUrl = `${thumbnailUrl}${queryParams}`;
+        
+        console.log('[ChatScreen] Generated thumbnail URL:', thumbnailUrl, 'from:', videoUrl);
+        return thumbnailUrl;
+      } catch (error) {
+        console.error('[ChatScreen] Error generating video thumbnail:', error);
+        return null;
+      }
+    }
+    
+    return null;
+  }, [isCloudinaryUrl]);
+
   const addMessageToConversation = (conversationId: string, message: ChatMessage) => {
     setConversations(prev => {
       const currentMessages = prev[conversationId] || [];
@@ -257,12 +314,21 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const [callStartTime, setCallStartTime] = useState<Date | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const callDurationIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  // Refs to track call state for synchronous access in signal handlers
+  const activeCallRef = useRef<{ otherUserId: string; callType: 'audio' | 'video'; callId: string } | null>(null);
+  const incomingCallRef = useRef<{ callerUserId: string; callType: 'audio' | 'video'; callId: string } | null>(null);
 
   // Wallpaper state
   const [showWallpaperPicker, setShowWallpaperPicker] = useState(false);
   const [wallpapers, setWallpapers] = useState<any[]>([]);
   const [currentWallpaper, setCurrentWallpaper] = useState<{ wallpaperId: string | null; wallpaperUrl: string | null; opacity: number } | null>(null);
   const [wallpaperOpacity, setWallpaperOpacity] = useState(0.25);
+  // Custom wallpaper upload state
+  const [showCustomWallpaperUpload, setShowCustomWallpaperUpload] = useState(false);
+  const [customWallpaperUri, setCustomWallpaperUri] = useState<string | null>(null);
+  const [customWallpaperName, setCustomWallpaperName] = useState('');
+  const [customWallpaperDescription, setCustomWallpaperDescription] = useState('');
+  const [uploadingWallpaper, setUploadingWallpaper] = useState(false);
 
   // Voice recording state
   const {
@@ -584,6 +650,11 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           
           return sortContactsByTime(updated);
         });
+        
+        // Update notification badge in real-time when message is received from another user
+        if (!isViewingThisConversation) {
+          updateContactUnreadCount(sender);
+        }
       }
 
       // Scroll to bottom
@@ -620,6 +691,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     setRemoteDescription,
     addIceCandidate,
     setIceCandidateCallback,
+    setConnectionStateCallback,
     toggleMute,
     toggleVideo,
     switchCamera,
@@ -628,18 +700,37 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     isVideoEnabled,
   } = useWebRTC();
 
-  // Video components for web
+  // Video components for web and native
   const RemoteVideoView = ({ stream, placeholderAvatar, placeholderName }: { stream: any | null; placeholderAvatar?: string; placeholderName: string }) => {
     const videoRef = useRef<any>(null);
 
     useEffect(() => {
       if (Platform.OS === 'web' && videoRef.current && stream) {
-        videoRef.current.srcObject = stream as any;
-        videoRef.current.play().catch(console.error);
+        const videoElement = videoRef.current;
+        videoElement.srcObject = stream as any;
+        
+        // Ensure audio plays for audio-only calls
+        videoElement.volume = 1.0;
+        videoElement.muted = false;
+        
+        // Play the video/audio
+        videoElement.play().catch((error: any) => {
+          console.error('[ChatScreen] Error playing remote stream on web:', error);
+          // Retry on user interaction if autoplay was blocked
+          if (error.name === 'NotAllowedError' || error.name === 'NotSupportedError') {
+            const playOnInteraction = () => {
+              videoElement.play().catch(console.error);
+              document.removeEventListener('click', playOnInteraction);
+            };
+            document.addEventListener('click', playOnInteraction, { once: true });
+          }
+        });
       }
     }, [stream]);
 
+    // Web platform - use HTML video element (works for both audio and video)
     if (Platform.OS === 'web' && stream) {
+      const hasVideo = stream.getVideoTracks && stream.getVideoTracks().length > 0;
       return (
         <View style={styles.remoteVideo}>
           {/* @ts-ignore - React Native Web supports video element */}
@@ -649,14 +740,86 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               width: '100%',
               height: '100%',
               objectFit: 'cover',
+              display: hasVideo ? 'block' : 'none', // Hide for audio-only but keep for audio playback
             }}
             autoPlay
             playsInline
           />
+          {!hasVideo && (
+            <View style={styles.remoteVideoPlaceholder}>
+              {placeholderAvatar ? (
+                <Image 
+                  source={{ uri: placeholderAvatar }}
+                  style={styles.activeCallAvatar}
+                />
+              ) : null}
+              <Text style={styles.activeCallSubtitle}>
+                {placeholderName}
+              </Text>
+            </View>
+          )}
         </View>
       );
     }
 
+    // Native platform - use RTCView (works for both audio and video)
+    if (Platform.OS !== 'web' && stream && RTCView) {
+      // For audio-only calls, still render RTCView but show placeholder UI
+      const hasVideo = stream.getVideoTracks && stream.getVideoTracks().length > 0;
+      const hasAudio = stream.getAudioTracks && stream.getAudioTracks().length > 0;
+      
+      console.log('[ChatScreen] Rendering RTCView - hasVideo:', hasVideo, 'hasAudio:', hasAudio, 'tracks:', stream.getTracks?.()?.map((t: any) => ({ kind: t.kind, enabled: t.enabled, id: t.id })));
+      
+      // Ensure all tracks are enabled
+      if (stream.getTracks) {
+        stream.getTracks().forEach((track: any) => {
+          if (!track.enabled) {
+            console.log('[ChatScreen] Enabling track:', track.kind, track.id);
+            track.enabled = true;
+          }
+        });
+      }
+      
+      // Try using streamURL if available (older react-native-webrtc versions)
+      const streamURL = stream.toURL ? stream.toURL() : null;
+      
+      return (
+        <View style={styles.remoteVideo}>
+          {streamURL ? (
+            <RTCView
+              streamURL={streamURL}
+              style={styles.remoteVideo}
+              objectFit="cover"
+              mirror={false}
+              zOrder={0}
+            />
+          ) : (
+            <RTCView
+              stream={stream}
+              style={styles.remoteVideo}
+              objectFit="cover"
+              mirror={false}
+              zOrder={0}
+            />
+          )}
+          {!hasVideo && (
+            <View style={styles.remoteVideoPlaceholder}>
+              {placeholderAvatar ? (
+                <Image 
+                  source={{ uri: placeholderAvatar }}
+                  style={styles.activeCallAvatar}
+                />
+              ) : null}
+              <Text style={styles.activeCallSubtitle}>
+                {placeholderName}
+              </Text>
+            </View>
+          )}
+        </View>
+      );
+    }
+
+    // Fallback placeholder
     return (
       <View style={styles.remoteVideoPlaceholder}>
         {placeholderAvatar ? (
@@ -682,6 +845,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       }
     }, [stream]);
 
+    // Web platform - use HTML video element
     if (Platform.OS === 'web' && stream) {
       return (
         <View style={styles.localVideoContainer}>
@@ -702,6 +866,33 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       );
     }
 
+    // Native platform - use RTCView with mirror for self-view
+    if (Platform.OS !== 'web' && stream && RTCView) {
+      // Ensure all tracks are enabled
+      if (stream.getTracks) {
+        stream.getTracks().forEach((track: any) => {
+          if (!track.enabled) {
+            console.log('[ChatScreen] Enabling local track:', track.kind, track.id);
+            track.enabled = true;
+          }
+        });
+      }
+      
+      // Try using streamURL if available
+      const streamURL = stream.toURL ? stream.toURL() : null;
+      
+      return (
+        <RTCView
+          {...(streamURL ? { streamURL } : { stream })}
+          style={styles.localVideoContainer}
+          objectFit="cover"
+          mirror={true}
+          zOrder={0}
+        />
+      );
+    }
+
+    // Fallback placeholder
     return (
       <View style={styles.localVideoContainer}>
         <Text style={styles.activeCallSubtitle}>Local video</Text>
@@ -742,22 +933,36 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           console.error('[ChatScreen] Error sending ICE candidate:', error);
         }
       });
+
+      setConnectionStateCallback((state) => {
+        console.log('[ChatScreen] WebRTC connection state changed:', state);
+        if (state === 'connected') {
+          console.log('[ChatScreen] WebRTC connection established!');
+          // Start call duration timer if not already started
+          // Use setTimeout to ensure activeCall state is updated
+          setTimeout(() => {
+            if (!callDurationIntervalRef.current) {
+              console.log('[ChatScreen] Starting call duration timer after connection established');
+              setCallStartTime(new Date());
+              setCallDuration(0);
+              startCallDurationTimer();
+            }
+          }, 100);
+        } else if (state === 'failed') {
+          console.error('[ChatScreen] WebRTC connection failed!');
+          setError('Connection failed. Please try again.');
+          setTimeout(() => setError(null), 3000);
+        }
+      });
       
       const success = await initiateCall(selectedContact.id, callType, callId);
       if (success) {
-        setActiveCall({ otherUserId: selectedContact.id, callType, callId });
-        setCallStartTime(new Date());
-        setCallDuration(0);
-        startCallDurationTimer();
-        
-        const offer = await createOffer();
-        await sendCallSignal(selectedContact.id, callId, 'offer', offer);
-        
-        setTimeout(() => {
-          if (activeCall?.callId === callId && callDuration === 0) {
-            handleEndCall();
-          }
-        }, 30000);
+        const newCall = { otherUserId: selectedContact.id, callType, callId };
+        setActiveCall(newCall);
+        activeCallRef.current = newCall;
+        // Don't start timer yet - wait for call to be accepted
+        // Don't create offer yet - wait for call to be accepted
+        // The offer will be created in the onCallAccepted handler
       } else {
         endWebRTCCall();
         setError('Failed to start call');
@@ -786,13 +991,34 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           console.error('[ChatScreen] Error sending ICE candidate:', error);
         }
       });
+
+      setConnectionStateCallback((state) => {
+        console.log('[ChatScreen] WebRTC connection state changed:', state);
+        if (state === 'connected') {
+          console.log('[ChatScreen] WebRTC connection established!');
+          // Start call duration timer if not already started
+          if (!callDurationIntervalRef.current) {
+            console.log('[ChatScreen] Starting call duration timer after connection established (callee)');
+            setCallStartTime(new Date());
+            setCallDuration(0);
+            startCallDurationTimer();
+          }
+        } else if (state === 'failed') {
+          console.error('[ChatScreen] WebRTC connection failed!');
+          setError('Connection failed. Please try again.');
+          setTimeout(() => setError(null), 3000);
+        }
+      });
       
-      setActiveCall({ 
+      const newCall = { 
         otherUserId: callToAccept.callerUserId, 
         callType: callToAccept.callType, 
         callId: callToAccept.callId 
-      });
+      };
+      setActiveCall(newCall);
+      activeCallRef.current = newCall;
       setIncomingCall(null);
+      incomingCallRef.current = null;
       
       setCallStartTime(new Date());
       setCallDuration(0);
@@ -803,7 +1029,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       console.error('[ChatScreen] Error accepting call:', error);
       endWebRTCCall();
       setActiveCall(null);
+      activeCallRef.current = null;
       setIncomingCall(null);
+      incomingCallRef.current = null;
       setError('Failed to accept call');
       setTimeout(() => setError(null), 3000);
     }
@@ -852,9 +1080,11 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       console.log('[ChatScreen] Rejecting call:', incomingCall);
       await rejectCall(incomingCall.callerUserId, incomingCall.callId);
       setIncomingCall(null);
+      incomingCallRef.current = null;
     } catch (error) {
       console.error('[ChatScreen] Error rejecting call:', error);
       setIncomingCall(null); // Clear state even if API call fails
+      incomingCallRef.current = null;
     }
   };
 
@@ -953,26 +1183,30 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       // If we're the callee, show incoming call
       if (data.calleeUserId === user?.id && data.callerUserId !== user?.id) {
         console.log('[ChatScreen] Incoming call from:', data.callerUserId);
-        setIncomingCall({
+        const newIncomingCall = {
           callerUserId: data.callerUserId,
           callType: data.callType as 'audio' | 'video',
           callId: data.callId
-        });
+        };
+        setIncomingCall(newIncomingCall);
+        incomingCallRef.current = newIncomingCall;
         // Play notification sound/vibration here if needed
       } else if (data.callerUserId === user?.id) {
         console.log('[ChatScreen] Outgoing call confirmed to:', data.calleeUserId);
         // Call was initiated by us, make sure activeCall is set
         if (!activeCall || activeCall.callId !== data.callId) {
-          setActiveCall({
+          const newCall = {
             otherUserId: data.calleeUserId,
             callType: data.callType as 'audio' | 'video',
             callId: data.callId
-          });
+          };
+          setActiveCall(newCall);
+          activeCallRef.current = newCall;
         }
       }
     });
 
-    const offCallAccepted = onCallAccepted((data) => {
+    const offCallAccepted = onCallAccepted(async (data) => {
       console.log('[ChatScreen] Call accepted event received:', data);
       console.log('[ChatScreen] Current activeCall:', activeCall);
       console.log('[ChatScreen] Current user ID:', user?.id);
@@ -980,25 +1214,44 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       // Update active call state
       if (data.callerUserId === user?.id || data.calleeUserId === user?.id) {
         const otherUserId = data.callerUserId === user?.id ? data.calleeUserId : data.callerUserId;
-        const callType = activeCall?.callType || incomingCall?.callType || 'audio';
+        const callType = activeCall?.callType || incomingCall?.callType || (data as any).callType || 'audio';
         
         console.log('[ChatScreen] Updating call state - otherUserId:', otherUserId, 'callType:', callType);
         
         // Only update if we don't already have an active call, or if it's a different call
         if (!activeCall || activeCall.callId !== data.callId) {
-          setActiveCall({
+          const newCall = {
             otherUserId,
             callType,
             callId: data.callId
-          });
+          };
+          setActiveCall(newCall);
+          activeCallRef.current = newCall;
         }
         
         setIncomingCall(null);
+        incomingCallRef.current = null;
         
-        // Start call duration timer if not already started
-        if (!callDurationIntervalRef.current) {
-          console.log('[ChatScreen] Starting call duration timer from event');
-          startCallDurationTimer();
+        // If we're the caller, create and send the offer now that call is accepted
+        if (data.callerUserId === user?.id) {
+          try {
+            console.log('[ChatScreen] We are the caller, creating offer after call accepted');
+            const offer = await createOffer(callType === 'video');
+            await sendCallSignal(otherUserId, data.callId, 'offer', offer);
+            console.log('[ChatScreen] Offer sent after call accepted');
+            // Note: Timer will start when connection is established (in connection state callback)
+          } catch (error) {
+            console.error('[ChatScreen] Error creating/sending offer after call accepted:', error);
+          }
+        } else {
+          // For callee, start timer immediately after accepting
+          // Timer will also be started in connection state callback as backup
+          if (!callDurationIntervalRef.current) {
+            console.log('[ChatScreen] Starting call duration timer from event (callee)');
+            setCallStartTime(new Date());
+            setCallDuration(0);
+            startCallDurationTimer();
+          }
         }
       } else {
         console.warn('[ChatScreen] Call accepted event for different users:', data);
@@ -1009,7 +1262,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       console.log('[ChatScreen] Call rejected event:', data);
       stopCallDurationTimer();
       setActiveCall(null);
+      activeCallRef.current = null;
       setIncomingCall(null);
+      incomingCallRef.current = null;
       setCallStartTime(null);
       setCallDuration(0);
       if (data.callerUserId === user?.id) {
@@ -1023,30 +1278,137 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       console.log('[ChatScreen] Call ended event:', data);
       stopCallDurationTimer();
       setActiveCall(null);
+      activeCallRef.current = null;
       setIncomingCall(null);
+      incomingCallRef.current = null;
       setCallStartTime(null);
       setCallDuration(0);
     });
 
     const offCallSignal = onCallSignal(async (data) => {
-      const currentCall = activeCall || incomingCall;
-      if (!currentCall || currentCall.callId !== data.callId) return;
+      console.log('[ChatScreen] Received call signal:', data.signalType, 'for callId:', data.callId);
+      console.log('[ChatScreen] Current activeCall:', activeCallRef.current);
+      console.log('[ChatScreen] Current incomingCall:', incomingCallRef.current);
+      console.log('[ChatScreen] Current user ID:', user?.id);
+      
+      // Check if this signal is for us (we're either caller or callee)
+      const isForUs = (data.callerUserId === user?.id || data.calleeUserId === user?.id);
+      if (!isForUs) {
+        console.log('[ChatScreen] Ignoring call signal - not for us');
+        return;
+      }
+      
+      // Use refs for synchronous access, but also check state
+      const currentCall = activeCallRef.current || incomingCallRef.current || activeCall || incomingCall;
+      
+      // If we don't have call state but the signal is for us, try to create/restore it
+      if (!currentCall || currentCall.callId !== data.callId) {
+        console.log('[ChatScreen] No matching call state found, but signal is for us. Attempting to restore call state...');
+        
+        // Try to determine if we're caller or callee and restore call state
+        const otherUserId = data.callerUserId === user?.id ? data.calleeUserId : data.callerUserId;
+        const callType = (data as any).callType || 'audio';
+        
+        // If we're the caller and don't have activeCall, create it
+        if (data.callerUserId === user?.id) {
+          console.log('[ChatScreen] Restoring caller call state');
+          const restoredCall = {
+            otherUserId,
+            callType: callType as 'audio' | 'video',
+            callId: data.callId
+          };
+          setActiveCall(restoredCall);
+          activeCallRef.current = restoredCall;
+        } 
+        // If we're the callee and don't have incomingCall or activeCall, create it
+        else if (data.calleeUserId === user?.id) {
+          console.log('[ChatScreen] Restoring callee call state');
+          // If it's an offer, we should have incomingCall or activeCall
+          // If it's an answer or ICE candidate, we should have activeCall
+          if (data.signalType === 'offer') {
+            const restoredIncomingCall = {
+              callerUserId: data.callerUserId,
+              callType: callType as 'audio' | 'video',
+              callId: data.callId
+            };
+            setIncomingCall(restoredIncomingCall);
+            incomingCallRef.current = restoredIncomingCall;
+          } else {
+            // For answer or ICE candidate, we should have activeCall
+            const restoredCall = {
+              otherUserId: data.callerUserId,
+              callType: callType as 'audio' | 'video',
+              callId: data.callId
+            };
+            setActiveCall(restoredCall);
+            activeCallRef.current = restoredCall;
+          }
+        }
+        
+        // Re-check after restoring state
+        const updatedCall = activeCallRef.current || incomingCallRef.current;
+        if (!updatedCall || updatedCall.callId !== data.callId) {
+          console.warn('[ChatScreen] Still no matching call after restore attempt. Ignoring signal.');
+          return;
+        }
+      }
       
       try {
         if (data.signalType === 'offer') {
+          console.log('[ChatScreen] Received offer signal');
+          // If we're the callee and don't have activeCall yet, we need to set up
           if (!activeCall && incomingCall) {
-            await getLocalStream(data.callType === 'video');
+            console.log('[ChatScreen] Setting up callee for incoming call');
+            await getLocalStream(((data as any).callType || 'audio') === 'video');
             createPeerConnection();
+            
+            // Set up ICE candidate callback
+            setIceCandidateCallback(async (candidate) => {
+              try {
+                await sendCallSignal(data.callerUserId, data.callId, 'ice-candidate', candidate);
+              } catch (error) {
+                console.error('[ChatScreen] Error sending ICE candidate:', error);
+              }
+            });
+
+            // Set up connection state callback
+            setConnectionStateCallback((state) => {
+              console.log('[ChatScreen] WebRTC connection state changed:', state);
+              if (state === 'connected') {
+                console.log('[ChatScreen] WebRTC connection established!');
+                // Start call duration timer if not already started
+                if (!callDurationIntervalRef.current) {
+                  console.log('[ChatScreen] Starting call duration timer after connection established (offer received)');
+                  setCallStartTime(new Date());
+                  setCallDuration(0);
+                  startCallDurationTimer();
+                }
+              } else if (state === 'failed') {
+                console.error('[ChatScreen] WebRTC connection failed!');
+                setError('Connection failed. Please try again.');
+                setTimeout(() => setError(null), 3000);
+              }
+            });
           }
+          
+          // Ensure we have a peer connection before creating answer
+          // The peer connection should already be created above, but double-check
+          console.log('[ChatScreen] Creating answer for offer');
+          
           const answer = await createAnswer(data.signalData);
+          console.log('[ChatScreen] Created answer, sending to caller');
           await sendCallSignal(data.callerUserId, data.callId, 'answer', answer);
         } else if (data.signalType === 'answer') {
+          console.log('[ChatScreen] Received answer signal');
           await setRemoteDescription(data.signalData);
         } else if (data.signalType === 'ice-candidate') {
+          console.log('[ChatScreen] Received ICE candidate signal');
           await addIceCandidate(data.signalData);
         }
       } catch (error) {
         console.error('[ChatScreen] Error handling call signal:', error);
+        setError('Error processing call signal. Please try again.');
+        setTimeout(() => setError(null), 3000);
       }
     });
 
@@ -1074,6 +1436,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               ? { ...c, unreadCount: 0 }
               : c
           ));
+          
+          // Update notification badge in real-time
+          updateContactUnreadCount(selectedContact.id);
         }
       } catch (error) {
         console.error('Error marking messages as read:', error);
@@ -1191,13 +1556,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 }
                 
                 // Calculate unread count (messages not from current user and not read)
-                // Check multiple possible field names for read status
+                // Only count messages from other user that are NOT read (read !== true)
                 contact.unreadCount = messages.filter((m: any) => {
                   const senderId = m.userId || m.senderId || m.fromUserId;
                   const isFromOtherUser = senderId !== user.id;
-                  // Message is unread if read field is false, undefined, or doesn't exist
+                  // Message is unread if read field is not explicitly true
                   // Message is read only if read field is explicitly true
-                  const readStatus = m.read !== undefined ? m.read : (m.isRead !== undefined ? m.isRead : false);
+                  const readStatus = m.read === true || m.isRead === true;
                   const isUnread = !readStatus; // false, undefined, or missing means unread
                   const shouldCount = isFromOtherUser && isUnread;
                   if (shouldCount) {
@@ -1211,7 +1576,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   }
                   return shouldCount;
                 }).length;
-                console.log(`[ChatScreen] Calculated unread count for ${contact.name}: ${contact.unreadCount} out of ${messages.length} messages`);
+                console.log(`[ChatScreen] Calculated unread count for ${contact.name}: ${contact.unreadCount} unread out of ${messages.length} total messages`);
               }
             }
           } catch (error: any) {
@@ -1241,8 +1606,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
-  const fetchMessages = async (contactId: string) => {
-    if (!user?.id) return;
+  const fetchMessages = async (contactId: string): Promise<ChatMessage[]> => {
+    if (!user?.id) return [];
     
     try {
       // Compute conversation ID before fetching (must match backend format)
@@ -1490,10 +1855,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           : lastMessage.text;
         const lastMessageTime = lastMessage.sentAt || lastMessage.createdAt;
         
-        const unreadCount = messagesData.filter((m: any) => {
-          const senderId = m.userId || m.senderId || m.fromUserId;
+        // Calculate unread count - only count messages from other user that are NOT read
+        const unreadCount = messagesData.filter((m: ChatMessage) => {
+          const senderId = m.userId;
           const isFromOtherUser = senderId !== user?.id;
-          const readStatus = m.read !== undefined ? m.read : (m.isRead !== undefined ? m.isRead : false);
+          // Message is unread if read field is false, undefined, or doesn't exist
+          // Message is read only if read field is explicitly true
+          const readStatus = m.read === true;
           return isFromOtherUser && !readStatus;
         }).length;
         
@@ -1512,6 +1880,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           return sortContactsByTime(updated);
         });
       }
+      
+      // Return the fetched messages
+      return messagesData;
     } catch (error: any) {
       console.log('Error fetching messages:', error);
       console.log('Error response:', error.response?.data);
@@ -1519,6 +1890,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       // Fallback to empty array if API fails
       const conversationId = getConversationId(contactId);
       updateConversationMessages(conversationId, []);
+      return [];
     }
   };
 
@@ -1573,6 +1945,136 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  // Pick image for custom wallpaper
+  const pickCustomWallpaper = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Required', 'Please grant permission to access your photos.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [16, 9],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setCustomWallpaperUri(result.assets[0].uri);
+        if (!customWallpaperName) {
+          // Extract filename from URI if available
+          const uriParts = result.assets[0].uri.split('/');
+          const filename = uriParts[uriParts.length - 1];
+          setCustomWallpaperName(filename.replace(/\.[^/.]+$/, '') || 'Custom Wallpaper');
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image. Please try again.');
+    }
+  };
+
+  // Upload custom wallpaper
+  const uploadCustomWallpaper = async () => {
+    if (!customWallpaperUri || !user?.id) return;
+
+    setUploadingWallpaper(true);
+    try {
+      // Create FormData
+      const formData = new FormData();
+      
+      const fileUri = customWallpaperUri;
+      const filename = fileUri.split('/').pop() || 'wallpaper.jpg';
+      const match = /\.(\w+)$/.exec(filename);
+      const fileType = match ? `image/${match[1]}` : 'image/jpeg';
+      const fileName = customWallpaperName 
+        ? `${customWallpaperName.replace(/[^a-z0-9]/gi, '_')}_${Date.now()}.${match ? match[1] : 'jpg'}`
+        : `wallpaper_${Date.now()}.${match ? match[1] : 'jpg'}`;
+
+      // Handle web platform - convert data URIs and blob URIs to File objects
+      if (Platform.OS === 'web') {
+        try {
+          let file: File;
+          
+          if (fileUri.startsWith('data:')) {
+            // Convert base64 data URI to Blob, then to File
+            const base64Data = fileUri.split(',')[1];
+            const mimeType = fileUri.split(',')[0].split(':')[1].split(';')[0];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType || fileType });
+            file = new File([blob], fileName, { type: mimeType || fileType });
+          } else if (fileUri.startsWith('blob:')) {
+            // Convert blob URI to File
+            const response = await fetch(fileUri);
+            const blob = await response.blob();
+            file = new File([blob], fileName, { type: fileType });
+          } else {
+            // For other URIs, try to fetch and convert
+            const response = await fetch(fileUri);
+            const blob = await response.blob();
+            file = new File([blob], fileName, { type: fileType });
+          }
+          
+          formData.append('file', file);
+        } catch (webError: any) {
+          console.error('[ChatScreen] Failed to convert URI to File on web:', webError);
+          // Fallback: try to append as-is (might not work, but better than nothing)
+          formData.append('file', fileUri);
+        }
+      } else {
+        // Mobile platforms - use React Native FormData format
+        // @ts-ignore - FormData typing issue
+        formData.append('file', {
+          uri: fileUri,
+          name: fileName,
+          type: fileType,
+        } as any);
+      }
+
+      formData.append('userId', user.id);
+      if (customWallpaperName) {
+        formData.append('name', customWallpaperName);
+      }
+      if (customWallpaperDescription) {
+        formData.append('description', customWallpaperDescription);
+      }
+      formData.append('category', 'custom');
+      formData.append('supportsDark', 'true');
+      formData.append('supportsLight', 'true');
+
+      // On web, don't set Content-Type header - let axios set it with the boundary
+      // On mobile, we can set it explicitly
+      const headers = Platform.OS === 'web' 
+        ? {} 
+        : { 'Content-Type': 'multipart/form-data' };
+
+      await chatApi.post(endpoints.uploadCustomWallpaper, formData, { headers });
+
+      // Reset form
+      setCustomWallpaperUri(null);
+      setCustomWallpaperName('');
+      setCustomWallpaperDescription('');
+      setShowCustomWallpaperUpload(false);
+
+      // Refresh wallpapers list
+      await fetchWallpapers();
+
+      Alert.alert('Success', 'Wallpaper uploaded successfully!');
+    } catch (error: any) {
+      console.error('Error uploading wallpaper:', error);
+      Alert.alert('Error', error.response?.data?.message || 'Failed to upload wallpaper. Please try again.');
+    } finally {
+      setUploadingWallpaper(false);
+    }
+  };
+
   const handleContactSelect = async (contact: ChatContact) => {
     setSelectedContact(contact);
     setShowContacts(false);
@@ -1580,41 +2082,58 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     const conversationId = getConversationId(contact.id);
     setCurrentConversationId(conversationId);
     
+    // Optimistically set unread count to 0 in UI
     setContacts(prev => prev.map(c => 
       c.id === contact.id ? { ...c, unreadCount: 0 } : c
     ));
     
-    await fetchMessages(contact.id);
+    // Fetch messages and get them directly
+    const fetchedMessages = await fetchMessages(contact.id);
     await loadWallpaper(contact.id);
     
-    setTimeout(async () => {
-      if (conversationId && user?.id && contact.id) {
-        try {
-          const conversationMessages = conversations[conversationId] || [];
-          const unreadMessages = conversationMessages.filter(m => 
-            m.userId !== user.id && !m.read
-          );
+    // Mark unread messages as read immediately after fetching
+    if (fetchedMessages && fetchedMessages.length > 0 && user?.id && contact.id) {
+      try {
+        // Filter unread messages from the fetched messages
+        const unreadMessages = fetchedMessages.filter(m => 
+          m.userId !== user.id && m.read !== true
+        );
+        
+        if (unreadMessages.length > 0) {
+          const messageIds = unreadMessages.map(m => m.id);
+          console.log(`[ChatScreen] Marking ${messageIds.length} messages as read for contact ${contact.name}`);
           
-          if (unreadMessages.length > 0) {
-            const messageIds = unreadMessages.map(m => m.id);
-            await markMessagesRead(contact.id, messageIds);
-            
-            setConversations(prev => ({
-              ...prev,
-              [conversationId]: prev[conversationId]?.map(m => 
-                messageIds.includes(m.id) ? { ...m, read: true } : m
-              ) || []
-            }));
-            
-            setContacts(prev => prev.map(c => 
-              c.id === contact.id ? { ...c, unreadCount: 0 } : c
-            ));
-          }
-        } catch (error) {
-          console.error('Failed to mark messages as read:', error);
+          // Mark messages as read on the backend
+          await markMessagesRead(contact.id, messageIds);
+          
+          // Update conversations state to mark messages as read
+          setConversations(prev => ({
+            ...prev,
+            [conversationId]: prev[conversationId]?.map(m => 
+              messageIds.includes(m.id) ? { ...m, read: true } : m
+            ) || []
+          }));
+          
+          // Ensure unread count is 0
+          setContacts(prev => prev.map(c => 
+            c.id === contact.id ? { ...c, unreadCount: 0 } : c
+          ));
+          
+          // Update notification badge in real-time
+          updateContactUnreadCount(contact.id);
         }
+      } catch (error) {
+        console.error('Failed to mark messages as read:', error);
+        // On error, recalculate unread count from fetched messages
+        const unreadCount = fetchedMessages.filter((m: ChatMessage) => {
+          const isFromOtherUser = m.userId !== user?.id;
+          return isFromOtherUser && m.read !== true;
+        }).length;
+        setContacts(prev => prev.map(c => 
+          c.id === contact.id ? { ...c, unreadCount } : c
+        ));
       }
-    }, 500);
+    }
   };
 
   const handleSendMessage = async () => {
@@ -1627,6 +2146,21 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       }
 
       if (editingId) {
+        // Prevent editing images, videos, or voice messages
+        const messageToEdit = currentMessages.find(m => m.id === editingId);
+        if (messageToEdit) {
+          const isImage = messageToEdit.messageType === 'image' || (messageToEdit.text && looksLikeImageUrl(messageToEdit.text));
+          const isVideo = messageToEdit.messageType === 'video' || (messageToEdit.text && (looksLikeVideoUrl(messageToEdit.text) || isYouTubeUrl(messageToEdit.text)));
+          const isVoice = messageToEdit.messageType === 'voice';
+          
+          if (isImage || isVideo || isVoice) {
+            setError('Cannot edit images, videos, or voice messages.');
+            setEditingId(null);
+            setInputText("");
+            return;
+          }
+        }
+        
         // Edit existing message
         const newText = inputText.trim();
         setInputText("");
@@ -1762,18 +2296,56 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       const fileName = `${mediaType}_${Date.now()}.${extension}`;
       const fileType = mediaType === 'image' ? 'image/jpeg' : 'video/mp4';
 
-      // Handle blob URIs on web platform
-      if (Platform.OS === 'web' && uri.startsWith('blob:')) {
+      // Handle web platform - convert data URIs and blob URIs to File objects
+      if (Platform.OS === 'web') {
         try {
-          const response = await fetch(uri);
-          const blob = await response.blob();
-          const file = new File([blob], fileName, { type: fileType });
+          let file: File;
+          
+          if (uri.startsWith('data:')) {
+            // Convert base64 data URI to Blob, then to File
+            const base64Data = uri.split(',')[1];
+            const mimeType = uri.split(',')[0].split(':')[1].split(';')[0];
+            const byteCharacters = atob(base64Data);
+            const byteNumbers = new Array(byteCharacters.length);
+            for (let i = 0; i < byteCharacters.length; i++) {
+              byteNumbers[i] = byteCharacters.charCodeAt(i);
+            }
+            const byteArray = new Uint8Array(byteNumbers);
+            const blob = new Blob([byteArray], { type: mimeType || fileType });
+            file = new File([blob], fileName, { type: mimeType || fileType });
+          } else if (uri.startsWith('blob:')) {
+            // Convert blob URI to File
+            const response = await fetch(uri);
+            const blob = await response.blob();
+            file = new File([blob], fileName, { type: fileType });
+          } else {
+            // For other URIs, try to fetch and convert
+            const response = await fetch(uri);
+            const blob = await response.blob();
+            file = new File([blob], fileName, { type: fileType });
+          }
+          
+          console.log('[ChatScreen] Created File object:', { 
+            name: file.name, 
+            type: file.type, 
+            size: file.size,
+            lastModified: file.lastModified 
+          });
           formData.append('file', file);
-        } catch (blobError: any) {
-          console.error('[ChatScreen] Failed to convert blob to File:', blobError);
+          
+          // Verify the file was appended
+          if (formData.has('file')) {
+            console.log('[ChatScreen] File successfully appended to FormData');
+          } else {
+            console.error('[ChatScreen] File was NOT appended to FormData!');
+          }
+        } catch (webError: any) {
+          console.error('[ChatScreen] Failed to convert URI to File on web:', webError);
+          // Fallback: try to append as-is (might not work, but better than nothing)
           formData.append('file', uri);
         }
       } else {
+        // Mobile platforms - use React Native FormData format
         // @ts-ignore - FormData typing issue
         formData.append('file', {
           uri: uri,
@@ -1784,10 +2356,14 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
       console.log('[ChatScreen] Uploading media file:', { uri, mediaType, fileName, platform: Platform.OS });
 
+      // On web, don't set Content-Type header - let axios set it with the boundary
+      // On mobile, we can set it explicitly
+      const headers = Platform.OS === 'web' 
+        ? {} 
+        : { 'Content-Type': 'multipart/form-data' };
+
       const response = await chatApi.post(endpoints.uploadChatMedia, formData, {
-        headers: {
-          'Content-Type': 'multipart/form-data',
-        },
+        headers,
       });
 
       console.log('[ChatScreen] Media upload response:', response.data);
@@ -2460,8 +3036,205 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  // Video thumbnail component for reply previews
+  const ReplyPreviewVideoThumbnail: React.FC<{ videoUrl: string; message: ChatMessage; isOwnMessage: boolean; compact: boolean }> = ({ videoUrl, message, isOwnMessage, compact }) => {
+    const thumbnailPlayer = useVideoPlayer(videoUrl, (player) => {
+      player.muted = true;
+      player.loop = false;
+    });
+
+    return (
+      <View style={[styles.replyPreview, compact && styles.replyPreviewCompact]}>
+        <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
+        <View style={styles.replyPreviewWithMedia}>
+          <View style={styles.replyPreviewVideoContainer}>
+            {/* Use VideoView to show first frame - works on all platforms */}
+            <VideoView
+              player={thumbnailPlayer}
+              style={styles.replyPreviewVideo}
+              nativeControls={false}
+              allowsFullscreen={false}
+              allowsPictureInPicture={false}
+              contentFit="cover"
+            />
+            <View style={styles.replyPreviewVideoPlayIcon}>
+              <Text style={styles.replyPreviewVideoPlayIconText}>▶</Text>
+            </View>
+          </View>
+          <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
+            {message.text && !looksLikeVideoUrl(message.text) ? message.text : 'Video'}
+          </Text>
+        </View>
+      </View>
+    );
+  };
+
+  // Video thumbnail component for inline reply previews (when typing)
+  const ReplyPreviewVideoThumbnailInline: React.FC<{ videoUrl: string; message: ChatMessage }> = ({ videoUrl, message }) => {
+    const thumbnailPlayer = useVideoPlayer(videoUrl, (player) => {
+      player.muted = true;
+      player.loop = false;
+    });
+
+    return (
+      <View style={styles.replyPreviewWithMediaInline}>
+        <View style={styles.replyPreviewVideoContainerInline}>
+          {/* Use VideoView to show first frame - works on all platforms */}
+          <VideoView
+            player={thumbnailPlayer}
+            style={styles.replyPreviewVideoInline}
+            nativeControls={false}
+            allowsFullscreen={false}
+            allowsPictureInPicture={false}
+            contentFit="cover"
+          />
+          <View style={styles.replyPreviewVideoPlayIconInline}>
+            <Text style={styles.replyPreviewVideoPlayIconTextInline}>▶</Text>
+          </View>
+        </View>
+        <Text style={styles.replyPreviewText} numberOfLines={1}>
+          {message.text && !looksLikeVideoUrl(message.text) ? message.text : 'Video'}
+        </Text>
+      </View>
+    );
+  };
+
+  // Reply preview component with image/video support
+  const ReplyPreviewContent: React.FC<{ message: ChatMessage; isOwnMessage?: boolean; compact?: boolean }> = ({ message, isOwnMessage = false, compact = false }) => {
+    const isImage = message.messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
+    const isVideo = message.messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
+    const imageUrl = message.imageUrl || (isImage ? message.text : null);
+    const videoUrl = message.videoUrl || (isVideo ? message.text : null);
+
+    if (isImage && imageUrl) {
+      return (
+        <View style={[styles.replyPreview, compact && styles.replyPreviewCompact]}>
+          <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
+          <View style={styles.replyPreviewWithMedia}>
+            <SafeImage
+              source={{ uri: imageUrl }}
+              style={styles.replyPreviewImage}
+              resizeMode="cover"
+              placeholder=""
+              fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
+            />
+            <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
+              {message.text && !looksLikeImageUrl(message.text) ? message.text : 'Photo'}
+            </Text>
+          </View>
+        </View>
+      );
+    }
+
+    if (isVideo && videoUrl) {
+      // Use VideoThumbnail for videos (same as main message display)
+      // For YouTube videos, use the YouTube thumbnail
+      if (isYouTubeUrl(videoUrl)) {
+        const youtubeThumbnail = getYouTubeThumbnail(videoUrl);
+        return (
+          <View style={[styles.replyPreview, compact && styles.replyPreviewCompact]}>
+            <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
+            <View style={styles.replyPreviewWithMedia}>
+              <View style={styles.replyPreviewVideoContainer}>
+                <SafeImage
+                  source={{ uri: youtubeThumbnail || videoUrl }}
+                  style={styles.replyPreviewVideo}
+                  resizeMode="cover"
+                  placeholder="▶"
+                  fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Video`}
+                />
+                <View style={styles.replyPreviewVideoPlayIcon}>
+                  <Text style={styles.replyPreviewVideoPlayIconText}>▶</Text>
+                </View>
+              </View>
+              <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
+                {message.text && !isYouTubeUrl(message.text) ? message.text : 'Video'}
+              </Text>
+            </View>
+          </View>
+        );
+      }
+      
+      // For regular videos, use VideoThumbnail component from expo-video (same as VideoPlayerComponent)
+      return (
+        <ReplyPreviewVideoThumbnail 
+          videoUrl={videoUrl} 
+          message={message}
+          isOwnMessage={isOwnMessage}
+          compact={compact}
+        />
+      );
+    }
+
+    // Text message or voice message
+    return (
+      <View style={[styles.replyPreview, compact && styles.replyPreviewCompact]}>
+        <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
+        <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
+          {message.messageType === 'voice' ? 'Voice message' : (message.text || 'Message')}
+        </Text>
+      </View>
+    );
+  };
+
+  // Full-screen video player component using expo-video
+  const FullScreenVideoPlayer: React.FC<{ videoUrl: string; onClose: () => void }> = ({ videoUrl, onClose }) => {
+    const player = useVideoPlayer(videoUrl, (player) => {
+      player.muted = false;
+      player.loop = false;
+      player.play();
+    });
+
+    useEffect(() => {
+      // Auto-play when component mounts
+      if (player) {
+        player.play();
+      }
+      
+      return () => {
+        // Cleanup: pause and reset when component unmounts
+        if (player) {
+          player.pause();
+          player.currentTime = 0;
+        }
+      };
+    }, [player]);
+
+    return (
+      <View style={styles.videoModalOverlay}>
+        <TouchableOpacity
+          style={styles.videoModalCloseButton}
+          onPress={onClose}
+          activeOpacity={0.7}
+        >
+          <CloseIcon size={24} color="white" />
+        </TouchableOpacity>
+        <View style={styles.videoModalContent}>
+          <VideoView
+            player={player}
+            style={styles.videoModalPlayer}
+            nativeControls={true}
+            allowsFullscreen={true}
+            allowsPictureInPicture={false}
+            contentFit="contain"
+          />
+        </View>
+      </View>
+    );
+  };
+
   // Video player component with play button overlay
+  // Uses expo-video VideoView to display the actual video (per expo-video documentation)
+  // VideoView automatically shows the first frame when loaded, similar to web's preload="metadata"
   const VideoPlayerComponent: React.FC<{ videoUrl: string; messageId: string }> = ({ videoUrl, messageId }) => {
+    // Create video player using expo-video (per documentation)
+    // The player will automatically load and show the first frame
+    const player = useVideoPlayer(videoUrl, (player) => {
+      // Don't auto-play, just load the video to show first frame
+      player.muted = true;
+      player.loop = false;
+    });
+    
     if (!videoUrl || videoUrl.trim() === '') {
       return (
         <View style={styles.messageVideoPlaceholder}>
@@ -2482,22 +3255,17 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         onPress={handlePlay}
         activeOpacity={0.9}
       >
-        <Video
-          source={{ uri: videoUrl }}
+        {/* Show VideoView to display the actual video */}
+        {/* VideoView will automatically show the first frame when loaded */}
+        <VideoView
+          player={player}
           style={styles.messageVideoPlayer}
-          useNativeControls={false}
-          resizeMode="cover"
-          shouldPlay={false}
-          isLooping={false}
-          isMuted={false}
-          allowsExternalPlayback={false}
-          ignoreSilentSwitch="ignore"
-          playInBackground={false}
-          playWhenInactive={false}
-          onError={(error) => {
-            console.error('[ChatScreen] Video thumbnail error:', error);
-          }}
+          nativeControls={false}
+          allowsFullscreen={false}
+          allowsPictureInPicture={false}
         />
+        
+        {/* Play button overlay */}
         <View style={styles.videoPlayButtonOverlay}>
           <View style={styles.videoPlayButton}>
             <Text style={styles.videoPlayButtonIcon}>▶</Text>
@@ -2528,12 +3296,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble]}>
           {/* Reply preview */}
           {repliedToMessage && (
-            <View style={styles.replyPreview}>
-              <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
-              <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
-                {repliedToMessage.text || 'Message'}
-              </Text>
-            </View>
+            <ReplyPreviewContent message={repliedToMessage} isOwnMessage={isOwnMessage} />
           )}
           
           {/* Message content */}
@@ -2718,15 +3481,21 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             </TouchableOpacity>
             {isOwnMessage && (
               <>
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => {
-                    setEditingId(item.id);
-                    setInputText(item.text);
-                  }}
-                >
-                  <Text style={styles.actionButtonText}>✏️</Text>
-                </TouchableOpacity>
+                {/* Only allow editing text messages, not images, videos, or voice messages */}
+                {item.messageType !== 'image' && 
+                 item.messageType !== 'video' && 
+                 item.messageType !== 'voice' &&
+                 !(item.text && (looksLikeImageUrl(item.text) || looksLikeVideoUrl(item.text) || isYouTubeUrl(item.text))) && (
+                  <TouchableOpacity
+                    style={styles.actionButton}
+                    onPress={() => {
+                      setEditingId(item.id);
+                      setInputText(item.text);
+                    }}
+                  >
+                    <Text style={styles.actionButtonText}>✏️</Text>
+                  </TouchableOpacity>
+                )}
                 <TouchableOpacity
                   style={styles.actionButton}
                   onPress={() => {
@@ -3026,7 +3795,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               <Text style={styles.wallpaperModalTitle}>Choose Background</Text>
               <TouchableOpacity 
                 style={styles.wallpaperModalClose}
-                onPress={() => setShowWallpaperPicker(false)}
+                onPress={() => {
+                  setShowWallpaperPicker(false);
+                  setShowCustomWallpaperUpload(false);
+                  setCustomWallpaperUri(null);
+                  setCustomWallpaperName('');
+                  setCustomWallpaperDescription('');
+                }}
               >
                 <CloseIcon size={24} color={colors.text} />
               </TouchableOpacity>
@@ -3055,6 +3830,72 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 ))}
               </View>
             </View>
+
+            {/* Upload Custom Wallpaper Button */}
+            <TouchableOpacity
+              style={styles.uploadWallpaperButton}
+              onPress={() => setShowCustomWallpaperUpload(!showCustomWallpaperUpload)}
+            >
+              <Text style={styles.uploadWallpaperButtonText}>
+                {showCustomWallpaperUpload ? 'Hide Upload' : 'Upload Your Own'}
+              </Text>
+            </TouchableOpacity>
+
+            {/* Custom Wallpaper Upload Form */}
+            {showCustomWallpaperUpload && (
+              <View style={styles.uploadForm}>
+                <TouchableOpacity
+                  style={styles.uploadImageButton}
+                  onPress={pickCustomWallpaper}
+                >
+                  {customWallpaperUri ? (
+                    <Image
+                      source={{ uri: customWallpaperUri }}
+                      style={styles.uploadImagePreview}
+                      resizeMode="cover"
+                    />
+                  ) : (
+                    <View style={styles.uploadImagePlaceholder}>
+                      <ImageIcon size={24} color={colors.text} />
+                      <Text style={styles.uploadImagePlaceholderText}>
+                        Choose Image
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+
+                <TextInput
+                  style={styles.uploadInput}
+                  placeholder="Wallpaper Name (optional)"
+                  placeholderTextColor={colors.muted}
+                  value={customWallpaperName}
+                  onChangeText={setCustomWallpaperName}
+                />
+
+                <TextInput
+                  style={[styles.uploadInput, styles.uploadTextArea]}
+                  placeholder="Description (optional)"
+                  placeholderTextColor={colors.muted}
+                  value={customWallpaperDescription}
+                  onChangeText={setCustomWallpaperDescription}
+                  multiline
+                  numberOfLines={3}
+                />
+
+                <TouchableOpacity
+                  style={[
+                    styles.uploadSubmitButton,
+                    (!customWallpaperUri || uploadingWallpaper) && styles.uploadSubmitButtonDisabled
+                  ]}
+                  onPress={uploadCustomWallpaper}
+                  disabled={!customWallpaperUri || uploadingWallpaper}
+                >
+                  <Text style={styles.uploadSubmitButtonText}>
+                    {uploadingWallpaper ? 'Uploading...' : 'Upload Wallpaper'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
 
             {/* Wallpaper Grid */}
             <FlatList
@@ -3128,45 +3969,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       
       {/* Full-Screen Video Viewer Modal */}
       {enlargedVideo && (
-        <View style={styles.videoModalOverlay}>
-          <TouchableOpacity
-            style={styles.videoModalCloseButton}
-            onPress={() => {
-              setEnlargedVideo(null);
-              setVideoNaturalSize(null);
-            }}
-            activeOpacity={0.7}
-          >
-            <CloseIcon size={24} color="white" />
-          </TouchableOpacity>
-          <View style={styles.videoModalContent}>
-            <Video
-              source={{ uri: enlargedVideo }}
-              style={styles.videoModalPlayer}
-              useNativeControls={true}
-              resizeMode="contain"
-              shouldPlay={true}
-              isLooping={false}
-              isMuted={false}
-              allowsExternalPlayback={false}
-              ignoreSilentSwitch="ignore"
-              playInBackground={false}
-              playWhenInactive={false}
-              onError={(error) => {
-                console.error('[ChatScreen] Full-screen video error:', error);
-              }}
-              onLoad={(status) => {
-                if (status.isLoaded && status.naturalSize) {
-                  console.log('[ChatScreen] Video natural size:', status.naturalSize);
-                  setVideoNaturalSize({
-                    width: status.naturalSize.width,
-                    height: status.naturalSize.height,
-                  });
-                }
-              }}
-            />
-          </View>
-        </View>
+        <FullScreenVideoPlayer
+          videoUrl={enlargedVideo}
+          onClose={() => {
+            setEnlargedVideo(null);
+            setVideoNaturalSize(null);
+          }}
+        />
       )}
 
       {/* Connection Status */}
@@ -3204,7 +4013,66 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             <View style={styles.replyPreviewLine} />
             <View style={styles.replyPreviewTextContainer}>
               <Text style={styles.replyPreviewLabel}>{t('chat.replyingTo', 'Replying to:')}</Text>
-              <Text style={styles.replyPreviewText} numberOfLines={1}>{replyTo.text}</Text>
+              {(() => {
+                const isImage = replyTo.messageType === 'image' || (replyTo.text && looksLikeImageUrl(replyTo.text));
+                const isVideo = replyTo.messageType === 'video' || (replyTo.text && (looksLikeVideoUrl(replyTo.text) || isYouTubeUrl(replyTo.text)));
+                const imageUrl = replyTo.imageUrl || (isImage ? replyTo.text : null);
+                const videoUrl = replyTo.videoUrl || (isVideo ? replyTo.text : null);
+
+                if (isImage && imageUrl) {
+                  return (
+                    <View style={styles.replyPreviewWithMediaInline}>
+                      <SafeImage
+                        source={{ uri: imageUrl }}
+                        style={styles.replyPreviewImageInline}
+                        resizeMode="cover"
+                        placeholder=""
+                        fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
+                      />
+                      <Text style={styles.replyPreviewText} numberOfLines={1}>
+                        {replyTo.text && !looksLikeImageUrl(replyTo.text) ? replyTo.text : 'Photo'}
+                      </Text>
+                    </View>
+                  );
+                }
+
+                if (isVideo && videoUrl) {
+                  // For YouTube videos, use the YouTube thumbnail
+                  if (isYouTubeUrl(videoUrl)) {
+                    const youtubeThumbnail = getYouTubeThumbnail(videoUrl);
+                    return (
+                      <View style={styles.replyPreviewWithMediaInline}>
+                        <View style={styles.replyPreviewVideoContainerInline}>
+                          <SafeImage
+                            source={{ uri: youtubeThumbnail || videoUrl }}
+                            style={styles.replyPreviewVideoInline}
+                            resizeMode="cover"
+                            placeholder="▶"
+                            fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Video`}
+                          />
+                          <View style={styles.replyPreviewVideoPlayIconInline}>
+                            <Text style={styles.replyPreviewVideoPlayIconTextInline}>▶</Text>
+                          </View>
+                        </View>
+                        <Text style={styles.replyPreviewText} numberOfLines={1}>
+                          {replyTo.text && !isYouTubeUrl(replyTo.text) ? replyTo.text : 'Video'}
+                        </Text>
+                      </View>
+                    );
+                  }
+                  
+                  // For regular videos, use VideoThumbnail component (same as main message display)
+                  return (
+                    <ReplyPreviewVideoThumbnailInline videoUrl={videoUrl} message={replyTo} />
+                  );
+                }
+
+                return (
+                  <Text style={styles.replyPreviewText} numberOfLines={1}>
+                    {replyTo.messageType === 'voice' ? 'Voice message' : (replyTo.text || 'Message')}
+                  </Text>
+                );
+              })()}
             </View>
             <TouchableOpacity
               style={styles.replyPreviewClose}
@@ -3862,6 +4730,12 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 12,
     padding: 12,
   },
+  replyPreviewLine: {
+    width: 3,
+    backgroundColor: colors.primary,
+    marginRight: 8,
+    alignSelf: 'stretch',
+  },
   replyPreviewTextContainer: {
     flex: 1,
     marginLeft: 8,
@@ -3883,6 +4757,86 @@ const createStyles = () => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     fontWeight: '700',
+  },
+  replyPreviewWithMedia: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  replyPreviewImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    backgroundColor: colors.muted,
+  },
+  replyPreviewVideoContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 6,
+    backgroundColor: colors.muted,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  replyPreviewVideo: {
+    width: '100%',
+    height: '100%',
+  },
+  replyPreviewVideoPlayIcon: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  replyPreviewVideoPlayIconText: {
+    color: 'white',
+    fontSize: 14,
+    fontWeight: 'bold',
+  },
+  replyPreviewCompact: {
+    marginBottom: 6,
+  },
+  replyPreviewWithMediaInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  replyPreviewImageInline: {
+    width: 32,
+    height: 32,
+    borderRadius: 4,
+    backgroundColor: colors.muted,
+  },
+  replyPreviewVideoContainerInline: {
+    width: 32,
+    height: 32,
+    borderRadius: 4,
+    backgroundColor: colors.muted,
+    position: 'relative',
+    overflow: 'hidden',
+  },
+  replyPreviewVideoInline: {
+    width: '100%',
+    height: '100%',
+  },
+  replyPreviewVideoPlayIconInline: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  replyPreviewVideoPlayIconTextInline: {
+    color: 'white',
+    fontSize: 10,
+    fontWeight: 'bold',
   },
 
   // Edit indicator styles
@@ -4362,6 +5316,87 @@ const createStyles = () => StyleSheet.create({
     padding: 8,
     textAlign: 'center',
     backgroundColor: colors.surface,
+  },
+  // Upload wallpaper styles
+  uploadWallpaperButton: {
+    marginHorizontal: 16,
+    marginVertical: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadWallpaperButtonText: {
+    fontSize: 14,
+    color: 'white',
+    fontWeight: '600',
+  },
+  uploadForm: {
+    marginHorizontal: 16,
+    marginBottom: 12,
+    padding: 16,
+    borderRadius: 12,
+    backgroundColor: colors.muted,
+    gap: 12,
+  },
+  uploadImageButton: {
+    width: '100%',
+    height: 150,
+    borderRadius: 8,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+  },
+  uploadImagePreview: {
+    width: '100%',
+    height: '100%',
+  },
+  uploadImagePlaceholder: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 8,
+  },
+  uploadImagePlaceholderText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+  },
+  uploadInput: {
+    width: '100%',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: colors.surface,
+    color: colors.text,
+    fontSize: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  uploadTextArea: {
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  uploadSubmitButton: {
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 8,
+    backgroundColor: colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  uploadSubmitButtonDisabled: {
+    backgroundColor: colors.muted,
+    opacity: 0.5,
+  },
+  uploadSubmitButtonText: {
+    fontSize: 14,
+    color: 'white',
+    fontWeight: '600',
   },
 
   // Recording styles

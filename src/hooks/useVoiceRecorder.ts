@@ -1,7 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { Audio } from 'expo-av';
 import { Platform } from 'react-native';
-import * as FileSystemLegacy from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 
 export interface VoiceRecording {
   uri: string;
@@ -194,7 +194,7 @@ export function useVoiceRecorder() {
       let fileExists = false;
       if (Platform.OS !== 'web' || !uri.startsWith('blob:')) {
         try {
-          const fileInfo = await FileSystemLegacy.getInfoAsync(uri);
+          const fileInfo = await FileSystem.getInfoAsync(uri);
           console.log('[useVoiceRecorder] File info:', fileInfo);
           fileExists = fileInfo.exists || false;
           fileSize = fileInfo.exists && 'size' in fileInfo ? fileInfo.size : 0;
@@ -308,7 +308,7 @@ export function useVoiceRecorder() {
       if (uri && (Platform.OS !== 'web' || !uri.startsWith('blob:'))) {
         try {
           console.log('[useVoiceRecorder] Deleting recording file:', uri);
-          await FileSystemLegacy.deleteAsync(uri, { idempotent: true });
+          await FileSystem.deleteAsync(uri, { idempotent: true });
         } catch (deleteError: any) {
           console.warn('[useVoiceRecorder] Failed to delete recording file:', deleteError?.message);
         }

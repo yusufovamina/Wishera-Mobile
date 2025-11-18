@@ -402,7 +402,11 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
           {t('landing.screenshotsSubtitle', 'Explore our key features')}
         </Text>
         <Carousel autoPlay={true} autoPlayInterval={4000} showDots={true}>
-          {appScreenshots.map((item) => renderScreenshotSlide(item))}
+          {appScreenshots.map((item) => (
+            <React.Fragment key={item.id}>
+              {renderScreenshotSlide(item)}
+            </React.Fragment>
+          ))}
         </Carousel>
       </View>
     </View>

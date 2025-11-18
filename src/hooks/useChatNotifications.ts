@@ -13,6 +13,7 @@ export const useChatNotifications = () => {
   const [notifications, setNotifications] = useState<Map<string, ChatNotification>>(new Map());
   const [totalUnread, setTotalUnread] = useState(0);
   const updateIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const signalRHandlersRef = useRef<{ onMessageReceived?: (payload: any) => void; onMessagesRead?: (data: { byUserId: string; messageIds: string[] }) => void }>({});
 
   const calculateTotalUnread = useCallback((notifs: Map<string, ChatNotification>) => {
     let total = 0;
@@ -44,6 +45,57 @@ export const useChatNotifications = () => {
     });
   }, [calculateTotalUnread]);
 
+  // Update notification for a specific contact (called when message is received or marked as read)
+  const updateContactUnreadCount = useCallback(async (contactId: string) => {
+    if (!user?.id) return;
+    
+    try {
+      const historyResponse = await chatApi.get(endpoints.chatHistory(user.id, contactId, 1, 50));
+      const messages = Array.isArray(historyResponse.data) 
+        ? historyResponse.data 
+        : (historyResponse.data?.items || historyResponse.data?.data || []);
+
+      if (messages.length > 0) {
+        // Only count messages from other user that are NOT read (read !== true)
+        const unreadCount = messages.filter((m: any) => {
+          const senderId = m.userId || m.senderId || m.fromUserId;
+          const isFromOtherUser = senderId !== user.id;
+          // Message is unread if read field is not explicitly true
+          const readStatus = m.read === true || m.isRead === true;
+          return isFromOtherUser && !readStatus;
+        }).length;
+
+        const lastMsg = messages[0];
+        const lastMessageTime = lastMsg.sentAt || lastMsg.createdAt || '';
+        
+        setNotifications(prev => {
+          const updated = new Map(prev);
+          if (unreadCount > 0) {
+            updated.set(contactId, {
+              contactId,
+              unreadCount,
+              lastMessageTime
+            });
+          } else {
+            updated.delete(contactId);
+          }
+          setTotalUnread(calculateTotalUnread(updated));
+          return updated;
+        });
+      } else {
+        // No messages, remove notification
+        setNotifications(prev => {
+          const updated = new Map(prev);
+          updated.delete(contactId);
+          setTotalUnread(calculateTotalUnread(updated));
+          return updated;
+        });
+      }
+    } catch (error) {
+      console.error(`Error updating notification for ${contactId}:`, error);
+    }
+  }, [user?.id, calculateTotalUnread]);
+
   const refreshNotifications = useCallback(async () => {
     if (!user?.id) return;
 
@@ -64,10 +116,12 @@ export const useChatNotifications = () => {
               : (historyResponse.data?.items || historyResponse.data?.data || []);
 
             if (messages.length > 0) {
+              // Only count messages from other user that are NOT read (read !== true)
               const unreadCount = messages.filter((m: any) => {
                 const senderId = m.userId || m.senderId || m.fromUserId;
                 const isFromOtherUser = senderId !== user.id;
-                const readStatus = m.read !== undefined ? m.read : (m.isRead !== undefined ? m.isRead : false);
+                // Message is unread if read field is not explicitly true
+                const readStatus = m.read === true || m.isRead === true;
                 return isFromOtherUser && !readStatus;
               }).length;
 
@@ -94,10 +148,34 @@ export const useChatNotifications = () => {
     }
   }, [user?.id, calculateTotalUnread]);
 
+  // Setup SignalR listeners for real-time updates
+  useEffect(() => {
+    if (!user?.id) return;
+
+    // Dynamically import useSignalRChat to avoid circular dependencies
+    // We'll set up listeners when SignalR is available
+    const setupSignalRListeners = async () => {
+      try {
+        const { useSignalRChat } = await import('../hooks/useSignalRChat');
+        const { useAuthStore } = await import('../state/auth');
+        const { token } = useAuthStore.getState();
+        
+        // Note: We can't directly use the hook here, so we'll expose handlers
+        // that ChatScreen can register
+        console.log('[useChatNotifications] SignalR setup ready');
+      } catch (error) {
+        console.error('[useChatNotifications] Error setting up SignalR:', error);
+      }
+    };
+
+    setupSignalRListeners();
+  }, [user?.id]);
+
   useEffect(() => {
     if (user?.id) {
       refreshNotifications();
-      updateIntervalRef.current = setInterval(refreshNotifications, 30000);
+      // Reduce interval to 10 seconds for more responsive updates
+      updateIntervalRef.current = setInterval(refreshNotifications, 10000);
     }
 
     return () => {
@@ -107,12 +185,40 @@ export const useChatNotifications = () => {
     };
   }, [user?.id, refreshNotifications]);
 
+  // Register SignalR handlers (called from ChatScreen)
+  const registerSignalRHandlers = useCallback((
+    onMessageReceived: (payload: any) => void,
+    onMessagesRead: (data: { byUserId: string; messageIds: string[] }) => void
+  ) => {
+    signalRHandlersRef.current.onMessageReceived = (payload: any) => {
+      // When a new message is received, update the notification for that contact
+      const senderId = typeof payload === 'object' ? (payload.senderId || payload.userId) : null;
+      if (senderId && senderId !== user?.id) {
+        // Update notification count for this contact
+        updateContactUnreadCount(senderId);
+      }
+      // Call the original handler
+      onMessageReceived(payload);
+    };
+
+    signalRHandlersRef.current.onMessagesRead = (data: { byUserId: string; messageIds: string[] }) => {
+      // When messages are marked as read, update notifications
+      // The byUserId is the user who read the messages, so we need to find the contact
+      // We'll refresh notifications to get accurate counts
+      refreshNotifications();
+      // Call the original handler
+      onMessagesRead(data);
+    };
+  }, [user?.id, updateContactUnreadCount, refreshNotifications]);
+
   return {
     notifications,
     totalUnread,
     updateNotification,
     clearNotification,
     refreshNotifications,
+    updateContactUnreadCount,
+    registerSignalRHandlers,
     getUnreadCount: (contactId: string) => notifications.get(contactId)?.unreadCount || 0
   };
 };
