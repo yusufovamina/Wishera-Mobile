@@ -191,8 +191,15 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   }, [isCloudinaryUrl]);
 
   const looksLikeVideoUrl = useCallback((url: string): boolean => {
+    if (!url || typeof url !== 'string') return false;
     const lower = url.toLowerCase();
-    return /(\.mp4|\.webm|\.ogg|\.mov)(\?|#|$)/.test(lower) || (isCloudinaryUrl(url) && /\/video\//i.test(lower));
+    // Check for video file extensions
+    const hasVideoExtension = /(\.mp4|\.webm|\.ogg|\.mov|\.avi|\.mkv|\.flv|\.wmv)(\?|#|$)/.test(lower);
+    // Check for Cloudinary video URLs (they contain /video/ in the path)
+    const isCloudinaryVideo = isCloudinaryUrl(url) && /\/video\//i.test(lower);
+    // Check if URL contains /video/ in path (for CDNs like Cloudinary, but be more specific)
+    const hasVideoInPath = /\/video\/[^\/]+/i.test(lower);
+    return hasVideoExtension || isCloudinaryVideo || hasVideoInPath;
   }, [isCloudinaryUrl]);
 
   const isYouTubeUrl = useCallback((url: string): boolean => {
@@ -281,6 +288,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   
   // Full-screen image viewer state
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
+  // Full-screen video viewer state
+  const [enlargedVideo, setEnlargedVideo] = useState<string | null>(null);
+  const [videoNaturalSize, setVideoNaturalSize] = useState<{ width: number; height: number } | null>(null);
 
   // SignalR hook for real-time messaging
   const {
@@ -360,6 +370,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       const audioUrl = customData?.audioUrl;
       const audioDuration = customData?.audioDuration;
       const imageUrl = customData?.imageUrl || (messageType === 'image' ? text : null);
+      const videoUrl = customData?.videoUrl || (messageType === 'video' ? text : null);
       
       // Log voice/media messages for debugging
       if (messageType === 'voice') {
@@ -378,6 +389,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           sender,
           messageType,
           imageUrl: imageUrl || text,
+          videoUrl: videoUrl || text,
           customData: JSON.stringify(customData)
         });
       }
@@ -393,7 +405,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           messageType: messageType as 'text' | 'voice' | 'image' | 'video',
           ...(audioUrl && { audioUrl }),
           ...(audioDuration !== null && audioDuration !== undefined && { audioDuration }),
-          ...(imageUrl && { imageUrl })
+          ...(imageUrl && { imageUrl }),
+          ...(videoUrl && { videoUrl })
         };
 
       // Check if this is a confirmation of a message we already sent (to prevent duplicates)
@@ -2286,66 +2299,68 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     setEmojiMenuForId(null);
   };
 
-  // Handler for deleting messages
+  // Handler for deleting messages - delete immediately without confirmation (like web)
   const handleDeleteMessage = async (messageId: string) => {
-    Alert.alert(
-      'Delete Message',
-      'Are you sure you want to delete this message?',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              console.log('[ChatScreen] Deleting message:', messageId);
-              
-              // Try SignalR deletion first
-              const success = await deleteMessage(messageId);
-              console.log('[ChatScreen] DeleteMessage SignalR result:', success);
-              
-              if (success) {
-                // Remove from local state immediately for better UX
-                // The SignalR event will also remove it, but this gives instant feedback
-                if (currentConversationId) {
-                  setConversations(prev => {
-                    const updated = { ...prev };
-                    if (updated[currentConversationId]) {
-                      updated[currentConversationId] = updated[currentConversationId].filter(m => m.id !== messageId);
-                    }
-                    return updated;
-                  });
-                }
-                console.log('[ChatScreen] Message deleted successfully');
-              } else {
-                // If SignalR deletion failed, try HTTP endpoint as fallback
-                console.log('[ChatScreen] SignalR deletion failed, trying HTTP endpoint');
-                try {
-                  await chatApi.post(endpoints.deleteChatMessage, { messageId });
-              // Remove from local state
-              if (currentConversationId) {
-                    setConversations(prev => {
-                      const updated = { ...prev };
-                      if (updated[currentConversationId]) {
-                        updated[currentConversationId] = updated[currentConversationId].filter(m => m.id !== messageId);
-                      }
-                      return updated;
-                    });
-                  }
-                  console.log('[ChatScreen] Message deleted via HTTP endpoint');
-                } catch (httpError) {
-                  console.error('[ChatScreen] HTTP deletion also failed:', httpError);
-                  setError('Failed to delete message. Please try again.');
-                }
-              }
-            } catch (error) {
-              console.error('[ChatScreen] Failed to delete message:', error);
-              setError('Failed to delete message. Please try again.');
-            }
-          },
-        },
-      ]
-    );
+    console.log('[ChatScreen] handleDeleteMessage called with messageId:', messageId);
+    if (!messageId) {
+      console.error('[ChatScreen] handleDeleteMessage: messageId is empty');
+      return;
+    }
+    
+    try {
+      console.log('[ChatScreen] Deleting message:', messageId);
+      console.log('[ChatScreen] Current conversation ID:', currentConversationId);
+      console.log('[ChatScreen] SignalR connected:', connected);
+      
+      // Remove from local state immediately for better UX
+      if (currentConversationId) {
+        setConversations(prev => {
+          const updated = { ...prev };
+          if (updated[currentConversationId]) {
+            const beforeCount = updated[currentConversationId].length;
+            updated[currentConversationId] = updated[currentConversationId].filter(m => m.id !== messageId);
+            const afterCount = updated[currentConversationId].length;
+            console.log('[ChatScreen] Removed message from local state. Before:', beforeCount, 'After:', afterCount);
+          }
+          return updated;
+        });
+      }
+      
+      // Try SignalR deletion first (if connected)
+      if (connected) {
+        try {
+          const success = await deleteMessage(messageId);
+          console.log('[ChatScreen] DeleteMessage SignalR result:', success);
+          if (success) {
+            console.log('[ChatScreen] Message deleted successfully via SignalR');
+            return; // Success, exit early
+          }
+        } catch (signalRError: any) {
+          console.error('[ChatScreen] SignalR deletion error:', signalRError);
+          console.error('[ChatScreen] SignalR error details:', signalRError?.message || signalRError);
+        }
+      } else {
+        console.log('[ChatScreen] SignalR not connected, skipping SignalR deletion');
+      }
+      
+      // If SignalR deletion failed or not connected, try HTTP endpoint as fallback
+      console.log('[ChatScreen] Trying HTTP endpoint for deletion');
+      try {
+        const response = await chatApi.post(endpoints.deleteChatMessage, { messageId });
+        console.log('[ChatScreen] HTTP deletion response:', response.data);
+        console.log('[ChatScreen] Message deleted via HTTP endpoint');
+      } catch (httpError: any) {
+        console.error('[ChatScreen] HTTP deletion also failed:', httpError);
+        console.error('[ChatScreen] HTTP error details:', httpError?.response?.data || httpError?.message);
+        console.error('[ChatScreen] HTTP error status:', httpError?.response?.status);
+        // Message was already removed from local state, so just show a warning
+        Alert.alert('Warning', 'Message was removed locally but may not have been deleted on the server. Please check your connection and try again.');
+      }
+    } catch (error: any) {
+      console.error('[ChatScreen] Failed to delete message:', error);
+      console.error('[ChatScreen] Error stack:', error?.stack);
+      Alert.alert('Error', 'Failed to delete message. Please try again.');
+    }
   };
 
   const handleTyping = async () => {
@@ -2445,6 +2460,53 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     </TouchableOpacity>
   );
 
+  // Video player component with play button overlay
+  const VideoPlayerComponent: React.FC<{ videoUrl: string; messageId: string }> = ({ videoUrl, messageId }) => {
+    if (!videoUrl || videoUrl.trim() === '') {
+      return (
+        <View style={styles.messageVideoPlaceholder}>
+          <Text style={styles.messageVideoPlayIcon}>▶</Text>
+          <Text style={{ color: colors.text, marginTop: 8 }}>Video unavailable</Text>
+        </View>
+      );
+    }
+    
+    const handlePlay = () => {
+      // Open video in full screen
+      setEnlargedVideo(videoUrl);
+    };
+    
+    return (
+      <TouchableOpacity
+        style={styles.messageVideoPlayerContainer}
+        onPress={handlePlay}
+        activeOpacity={0.9}
+      >
+        <Video
+          source={{ uri: videoUrl }}
+          style={styles.messageVideoPlayer}
+          useNativeControls={false}
+          resizeMode="cover"
+          shouldPlay={false}
+          isLooping={false}
+          isMuted={false}
+          allowsExternalPlayback={false}
+          ignoreSilentSwitch="ignore"
+          playInBackground={false}
+          playWhenInactive={false}
+          onError={(error) => {
+            console.error('[ChatScreen] Video thumbnail error:', error);
+          }}
+        />
+        <View style={styles.videoPlayButtonOverlay}>
+          <View style={styles.videoPlayButton}>
+            <Text style={styles.videoPlayButtonIcon}>▶</Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isOwnMessage = item.userId === user?.id;
     const repliedToMessage = item.replyToMessageId && currentMessages.find(m => m.id === item.replyToMessageId);
@@ -2507,28 +2569,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   </View>
                 </TouchableOpacity>
               ) : (
-                <View style={styles.messageVideoPlayerContainer}>
-                  <Video
-                    source={{ uri: item.videoUrl || item.text }}
-                    style={styles.messageVideoPlayer}
-                    useNativeControls={true}
-                    resizeMode="contain"
-                    shouldPlay={false}
-                    isLooping={false}
-                    isMuted={false}
-                    onError={(error) => {
-                      console.error('[ChatScreen] Video playback error:', error);
-                      console.error('[ChatScreen] Video URL:', item.videoUrl || item.text);
-                      Alert.alert('Video Error', 'Unable to play this video.');
-                    }}
-                    onLoadStart={() => {
-                      console.log('[ChatScreen] Video loading started:', item.videoUrl || item.text);
-                    }}
-                    onLoad={() => {
-                      console.log('[ChatScreen] Video loaded successfully');
-                    }}
-                  />
-                </View>
+                <VideoPlayerComponent videoUrl={item.videoUrl || item.text || ''} messageId={item.id} />
               )}
             </View>
           ) : item.messageType === 'image' || (item.text && looksLikeImageUrl(item.text)) ? (
@@ -2688,7 +2729,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.actionButton}
-                  onPress={() => handleDeleteMessage(item.id)}
+                  onPress={() => {
+                    console.log('[ChatScreen] Delete button pressed for message:', item.id);
+                    handleDeleteMessage(item.id);
+                  }}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.actionButtonText}>🗑️</Text>
                 </TouchableOpacity>
@@ -3077,6 +3123,49 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
             />
           </TouchableOpacity>
+        </View>
+      )}
+      
+      {/* Full-Screen Video Viewer Modal */}
+      {enlargedVideo && (
+        <View style={styles.videoModalOverlay}>
+          <TouchableOpacity
+            style={styles.videoModalCloseButton}
+            onPress={() => {
+              setEnlargedVideo(null);
+              setVideoNaturalSize(null);
+            }}
+            activeOpacity={0.7}
+          >
+            <CloseIcon size={24} color="white" />
+          </TouchableOpacity>
+          <View style={styles.videoModalContent}>
+            <Video
+              source={{ uri: enlargedVideo }}
+              style={styles.videoModalPlayer}
+              useNativeControls={true}
+              resizeMode="contain"
+              shouldPlay={true}
+              isLooping={false}
+              isMuted={false}
+              allowsExternalPlayback={false}
+              ignoreSilentSwitch="ignore"
+              playInBackground={false}
+              playWhenInactive={false}
+              onError={(error) => {
+                console.error('[ChatScreen] Full-screen video error:', error);
+              }}
+              onLoad={(status) => {
+                if (status.isLoaded && status.naturalSize) {
+                  console.log('[ChatScreen] Video natural size:', status.naturalSize);
+                  setVideoNaturalSize({
+                    width: status.naturalSize.width,
+                    height: status.naturalSize.height,
+                  });
+                }
+              }}
+            />
+          </View>
         </View>
       )}
 
@@ -3561,10 +3650,38 @@ const createStyles = () => StyleSheet.create({
     borderRadius: 16,
     overflow: 'hidden',
     backgroundColor: colors.muted,
+    zIndex: 1,
   },
   messageVideoPlayer: {
     width: '100%',
     height: '100%',
+    backgroundColor: 'transparent',
+  },
+  videoPlayButtonOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 10,
+  },
+  videoPlayButton: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  videoPlayButtonIcon: {
+    fontSize: 32,
+    color: 'white',
+    marginLeft: 4, // Slight offset to center the play icon visually
   },
   youtubeContainer: {
     position: 'relative',
@@ -4451,6 +4568,44 @@ const createStyles = () => StyleSheet.create({
     fontSize: 14,
     color: 'white',
     fontWeight: '700',
+  },
+  
+  // Full-screen video viewer styles
+  videoModalOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    zIndex: 2000,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoModalCloseButton: {
+    position: 'absolute',
+    top: 50,
+    right: 20,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 2001,
+  },
+  videoModalContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  videoModalPlayer: {
+    width: '100%',
+    maxWidth: '100%',
+    maxHeight: '100%',
+    // resizeMode="contain" shows full video without cropping
+    // maintains original aspect ratio and dimensions
   },
   
   // Full-screen image viewer styles
