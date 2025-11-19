@@ -28,6 +28,7 @@ interface MediaStream {
   getAudioTracks: () => MediaStreamTrack[];
   getVideoTracks: () => MediaStreamTrack[];
   toURL: () => string;
+  addTrack: (track: MediaStreamTrack) => void;
   id?: string;
 }
 
@@ -60,17 +61,17 @@ const getWebRTC = () => {
     if (typeof window === 'undefined') {
       return null;
     }
-    
+
     return {
       RTCPeerConnection: window.RTCPeerConnection || (window as any).webkitRTCPeerConnection || (window as any).mozRTCPeerConnection,
       RTCSessionDescription: window.RTCSessionDescription || (window as any).webkitRTCSessionDescription || (window as any).mozRTCSessionDescription,
       RTCIceCandidate: window.RTCIceCandidate || (window as any).webkitRTCIceCandidate || (window as any).mozRTCIceCandidate,
       MediaStream: window.MediaStream,
       mediaDevices: navigator.mediaDevices,
-      getUserMedia: navigator.mediaDevices?.getUserMedia || 
-                   (navigator as any).getUserMedia || 
-                   (navigator as any).webkitGetUserMedia || 
-                   (navigator as any).mozGetUserMedia,
+      getUserMedia: navigator.mediaDevices?.getUserMedia ||
+        (navigator as any).getUserMedia ||
+        (navigator as any).webkitGetUserMedia ||
+        (navigator as any).mozGetUserMedia,
     };
   } else {
     // For native platforms, use react-native-webrtc
@@ -103,6 +104,11 @@ export const useWebRTC = () => {
   const remoteStreamRef = useRef<MediaStream | null>(null);
   const iceCandidateCallbackRef = useRef<((candidate: RTCIceCandidateInit) => void) | null>(null);
   const connectionStateCallbackRef = useRef<((state: string) => void) | null>(null);
+
+  // ICE candidate buffering
+  const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
+  const isRemoteDescriptionSetRef = useRef<boolean>(false);
+
   const webrtc = getWebRTC();
 
   // Create peer connection
@@ -123,7 +129,12 @@ export const useWebRTC = () => {
 
     try {
       const pc = new webrtc.RTCPeerConnection({ iceServers: ICE_SERVERS });
-      
+
+      // Reset state for new connection
+      isRemoteDescriptionSetRef.current = false;
+      pendingCandidatesRef.current = [];
+
+
       // Add local stream tracks to peer connection
       if (localStreamRef.current) {
         localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
@@ -134,10 +145,10 @@ export const useWebRTC = () => {
       // Handle remote stream
       pc.ontrack = (event: any) => {
         console.log('[WebRTC] Received remote track:', event.track?.kind, event.track?.id);
-        
+
         // Get or create remote stream
         let remoteStream = remoteStreamRef.current;
-        
+
         if (!remoteStream && webrtc?.MediaStream) {
           // Create new remote stream if it doesn't exist
           remoteStream = new webrtc.MediaStream();
@@ -149,25 +160,25 @@ export const useWebRTC = () => {
             remoteStreamRef.current = remoteStream;
           }
         }
-        
+
         // Add track to remote stream if we have a stream object
         if (event.track && remoteStream) {
           // Check if track is already in the stream
           const existingTracks = remoteStream.getTracks();
           const trackExists = existingTracks.some((t: MediaStreamTrack) => t.id === event.track.id);
-          
+
           if (!trackExists) {
             console.log('[WebRTC] Adding track to remote stream:', event.track.kind);
             remoteStream.addTrack(event.track);
-            
+
             // Ensure track is enabled
             event.track.enabled = true;
-            
+
             // For audio tracks on native, log to help debug
             if (event.track.kind === 'audio' && Platform.OS !== 'web') {
               console.log('[WebRTC] Audio track added and enabled:', event.track.id, event.track.enabled);
             }
-            
+
             // Add toURL method for native platforms if not present
             if (Platform.OS !== 'web' && !(remoteStream as any).toURL) {
               (remoteStream as any).toURL = () => {
@@ -175,20 +186,20 @@ export const useWebRTC = () => {
                 return (remoteStream as any).id || '';
               };
             }
-            
+
             // Update state with the stream
             setCallState(prev => ({ ...prev, remoteStream: remoteStream as any }));
           }
         } else if (event.streams && event.streams[0]) {
           // Fallback: use the stream from the event
           const stream = event.streams[0];
-          
+
           // Enable all tracks in the stream
           stream.getTracks().forEach((track: MediaStreamTrack) => {
             track.enabled = true;
             console.log('[WebRTC] Enabled remote track:', track.kind, track.id);
           });
-          
+
           // Add toURL method for native platforms if not present
           if (Platform.OS !== 'web' && !(stream as any).toURL) {
             (stream as any).toURL = () => {
@@ -196,7 +207,7 @@ export const useWebRTC = () => {
               return (stream as any).id || '';
             };
           }
-          
+
           remoteStreamRef.current = stream as any;
           setCallState(prev => ({ ...prev, remoteStream: stream as any }));
         }
@@ -220,10 +231,25 @@ export const useWebRTC = () => {
       // Handle connection state changes
       pc.onconnectionstatechange = () => {
         const state = pc.connectionState;
-        console.log('[WebRTC] Connection state:', state);
+        console.log('[WebRTC] Connection state changed:', state);
         if (connectionStateCallbackRef.current) {
           connectionStateCallbackRef.current(state);
         }
+      };
+
+      // Handle signaling state changes
+      pc.onsignalingstatechange = () => {
+        console.log('[WebRTC] Signaling state changed:', pc.signalingState);
+      };
+
+      // Handle ICE connection state changes
+      pc.oniceconnectionstatechange = () => {
+        console.log('[WebRTC] ICE connection state changed:', pc.iceConnectionState);
+      };
+
+      // Handle ICE gathering state changes
+      pc.onicegatheringstatechange = () => {
+        console.log('[WebRTC] ICE gathering state changed:', pc.iceGatheringState);
       };
 
       peerConnectionRef.current = pc;
@@ -321,8 +347,8 @@ export const useWebRTC = () => {
     // Ensure local stream tracks are added to peer connection
     if (localStreamRef.current && peerConnectionRef.current) {
       const existingSenders = peerConnectionRef.current.getSenders();
-      const existingTrackIds = existingSenders.map(s => s.track?.id).filter(Boolean);
-      
+      const existingTrackIds = existingSenders.map((s: any) => s.track?.id).filter(Boolean);
+
       localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
         // Only add track if it's not already added
         if (!existingTrackIds.includes(track.id)) {
@@ -337,7 +363,7 @@ export const useWebRTC = () => {
         offerToReceiveAudio: true,
         offerToReceiveVideo: isVideoCall,
       });
-      
+
       await peerConnectionRef.current!.setLocalDescription(offer);
       console.log('[WebRTC] Created offer:', offer);
       return offer;
@@ -357,8 +383,8 @@ export const useWebRTC = () => {
     // Ensure local stream tracks are added to peer connection
     if (localStreamRef.current && peerConnectionRef.current) {
       const existingSenders = peerConnectionRef.current.getSenders();
-      const existingTrackIds = existingSenders.map(s => s.track?.id).filter(Boolean);
-      
+      const existingTrackIds = existingSenders.map((s: any) => s.track?.id).filter(Boolean);
+
       localStreamRef.current.getTracks().forEach((track: MediaStreamTrack) => {
         // Only add track if it's not already added
         if (!existingTrackIds.includes(track.id)) {
@@ -375,6 +401,25 @@ export const useWebRTC = () => {
     try {
       const sessionDescription = new webrtc.RTCSessionDescription(offer);
       await peerConnectionRef.current!.setRemoteDescription(sessionDescription);
+
+      // Mark remote description as set and flush pending candidates (for Callee)
+      console.log('[WebRTC] Set remote description (offer) in createAnswer');
+      isRemoteDescriptionSetRef.current = true;
+
+      if (pendingCandidatesRef.current.length > 0) {
+        console.log(`[WebRTC] Flushing ${pendingCandidatesRef.current.length} pending ICE candidates in createAnswer`);
+        for (const candidate of pendingCandidatesRef.current) {
+          try {
+            const iceCandidate = new webrtc.RTCIceCandidate(candidate);
+            await peerConnectionRef.current!.addIceCandidate(iceCandidate);
+            console.log('[WebRTC] Added pending ICE candidate');
+          } catch (e) {
+            console.error('[WebRTC] Error adding pending ICE candidate:', e);
+          }
+        }
+        pendingCandidatesRef.current = [];
+      }
+
       const answer = await peerConnectionRef.current!.createAnswer();
       await peerConnectionRef.current!.setLocalDescription(answer);
       console.log('[WebRTC] Created answer:', answer);
@@ -397,6 +442,23 @@ export const useWebRTC = () => {
       const sessionDescription = new webrtc.RTCSessionDescription(answer);
       await peerConnectionRef.current.setRemoteDescription(sessionDescription);
       console.log('[WebRTC] Set remote description (answer)');
+
+      // Mark remote description as set and flush pending candidates
+      isRemoteDescriptionSetRef.current = true;
+
+      if (pendingCandidatesRef.current.length > 0) {
+        console.log(`[WebRTC] Flushing ${pendingCandidatesRef.current.length} pending ICE candidates`);
+        for (const candidate of pendingCandidatesRef.current) {
+          try {
+            const iceCandidate = new webrtc.RTCIceCandidate(candidate);
+            await peerConnectionRef.current.addIceCandidate(iceCandidate);
+            console.log('[WebRTC] Added pending ICE candidate');
+          } catch (e) {
+            console.error('[WebRTC] Error adding pending ICE candidate:', e);
+          }
+        }
+        pendingCandidatesRef.current = [];
+      }
     } catch (error) {
       console.error('[WebRTC] Error setting remote description:', error);
       throw error;
@@ -413,6 +475,17 @@ export const useWebRTC = () => {
       console.warn('[WebRTC] RTCIceCandidate not available');
       return;
     }
+
+    // Buffer candidates if remote description is not set yet
+    // Note: For caller, remote description is set when answer is received
+    // For callee, remote description is set when offer is received (which happens before this is called usually)
+    // But to be safe and handle race conditions, we buffer
+    if (!peerConnectionRef.current.remoteDescription && !isRemoteDescriptionSetRef.current) {
+      console.log('[WebRTC] Buffering ICE candidate (remote description not set)');
+      pendingCandidatesRef.current.push(candidate);
+      return;
+    }
+
     try {
       const iceCandidate = new webrtc.RTCIceCandidate(candidate);
       await peerConnectionRef.current.addIceCandidate(iceCandidate);
@@ -445,7 +518,7 @@ export const useWebRTC = () => {
   // Switch camera
   const switchCamera = useCallback(async () => {
     if (!localStreamRef.current) return;
-    
+
     const videoTrack = localStreamRef.current.getVideoTracks()[0];
     if (videoTrack && 'switchCamera' in videoTrack && typeof (videoTrack as any).switchCamera === 'function') {
       (videoTrack as any).switchCamera();
@@ -455,7 +528,7 @@ export const useWebRTC = () => {
       const newStream = await getLocalStream(true);
       if (newStream && peerConnectionRef.current) {
         // Replace tracks in peer connection
-        const sender = peerConnectionRef.current.getSenders().find((s: any) => 
+        const sender = peerConnectionRef.current.getSenders().find((s: any) =>
           s.track && s.track.kind === 'video'
         );
         if (sender && newStream.getVideoTracks()[0]) {

@@ -77,7 +77,7 @@ export function useSignalRChat({
     if (heartbeatIntervalRef.current) {
       clearInterval(heartbeatIntervalRef.current);
     }
-    
+
     heartbeatIntervalRef.current = setInterval(async () => {
       const connection = connectionRef.current;
       if (connection && connection.state === signalR.HubConnectionState.Connected) {
@@ -113,9 +113,9 @@ export function useSignalRChat({
 
     const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
     console.log(`Reconnecting in ${delay}ms (attempt ${reconnectAttemptsRef.current + 1})`);
-    
+
     setConnectionState('Reconnecting');
-    
+
     reconnectTimeoutRef.current = setTimeout(() => {
       reconnectAttemptsRef.current++;
       if (connectRef.current) {
@@ -166,7 +166,7 @@ export function useSignalRChat({
       // For mobile, try WebSocket first, then fallback to LongPolling
       const preferLongPolling = Platform.OS === 'web';
       console.log('Platform:', Platform.OS, 'Prefer LongPolling:', preferLongPolling);
-      
+
       let connection = new signalR.HubConnectionBuilder()
         .withUrl(hubUrl, {
           accessTokenFactory: () => {
@@ -228,20 +228,20 @@ export function useSignalRChat({
         setConnected(false);
         setConnectionState('Disconnected');
         stopHeartbeat();
-        
-        const isCorsError = error?.message?.includes('access control checks') || 
-                           error?.message?.includes('Load failed') ||
-                           error?.message?.includes('CORS') ||
-                           String(error).includes('access control checks') ||
-                           String(error).includes('Load failed');
-        
+
+        const isCorsError = error?.message?.includes('access control checks') ||
+          error?.message?.includes('Load failed') ||
+          error?.message?.includes('CORS') ||
+          String(error).includes('access control checks') ||
+          String(error).includes('Load failed');
+
         if (isCorsError) {
           console.warn('CORS error detected - backend needs to allow CORS for SignalR endpoint');
           console.warn('Connection will not auto-reconnect until CORS is fixed');
           setConnectionState('CORS Error');
           return;
         }
-        
+
         reconnect();
       });
 
@@ -268,11 +268,11 @@ export function useSignalRChat({
         // If WebSocket/SSE fails (common on iOS device or constrained env), force LongPolling as a fallback
         console.warn('Primary SignalR start failed, retrying with LongPolling...', firstError);
         console.warn('Error details:', firstError?.message, firstError?.response);
-        
+
         // Try alternative hub URLs if /api/chat fails
         let alternativeHubUrl = hubUrl;
         const alternatives: string[] = [];
-        
+
         if (hubUrl.includes('/api/chat')) {
           // Try /chat (without /api prefix) - this is the working endpoint
           alternatives.push(hubUrl.replace('/api/chat', '/chat'));
@@ -290,18 +290,18 @@ export function useSignalRChat({
           // Try /hub
           alternatives.push(hubUrl.replace('/chat', '/hub'));
         }
-        
+
         // Use first alternative
         if (alternatives.length > 0) {
           alternativeHubUrl = alternatives[0];
           console.log('Trying alternative hub URL:', alternativeHubUrl);
           console.log('Other alternatives available:', alternatives.slice(1));
         }
-        
+
         // Try each alternative URL until one works
         let fallbackSucceeded = false;
         const allAlternatives = [alternativeHubUrl, ...alternatives.slice(1)];
-        
+
         for (const altUrl of allAlternatives) {
           try {
             console.log(`Trying hub URL: ${altUrl}`);
@@ -352,19 +352,19 @@ export function useSignalRChat({
               setConnected(false);
               setConnectionState('Disconnected');
               stopHeartbeat();
-              
-              const isCorsError = error?.message?.includes('access control checks') || 
-                                 error?.message?.includes('Load failed') ||
-                                 error?.message?.includes('CORS') ||
-                                 String(error).includes('access control checks') ||
-                                 String(error).includes('Load failed');
-              
+
+              const isCorsError = error?.message?.includes('access control checks') ||
+                error?.message?.includes('Load failed') ||
+                error?.message?.includes('CORS') ||
+                String(error).includes('access control checks') ||
+                String(error).includes('Load failed');
+
               if (isCorsError) {
                 console.warn('CORS error detected (LP) - backend needs to allow CORS');
                 setConnectionState('CORS Error');
                 return;
               }
-              
+
               reconnect();
             });
             connection.onreconnecting((error) => {
@@ -389,9 +389,9 @@ export function useSignalRChat({
           } catch (altError: any) {
             console.warn(`Failed to connect to ${altUrl}:`, altError?.message);
             // Check if it's a CORS error
-            const isCorsError = altError?.message?.includes('access control checks') || 
-                               altError?.message?.includes('Load failed') ||
-                               altError?.message?.includes('CORS');
+            const isCorsError = altError?.message?.includes('access control checks') ||
+              altError?.message?.includes('Load failed') ||
+              altError?.message?.includes('CORS');
             if (isCorsError) {
               console.warn('CORS error on this URL - backend needs CORS configuration');
             }
@@ -399,7 +399,7 @@ export function useSignalRChat({
             continue;
           }
         }
-        
+
         if (!fallbackSucceeded) {
           isConnectingRef.current = false;
           const fallbackError = new Error('All SignalR hub URL alternatives failed');
@@ -415,7 +415,7 @@ export function useSignalRChat({
       console.log('SignalR connected successfully');
       console.log('Connection state:', connection.state);
       console.log('Connection ID:', connection.connectionId);
-      
+
       connectionRef.current = connection;
       setConnected(true);
       setConnectionState('Connected');
@@ -433,11 +433,11 @@ export function useSignalRChat({
       setConnected(false);
       setConnectionState('Failed');
       isConnectingRef.current = false;
-      
+
       // Only reconnect if it's not a CORS error (CORS errors mean backend needs fixing)
-      const isCorsError = error?.message?.includes('access control checks') || 
-                         error?.message?.includes('Load failed') ||
-                         error?.message?.includes('CORS');
+      const isCorsError = error?.message?.includes('access control checks') ||
+        error?.message?.includes('Load failed') ||
+        error?.message?.includes('CORS');
       if (!isCorsError) {
         reconnect();
       } else {
@@ -454,12 +454,12 @@ export function useSignalRChat({
 
   const disconnect = useCallback(async () => {
     stopHeartbeat();
-    
+
     if (reconnectTimeoutRef.current) {
       clearTimeout(reconnectTimeoutRef.current);
       reconnectTimeoutRef.current = null;
     }
-    
+
     if (connectionRef.current) {
       try {
         await connectionRef.current.stop();
@@ -468,7 +468,7 @@ export function useSignalRChat({
       }
       connectionRef.current = null;
     }
-    
+
     setConnected(false);
     setConnectionState('Disconnected');
     reconnectAttemptsRef.current = 0;
@@ -477,7 +477,7 @@ export function useSignalRChat({
   // Send message to user with metadata (matches front-end)
   const sendToUserWithMeta = useCallback(async (userId: string, message: string, replyToMessageId?: string | null, clientMessageId?: string | null) => {
     console.log('[useSignalRChat] sendToUserWithMeta called:', { userId, message: message?.substring(0, 50), replyToMessageId, clientMessageId, connected });
-    
+
     if (!connectionRef.current || !connected) {
       console.error('[useSignalRChat] SignalR not connected. connectionRef.current:', !!connectionRef.current, 'connected:', connected);
       return false;
@@ -572,7 +572,7 @@ export function useSignalRChat({
   const onReceiveActiveUsers = useCallback((handler: (ids: string[]) => void) => {
     if (!connectionRef.current) {
       console.log('No connection available for ReceiveActiveUsers handler');
-      return () => {};
+      return () => { };
     }
     console.log('Registering ReceiveActiveUsers handler');
     // Try both case variations - backend might use different casing
@@ -622,7 +622,7 @@ export function useSignalRChat({
       console.error('SignalR not connected - no connection object');
       return false;
     }
-    
+
     // Check actual connection state, not just the connected flag
     if (connection.state !== signalR.HubConnectionState.Connected) {
       console.error(`SignalR not connected - state: ${connection.state}`);
@@ -636,7 +636,7 @@ export function useSignalRChat({
       }
       return false;
     }
-    
+
     try {
       // First check if user already reacted - this will be handled by the UI
       // The backend ReactToMessage will add the reaction
@@ -696,7 +696,7 @@ export function useSignalRChat({
       console.error('[useSignalRChat] DeleteMessage: connectionRef.current is null');
       return false;
     }
-    
+
     if (connectionRef.current.state !== signalR.HubConnectionState.Connected) {
       console.error(`[useSignalRChat] DeleteMessage: SignalR not connected, state: ${connectionRef.current.state}`);
       // Try to reconnect
@@ -712,7 +712,7 @@ export function useSignalRChat({
         return false;
       }
     }
-    
+
     try {
       console.log('[useSignalRChat] DeleteMessage: Invoking DeleteMessage with messageId:', messageId);
       const result = await connectionRef.current.invoke("DeleteMessage", messageId);
@@ -789,13 +789,13 @@ export function useSignalRChat({
     }
   }, [connected]);
 
-  const endCall = useCallback(async (otherUserId: string, callId: string) => {
+  const endCall = useCallback(async (otherUserId: string, callId: string, duration?: number) => {
     if (!connectionRef.current || !connected) {
       console.error('SignalR not connected');
       return false;
     }
     try {
-      await connectionRef.current.invoke("EndCall", otherUserId, callId);
+      await connectionRef.current.invoke("EndCall", otherUserId, callId, duration);
       return true;
     } catch (error) {
       console.error('Error ending call:', error);

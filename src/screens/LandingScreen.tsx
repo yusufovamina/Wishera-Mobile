@@ -74,6 +74,132 @@ const hexToRgba = (hex: string, opacity: number): string => {
   return hex.includes('rgba') ? hex : `rgba(99, 102, 241, ${opacity})`;
 };
 
+// Animated Button Component with Press Effect
+const AnimatedButton: React.FC<{
+  onPress: () => void;
+  text: string;
+  gradientColors: string[];
+  style?: any;
+}> = ({ onPress, text, gradientColors, style }) => {
+  const scaleAnim = useRef(new Animated.Value(1)).current;
+
+  const handlePressIn = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 0.95,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  const handlePressOut = () => {
+    Animated.spring(scaleAnim, {
+      toValue: 1,
+      friction: 3,
+      tension: 40,
+      useNativeDriver: true,
+    }).start();
+  };
+
+  return (
+    <TouchableOpacity
+      onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
+      activeOpacity={0.9}
+      style={[{ marginTop: 24 }, style]}
+    >
+      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+        <LinearGradient
+          colors={gradientColors}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={{
+            paddingVertical: width < 400 ? 14 : 18,
+            paddingHorizontal: width < 400 ? 32 : 48,
+            borderRadius: width < 400 ? 12 : 16,
+            elevation: 8,
+            shadowColor: gradientColors[0],
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+          }}
+        >
+          <Text
+            style={{
+              color: '#FFFFFF',
+              fontSize: width < 400 ? 16 : 18,
+              fontWeight: '700',
+              textAlign: 'center',
+            }}
+          >
+            {text}
+          </Text>
+        </LinearGradient>
+      </Animated.View>
+    </TouchableOpacity>
+  );
+};
+
+// Particle Background Component
+const ParticleBackground: React.FC = () => {
+  const particles = Array.from({ length: 30 }, (_, i) => ({
+    id: i,
+    size: Math.random() * 3 + 1,
+    x: Math.random() * width,
+    y: Math.random() * height,
+    duration: Math.random() * 10000 + 15000,
+    delay: Math.random() * 5000,
+  }));
+
+  return (
+    <View style={{ position: 'absolute', width, height, pointerEvents: 'none' }}>
+      {particles.map((particle) => {
+        const animatedValue = useRef(new Animated.Value(0)).current;
+
+        useEffect(() => {
+          Animated.loop(
+            Animated.sequence([
+              Animated.delay(particle.delay),
+              Animated.timing(animatedValue, {
+                toValue: 1,
+                duration: particle.duration,
+                easing: Easing.linear,
+                useNativeDriver: true,
+              }),
+            ])
+          ).start();
+        }, []);
+
+        const translateY = animatedValue.interpolate({
+          inputRange: [0, 1],
+          outputRange: [particle.y, -50],
+        });
+
+        const opacity = animatedValue.interpolate({
+          inputRange: [0, 0.1, 0.9, 1],
+          outputRange: [0, 0.6, 0.6, 0],
+        });
+
+        return (
+          <Animated.View
+            key={particle.id}
+            style={{
+              position: 'absolute',
+              left: particle.x,
+              width: particle.size,
+              height: particle.size,
+              borderRadius: particle.size / 2,
+              backgroundColor: '#FFFFFF',
+              opacity,
+              transform: [{ translateY }],
+            }}
+          />
+        );
+      })}
+    </View>
+  );
+};
+
+
 // Enhanced Icon Component with Gradient and Glow
 const GradientIcon: React.FC<{
   name: keyof typeof Ionicons.glyphMap;
@@ -122,16 +248,16 @@ const GradientIcon: React.FC<{
 
   const scale = pulse.interpolate({
     inputRange: [0, 1],
-    outputRange: [1, 1.08],
+    outputRange: [1, 1.03],
   });
 
   const glowOpacity = glow.interpolate({
     inputRange: [0, 1],
-    outputRange: [0.4, 0.8],
+    outputRange: [0.2, 0.4],
   });
 
-  const iconSize = size * 1.8;
-  const borderRadius = size * 0.9;
+  const iconSize = size * 1.5;
+  const borderRadius = size * 0.75;
 
   return (
     <View style={[{ alignItems: 'center', justifyContent: 'center' }, style]}>
@@ -140,13 +266,12 @@ const GradientIcon: React.FC<{
         style={[
           {
             position: 'absolute',
-            width: iconSize * 1.3,
-            height: iconSize * 1.3,
-            borderRadius: borderRadius * 1.3,
+            width: iconSize * 1.2,
+            height: iconSize * 1.2,
+            borderRadius: borderRadius * 1.2,
             backgroundColor: gradientColors[0],
             opacity: glowOpacity,
-            boxShadow: `0 0 20px 0 ${gradientColors[0]}`,
-            elevation: 10,
+            elevation: 8,
           },
         ]}
       />
@@ -162,8 +287,11 @@ const GradientIcon: React.FC<{
             borderRadius: borderRadius,
             justifyContent: 'center',
             alignItems: 'center',
-            boxShadow: `0 8px 16px 0 ${hexToRgba(gradientColors[0], 0.4)}`,
-            elevation: 15,
+            elevation: 12,
+            shadowColor: gradientColors[0],
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
           }}
         >
           <Ionicons name={name} size={size} color="#FFFFFF" />
@@ -306,33 +434,22 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
             end={{ x: 1, y: 1 }}
             style={styles.giftCard}
           >
-            <View style={{ marginBottom: width < 400 ? 16 : 24 }}>
+            <View style={{ marginBottom: width < 400 ? 12 : 16 }}>
               <GradientIcon
                 name="gift"
-                size={width < 400 ? 50 : width < 600 ? 60 : 70}
-                gradientColors={['rgba(255, 255, 255, 0.95)', 'rgba(255, 255, 255, 0.85)']}
+                size={width < 400 ? 32 : 40}
+                gradientColors={['#FFD700', '#FFA500']}
               />
             </View>
             <Text style={styles.cardTitle}>{t('landing.cardTitle', 'Your Wishlist')}</Text>
             <Text style={styles.cardSubtitle}>
               {t('landing.cardSubtitle', 'Share your dreams with loved ones')}
             </Text>
-            <TouchableOpacity
-            onPress={() => navigation.navigate('Login')}
-            activeOpacity={0.9}
-            style={styles.buttonContainer}
-          >
-            <LinearGradient
-              colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.button}
-            >
-              <Text style={styles.buttonText}>
-                {t('landing.getStarted', 'Get Started')}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
+            <AnimatedButton
+              onPress={() => navigation.navigate('Login')}
+              text={t('landing.getStarted', 'Get Started')}
+              gradientColors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
+            />
 
           </LinearGradient>
         </View>
@@ -349,7 +466,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
           {t('landing.featuresSubtitle', 'Everything you need to manage your wishlists')}
         </Text>
         <Carousel autoPlay={true} autoPlayInterval={4000} showDots={true}>
-          <View style={styles.featureCardCarousel}>
+          <View style={[styles.featureCardCarousel, styles.glassCard]}>
             <GradientIcon
               name="checkmark-circle"
               size={width < 400 ? 42 : 50}
@@ -360,7 +477,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
               {t('landing.featureEasyDesc', 'Intuitive interface for creating wishlists')}
             </Text>
           </View>
-          <View style={styles.featureCardCarousel}>
+          <View style={[styles.featureCardCarousel, styles.glassCard]}>
             <GradientIcon
               name="lock-closed"
               size={width < 400 ? 42 : 50}
@@ -373,7 +490,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
               {t('landing.featureSecureDesc', 'Control your privacy settings')}
             </Text>
           </View>
-          <View style={styles.featureCardCarousel}>
+          <View style={[styles.featureCardCarousel, styles.glassCard]}>
             <GradientIcon
               name="share-social"
               size={width < 400 ? 42 : 50}
@@ -594,7 +711,7 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
   return (
     <View style={styles.container}>
       <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
-      
+
       <View style={[styles.blobContainer, { pointerEvents: 'none' }]}>
         <Animated.View
           style={[
@@ -631,6 +748,9 @@ export const LandingScreen: React.FC<any> = ({ navigation }) => {
           ]}
         />
       </View>
+
+      {/* Particle Background */}
+      <ParticleBackground />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
@@ -757,7 +877,7 @@ const createStyles = () =>
     glassCard: {
       borderRadius: width < 400 ? 16 : 24,
       overflow: 'hidden',
-      boxShadow: width < 400 
+      boxShadow: width < 400
         ? `0 6px 12px 0 rgba(99, 102, 241, 0.3)`
         : `0 12px 20px 0 rgba(99, 102, 241, 0.3)`,
       elevation: width < 400 ? 10 : 16,
