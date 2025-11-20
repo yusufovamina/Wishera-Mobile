@@ -12,6 +12,7 @@ import { useVoiceRecorder } from '../hooks/useVoiceRecorder';
 import { useChatNotifications } from '../hooks/useChatNotifications';
 import { VoiceMessagePlayer } from '../components/VoiceMessagePlayer';
 import { SafeImage } from '../components/SafeImage';
+import { MessageBubble } from '../components/MessageBubble';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -2149,19 +2150,25 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const handleContactSelect = async (contact: ChatContact) => {
-    setSelectedContact(contact);
-    setShowContacts(false);
+    console.log('[ChatScreen] Contact selected:', contact.name);
 
+    // IMPORTANT: Set conversation ID and selected contact FIRST before fetching
     const conversationId = getConversationId(contact.id);
     setCurrentConversationId(conversationId);
+    setSelectedContact(contact);
+    setShowContacts(false);
 
     // Optimistically set unread count to 0 in UI
     setContacts(prev => prev.map(c =>
       c.id === contact.id ? { ...c, unreadCount: 0 } : c
     ));
 
-    // Fetch messages and get them directly
+    // Fetch messages - this will update the conversations state
+    console.log('[ChatScreen] Fetching messages for conversation:', conversationId);
     const fetchedMessages = await fetchMessages(contact.id);
+    console.log('[ChatScreen] Fetched', fetchedMessages?.length || 0, 'messages');
+
+    // Load wallpaper
     await loadWallpaper(contact.id);
 
     // Mark unread messages as read immediately after fetching
@@ -2918,7 +2925,6 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
 
     try {
-      // Check if user already reacted to this message with this emoji
       const message = currentMessages.find(m => m.id === messageId);
       const hasReacted = message?.reactions?.[emoji]?.includes(user.id);
 
@@ -2931,12 +2937,10 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       });
 
       if (hasReacted) {
-        // Remove reaction
         console.log('[ChatScreen] Removing reaction');
         const result = await unreactToMessage(messageId, emoji);
         console.log('[ChatScreen] Unreact result:', result);
       } else {
-        // Add reaction
         console.log('[ChatScreen] Adding reaction');
         const result = await reactToMessage(messageId, emoji);
         console.log('[ChatScreen] React result:', result);
@@ -2947,6 +2951,33 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
     setEmojiMenuForId(null);
   };
+
+  const handleDoubleTapLike = async (messageId: string) => {
+    if (!user?.id) return;
+
+    const likeEmoji = '❤️';
+    const message = currentMessages.find(m => m.id === messageId);
+    const hasLiked = message?.reactions?.[likeEmoji]?.includes(user.id);
+
+    try {
+      if (hasLiked) {
+        await unreactToMessage(messageId, likeEmoji);
+      } else {
+        await reactToMessage(messageId, likeEmoji);
+      }
+    } catch (error) {
+      console.error('[ChatScreen] Failed to toggle like:', error);
+    }
+  };
+
+  const handleSwipeReply = (message: ChatMessage) => {
+    setReplyTo(message);
+  };
+
+  const handleLongPressReaction = (messageId: string) => {
+    console.log('[ChatScreen] Long press detected on message:', messageId);
+  };
+
 
   // Handler for deleting messages - delete immediately without confirmation (like web)
   const handleDeleteMessage = async (messageId: string) => {
@@ -3359,7 +3390,6 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isOwnMessage = item.userId === user?.id || item.senderId === user?.id;
 
-    // Render call history messages
     if (item.messageType === 'call') {
       const callType = (item as any).callType || 'audio';
       const callStatus = (item as any).callStatus || 'ended';
@@ -3374,13 +3404,13 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       if (callStatus === 'answered' || callStatus === 'ended') {
         const durationText = callDuration > 0 ? ` (${formatCallDuration(callDuration)})` : '';
         statusText = isOwnMessage ? `Outgoing ${callType} call${durationText}` : `Incoming ${callType} call${durationText}`;
-        statusColor = '#34c759'; // Green for successful calls
+        statusColor = '#34c759';
       } else if (callStatus === 'rejected') {
         statusText = isOwnMessage ? 'Call declined' : 'Declined call';
-        statusColor = '#ff3b30'; // Red for rejected
+        statusColor = '#ff3b30';
       } else if (callStatus === 'missed') {
         statusText = 'Missed call';
-        statusColor = '#ff3b30'; // Red for missed
+        statusColor = '#ff3b30';
       }
 
       return (
@@ -3390,279 +3420,37 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             <Text style={[styles.callMessageText, { color: statusColor }]}>{statusText}</Text>
           </View>
           <Text style={styles.callMessageTime}>
-            {new Date(item.sentAt || item.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {new Date(item.sentAt || item.createdAt || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>
       );
     }
 
-    // Regular message rendering continues below...
-    const repliedToMessage = item.replyToMessageId && currentMessages.find(m => m.id === item.replyToMessageId);
-
-    // Debug logging for video detection
-    if (item.messageType === 'video' || (item.text && (looksLikeVideoUrl(item.text) || isYouTubeUrl(item.text)))) {
-      console.log('[ChatScreen] Rendering video message:', {
-        id: item.id,
-        messageType: item.messageType,
-        text: item.text?.substring(0, 50),
-        videoUrl: item.videoUrl,
-        isYouTube: isYouTubeUrl(item.text || ''),
-        looksLikeVideo: looksLikeVideoUrl(item.text || ''),
-      });
-    }
+    const repliedToMessage = item.replyToMessageId ? currentMessages.find(m => m.id === item.replyToMessageId) || null : null;
 
     return (
-      <View style={[styles.messageContainer, isOwnMessage && styles.ownMessageContainer]}>
-        <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble]}>
-          {/* Reply preview */}
-          {repliedToMessage && (
-            <ReplyPreviewContent message={repliedToMessage} isOwnMessage={isOwnMessage} />
-          )}
-
-          {/* Message content */}
-          {item.messageType === 'voice' && item.audioUrl ? (
-            <VoiceMessagePlayer
-              audioUrl={item.audioUrl}
-              duration={item.audioDuration || 0}
-              isOwnMessage={isOwnMessage}
-            />
-          ) : item.messageType === 'video' || (item.text && (looksLikeVideoUrl(item.text) || isYouTubeUrl(item.text))) ? (
-            // Check for videos FIRST (before images) to prevent videos from being shown as images
-            <View style={styles.messageVideoContainer}>
-              {isYouTubeUrl(item.text) ? (
-                <TouchableOpacity
-                  onPress={() => {
-                    if (item.text) Linking.openURL(item.text);
-                  }}
-                  activeOpacity={0.9}
-                  style={styles.youtubeContainer}
-                >
-                  <SafeImage
-                    source={{ uri: getYouTubeThumbnail(item.text) || '' }}
-                    style={styles.youtubeThumbnail}
-                    resizeMode="cover"
-                    placeholder="▶"
-                    fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=YouTube`}
-                  />
-                  <View style={styles.youtubeOverlay}>
-                    <View style={styles.youtubePlayButton}>
-                      <Text style={styles.youtubePlayIcon}>▶</Text>
-                    </View>
-                    <Text style={styles.youtubeText}>YouTube</Text>
-                  </View>
-                </TouchableOpacity>
-              ) : (
-                <VideoPlayerComponent videoUrl={item.videoUrl || item.text || ''} messageId={item.id} />
-              )}
-            </View>
-          ) : item.messageType === 'image' || (item.text && looksLikeImageUrl(item.text)) ? (
-            <TouchableOpacity
-              style={styles.messageImageContainer}
-              onPress={() => {
-                const imageUrl = item.imageUrl || item.text;
-                if (imageUrl) {
-                  setEnlargedImage(imageUrl);
-                }
-              }}
-              activeOpacity={0.9}
-            >
-              <SafeImage
-                source={{ uri: item.imageUrl || item.text }}
-                style={styles.messageImage}
-                resizeMode="cover"
-                placeholder=""
-                fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
-              />
-            </TouchableOpacity>
-          ) : (
-            <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText]}>
-              {item.text}
-            </Text>
-          )}
-
-          {/* Reactions */}
-          {item.reactions && Object.keys(item.reactions).length > 0 && (
-            <View style={styles.reactionsContainer}>
-              {Object.entries(item.reactions).map(([emoji, userIds]) => {
-                if (userIds.length === 0) return null;
-                return (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={[styles.reactionBadge, isOwnMessage && styles.ownReactionBadge]}
-                    onPress={() => {
-                      const hasReacted = userIds.includes(user?.id || '');
-                      if (hasReacted) {
-                        reactToMessage(item.id, emoji); // This will toggle it off
-                      } else {
-                        handleReactToMessage(item.id, emoji);
-                      }
-                    }}
-                  >
-                    <Text style={styles.reactionEmoji}>{emoji}</Text>
-                    <Text style={[styles.reactionCount, isOwnMessage && styles.ownReactionCount]}>
-                      {userIds.length}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-
-          {/* Message time - Telegram style */}
-          <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime]}>
-            {(() => {
-              try {
-                const timestamp = item.sentAt || item.createdAt;
-                if (!timestamp) {
-                  return '';
-                }
-
-                if (typeof timestamp === 'string' && (timestamp.includes('0001-01-01') || timestamp.trim() === '')) {
-                  return '';
-                }
-
-                let date: Date;
-                if (typeof timestamp === 'string') {
-                  // Ensure UTC timestamps are properly parsed
-                  // If timestamp doesn't have timezone indicator, assume it's UTC if it looks like ISO format
-                  let timestampToParse = timestamp;
-                  if (timestamp.includes('T') && !timestamp.includes('Z') && !timestamp.match(/[+-]\d{2}:\d{2}$/)) {
-                    // ISO format without timezone - assume UTC and append Z
-                    timestampToParse = timestamp + 'Z';
-                  }
-                  date = new Date(timestampToParse);
-                  if (isNaN(date.getTime())) {
-                    const num = parseInt(timestamp, 10);
-                    if (!isNaN(num) && num > 0) {
-                      date = new Date(num);
-                    } else {
-                      return '';
-                    }
-                  }
-                } else if (typeof timestamp === 'number') {
-                  if (timestamp <= 0) return '';
-                  date = new Date(timestamp);
-                } else {
-                  date = new Date(timestamp);
-                }
-
-                if (isNaN(date.getTime()) || date.getTime() <= 0) {
-                  return '';
-                }
-
-                const year = date.getFullYear();
-                if (year < 2000 || year > 2100) {
-                  return '';
-                }
-
-                // Use local time methods which automatically convert from UTC
-                const now = new Date();
-                const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                const messageDate = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-                const diffMs = today.getTime() - messageDate.getTime();
-                const diffDays = Math.floor(diffMs / 86400000);
-
-                // getHours() and getMinutes() automatically return local time
-                const hours = date.getHours();
-                const minutes = date.getMinutes();
-                const timeStr = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}`;
-
-                if (diffDays === 0) {
-                  return timeStr;
-                }
-
-                if (diffDays === 1) {
-                  return `Yesterday ${timeStr}`;
-                }
-
-                if (diffDays < 7) {
-                  const dayName = date.toLocaleDateString('en-US', { weekday: 'short' });
-                  return `${dayName} ${timeStr}`;
-                }
-
-                const day = date.getDate();
-                const month = date.toLocaleDateString('en-US', { month: 'short' });
-                return `${day} ${month} ${timeStr}`;
-              } catch (error) {
-                console.error('[ChatScreen] Error formatting message time:', error, 'timestamp:', item.sentAt || item.createdAt);
-                return '';
-              }
-            })()}
-          </Text>
-
-          {/* Action buttons - always visible for easier access */}
-          <View style={styles.messageActions}>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => {
-                console.log('[ChatScreen] Emoji button pressed for message:', item.id);
-                setEmojiMenuForId(emojiMenuForId === item.id ? null : item.id);
-              }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <EmojiIcon size={20} color={colors.text} />
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={styles.actionButton}
-              onPress={() => setReplyTo(item)}
-            >
-              <ReplyIcon size={18} color={colors.text} />
-            </TouchableOpacity>
-            {isOwnMessage && (
-              <>
-                {/* Only allow editing text messages, not images, videos, or voice messages */}
-                {item.messageType !== 'image' &&
-                  item.messageType !== 'video' &&
-                  item.messageType !== 'voice' &&
-                  !(item.text && (looksLikeImageUrl(item.text) || looksLikeVideoUrl(item.text) || isYouTubeUrl(item.text))) && (
-                    <TouchableOpacity
-                      style={styles.actionButton}
-                      onPress={() => {
-                        setEditingId(item.id);
-                        setInputText(item.text);
-                      }}
-                    >
-                      <EditIcon size={18} color={colors.text} />
-                    </TouchableOpacity>
-                  )}
-                <TouchableOpacity
-                  style={styles.actionButton}
-                  onPress={() => {
-                    console.log('[ChatScreen] Delete button pressed for message:', item.id);
-                    handleDeleteMessage(item.id);
-                  }}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  activeOpacity={0.7}
-                >
-                  <DeleteIcon size={18} color={colors.text} />
-                </TouchableOpacity>
-              </>
-            )}
-          </View>
-
-          {/* Emoji picker menu */}
-          {emojiMenuForId === item.id && (
-            <View style={[styles.emojiPicker, isOwnMessage && styles.ownEmojiPicker]}>
-              {REACTIONS.map(emoji => {
-                const hasReacted = item.reactions?.[emoji]?.includes(user?.id || '');
-                return (
-                  <TouchableOpacity
-                    key={emoji}
-                    style={[styles.emojiButton, hasReacted && styles.emojiButtonActive]}
-                    onPress={() => {
-                      console.log('[ChatScreen] Emoji selected:', emoji, 'for message:', item.id);
-                      handleReactToMessage(item.id, emoji);
-                    }}
-                    hitSlop={{ top: 5, bottom: 5, left: 5, right: 5 }}
-                  >
-                    <Text style={styles.emojiButtonText}>{emoji}</Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-          )}
-        </View>
-      </View>
+      <MessageBubble
+        message={item}
+        isOwnMessage={isOwnMessage}
+        currentUserId={user?.id || ''}
+        repliedToMessage={repliedToMessage}
+        onDoubleTap={handleDoubleTapLike}
+        onSwipeReply={handleSwipeReply}
+        onLongPress={handleLongPressReaction}
+        onReactionPress={handleReactToMessage}
+        onImagePress={setEnlargedImage}
+        onVideoPress={setEnlargedVideo}
+        renderReplyPreview={(message, isOwn) => (
+          <ReplyPreviewContent message={message} isOwnMessage={isOwn} />
+        )}
+        renderVideoPlayer={(videoUrl, messageId) => (
+          <VideoPlayerComponent videoUrl={videoUrl} messageId={messageId} />
+        )}
+        looksLikeImageUrl={looksLikeImageUrl}
+        looksLikeVideoUrl={looksLikeVideoUrl}
+        isYouTubeUrl={isYouTubeUrl}
+        getYouTubeThumbnail={getYouTubeThumbnail}
+      />
     );
   };
 
