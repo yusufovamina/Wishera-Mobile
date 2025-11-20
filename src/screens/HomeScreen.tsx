@@ -915,14 +915,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           </TouchableOpacity>
         </View>
 
-        {/* Birthday Countdown Banner */}
-        {showBirthdayNotification && (
-          <BirthdayCountdownBanner 
-            onClose={() => setShowBirthdayNotification(false)}
-            onUserPress={(userId) => navigation.navigate('UserProfile', { userId })}
-          />
-        )}
-
         {/* Search bar */}
         <View style={styles.searchContainer}>
           <View style={styles.searchBar}>
@@ -1057,7 +1049,18 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             onRefresh={onRefresh} 
           />
         }
-        ListHeaderComponent={Header}
+        ListHeaderComponent={() => (
+          <>
+            {Header}
+            {/* Birthday Countdown Banner - only show on Home tab */}
+            {activeTab === 'home' && showBirthdayNotification && (
+              <BirthdayCountdownBanner 
+                onClose={() => setShowBirthdayNotification(false)}
+                onUserPress={(userId) => navigation.navigate('UserProfile', { userId })}
+              />
+            )}
+          </>
+        )}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           loading && getCurrentData().length === 0 ? (

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Animated, ActivityIndicator, PanResponder, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -7,6 +7,9 @@ import { usePreferences } from '../state/preferences';
 import { userApi, endpoints } from '../api/client';
 import { SafeImage } from './SafeImage';
 import { GiftIcon, CalendarIcon, EyeIcon, CloseIcon } from './Icon';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const SWIPE_THRESHOLD = 100;
 
 interface BirthdayReminderDTO {
   id: string;
@@ -33,6 +36,53 @@ export const BirthdayCountdownBanner: React.FC<BirthdayCountdownBannerProps> = (
   const [error, setError] = useState<string | null>(null);
   const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(-20)).current;
+  const [dismissedBanners, setDismissedBanners] = useState<Set<string>>(new Set());
+  const swipeAnimations = useRef<Record<string, Animated.Value>>({});
+
+  const getSwipeAnimation = (bannerId: string) => {
+    if (!swipeAnimations.current[bannerId]) {
+      swipeAnimations.current[bannerId] = new Animated.Value(0);
+    }
+    return swipeAnimations.current[bannerId];
+  };
+
+  const createPanResponder = (bannerId: string) => {
+    const swipeX = getSwipeAnimation(bannerId);
+    
+    return PanResponder.create({
+      onStartShouldSetPanResponder: () => false,
+      onMoveShouldSetPanResponder: (_, gestureState) => {
+        // Only respond to horizontal swipes
+        return Math.abs(gestureState.dx) > Math.abs(gestureState.dy) && Math.abs(gestureState.dx) > 10;
+      },
+      onPanResponderMove: (_, gestureState) => {
+        // Only allow swiping left (negative dx)
+        if (gestureState.dx < 0) {
+          swipeX.setValue(gestureState.dx);
+        }
+      },
+      onPanResponderRelease: (_, gestureState) => {
+        if (gestureState.dx < -SWIPE_THRESHOLD) {
+          // Swiped left enough, dismiss
+          Animated.timing(swipeX, {
+            toValue: -SCREEN_WIDTH,
+            duration: 200,
+            useNativeDriver: true,
+          }).start(() => {
+            handleDismissBanner(bannerId);
+          });
+        } else {
+          // Spring back
+          Animated.spring(swipeX, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 100,
+            friction: 8,
+          }).start();
+        }
+      },
+    });
+  };
 
   useEffect(() => {
     fetchBirthdays();
@@ -168,29 +218,55 @@ export const BirthdayCountdownBanner: React.FC<BirthdayCountdownBannerProps> = (
     );
   }
 
-  if (birthdays.length === 0) {
+  const handleDismissBanner = (birthdayId: string) => {
+    setDismissedBanners(prev => new Set(prev).add(birthdayId));
+    // If all banners are dismissed, call onClose
+    const remainingBanners = birthdays.filter(b => !dismissedBanners.has(`${b.userId}-${b.birthday}`));
+    if (remainingBanners.length <= 1) {
+      onClose();
+    }
+  };
+
+  const visibleBirthdays = birthdays.filter(b => !dismissedBanners.has(`${b.userId}-${b.birthday}`));
+
+  if (visibleBirthdays.length === 0) {
     return null;
   }
 
   return (
     <View style={styles.container}>
-      {birthdays.map((birthday, index) => {
+      {visibleBirthdays.map((birthday, index) => {
         const bannerColors = getBannerColor(birthday);
         const borderColor = getBorderColor(birthday);
         const progress = Math.max(0, (30 - birthday.daysUntilBirthday) / 30 * 100);
+        const bannerId = `${birthday.userId}-${birthday.birthday}`;
+        
+        const swipeX = getSwipeAnimation(bannerId);
+        const panResponder = createPanResponder(bannerId);
         
         return (
           <Animated.View
-            key={`${birthday.userId}-${birthday.birthday}-${index}`}
+            key={bannerId}
             style={[
               styles.banner,
               {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideAnim }],
+                opacity: Animated.multiply(
+                  fadeAnim,
+                  swipeX.interpolate({
+                    inputRange: [-SCREEN_WIDTH, 0],
+                    outputRange: [0, 1],
+                    extrapolate: 'clamp',
+                  })
+                ),
+                transform: [
+                  { translateY: slideAnim },
+                  { translateX: swipeX },
+                ],
                 borderLeftColor: borderColor,
                 borderLeftWidth: 4,
               },
             ]}
+            {...panResponder.panHandlers}
           >
             <LinearGradient
               colors={theme === 'dark' ? [bannerColors[0] + '40', bannerColors[1] + '40'] : bannerColors}
@@ -239,7 +315,16 @@ export const BirthdayCountdownBanner: React.FC<BirthdayCountdownBannerProps> = (
                 </View>
                 
                 <TouchableOpacity
-                  onPress={onClose}
+                  onPress={() => {
+                    const swipeX = getSwipeAnimation(bannerId);
+                    Animated.timing(swipeX, {
+                      toValue: -SCREEN_WIDTH,
+                      duration: 200,
+                      useNativeDriver: true,
+                    }).start(() => {
+                      handleDismissBanner(bannerId);
+                    });
+                  }}
                   style={styles.closeButton}
                 >
                   <CloseIcon size={16} color={colors.textSecondary} />

@@ -118,6 +118,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const [error, setError] = useState<string | null>(null);
   const [selectedContact, setSelectedContact] = useState<ChatContact | null>(null);
   const [showContacts, setShowContacts] = useState(true);
+  const [shouldScrollToEnd, setShouldScrollToEnd] = useState<string | null>(null);
   const [contacts, setContacts] = useState<ChatContact[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<any[]>([]);
@@ -129,6 +130,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const { updateContactUnreadCount } = useChatNotifications();
   const flatListRef = useRef<FlatList>(null);
   const restoredOnceRef = useRef(false);
+  const lastConversationIdRef = useRef<string | null>(null);
+  const hasScrolledToEndRef = useRef<Record<string, boolean>>({});
 
   // Get current conversation messages (exactly like front-end)
   const currentMessages = currentConversationId ? conversations[currentConversationId] || [] : [];
@@ -178,7 +181,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     });
   };
 
-  const updateConversationMessages = (conversationId: string, messages: ChatMessage[]) => {
+  const updateConversationMessages = (conversationId: string, messages: ChatMessage[], triggerScroll: boolean = false) => {
     setConversations(prev => {
       const sorted = [...messages].sort((a, b) => {
         const timeA = new Date(a.sentAt || a.createdAt).getTime();
@@ -191,6 +194,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         [conversationId]: sorted
       };
     });
+    
+    // Trigger scroll after state update if this is the current conversation
+    if (triggerScroll && conversationId === currentConversationId && messages.length > 0) {
+      // Use a flag to trigger scroll after render
+      setShouldScrollToEnd(conversationId);
+    }
   };
 
   // Helper functions to detect image/video URLs (matching web frontend)
@@ -1091,12 +1100,95 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
   // Auto-scroll to bottom when messages are loaded or updated
   useEffect(() => {
-    if (currentMessages.length > 0) {
-      setTimeout(() => {
-        flatListRef.current?.scrollToEnd({ animated: false });
-      }, 100);
+    if (currentMessages.length > 0 && currentConversationId) {
+      // Check if this is a new conversation (first time loading)
+      const isNewConversation = lastConversationIdRef.current !== currentConversationId;
+      lastConversationIdRef.current = currentConversationId;
+      
+      // Use multiple attempts with increasing delays to ensure scroll works
+      // This handles cases where FlatList might not be fully rendered yet
+      // For new conversations, use more attempts and longer delays
+      const attemptScroll = (attempt: number = 0) => {
+        const maxAttempts = isNewConversation ? 5 : 3;
+        if (attempt > maxAttempts) return;
+        
+        const delay = isNewConversation 
+          ? (attempt === 0 ? 300 : attempt * 200) // Longer delays for first load
+          : (attempt === 0 ? 100 : attempt * 200);
+        
+        setTimeout(() => {
+          if (flatListRef.current) {
+            try {
+              flatListRef.current.scrollToEnd({ animated: attempt > 0 && !isNewConversation });
+              if (isNewConversation) {
+                hasScrolledToEndRef.current[currentConversationId] = true;
+              }
+            } catch (error) {
+              // If scroll fails, try again with longer delay
+              if (attempt < maxAttempts) {
+                attemptScroll(attempt + 1);
+              }
+            }
+          } else if (attempt < maxAttempts) {
+            // FlatList not ready yet, try again
+            attemptScroll(attempt + 1);
+          }
+        }, delay);
+      };
+      
+      attemptScroll();
     }
-  }, [currentMessages.length, selectedContact?.id]);
+  }, [currentMessages.length, currentConversationId, selectedContact?.id, shouldScrollToEnd]);
+
+  // Handle scroll trigger from message updates - this is the main scroll mechanism for first load
+  useEffect(() => {
+    if (shouldScrollToEnd && shouldScrollToEnd === currentConversationId && currentMessages.length > 0) {
+      // Use multiple requestAnimationFrame calls to ensure we're after all renders
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const scrollToBottom = (attempt: number = 0) => {
+              if (attempt > 15) {
+                // Give up after 15 attempts
+                setShouldScrollToEnd(null);
+                hasScrolledToEndRef.current[currentConversationId] = true;
+                return;
+              }
+              
+              const delay = attempt === 0 ? 200 : attempt < 5 ? attempt * 150 : attempt * 100;
+              
+              setTimeout(() => {
+                if (flatListRef.current) {
+                  try {
+                    // Force scroll to end without animation for first load
+                    flatListRef.current.scrollToEnd({ animated: false });
+                    // Verify it worked by checking if we can scroll more (if not, we're at the end)
+                    setShouldScrollToEnd(null);
+                    hasScrolledToEndRef.current[currentConversationId] = true;
+                  } catch (error) {
+                    console.log('[ChatScreen] Scroll attempt', attempt, 'failed, retrying...');
+                    if (attempt < 15) {
+                      scrollToBottom(attempt + 1);
+                    } else {
+                      setShouldScrollToEnd(null);
+                    }
+                  }
+                } else {
+                  // FlatList not ready, try again
+                  if (attempt < 15) {
+                    scrollToBottom(attempt + 1);
+                  } else {
+                    setShouldScrollToEnd(null);
+                  }
+                }
+              }, delay);
+            };
+            scrollToBottom();
+          });
+        });
+      });
+    }
+  }, [shouldScrollToEnd, currentConversationId, currentMessages.length]);
 
   const stopCallDurationTimer = () => {
     if (callDurationIntervalRef.current) {
@@ -1895,7 +1987,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
       // Update conversation messages (conversationId was already computed at the start of the function)
       console.log('[ChatScreen] 📥 Received', messagesData.length, 'messages from API for conversation:', conversationId);
-      updateConversationMessages(conversationId, messagesData);
+      // Trigger scroll for initial load
+      updateConversationMessages(conversationId, messagesData, true);
       console.log('[ChatScreen] ✅ Updated conversation:', conversationId, 'with', messagesData.length, 'messages');
 
       // Verify voice messages are in the conversation
@@ -2154,6 +2247,11 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
     // IMPORTANT: Set conversation ID and selected contact FIRST before fetching
     const conversationId = getConversationId(contact.id);
+    
+    // Reset scroll tracking for this conversation to ensure we scroll on first load
+    hasScrolledToEndRef.current[conversationId] = false;
+    setShouldScrollToEnd(null); // Clear any pending scroll
+    
     setCurrentConversationId(conversationId);
     setSelectedContact(contact);
     setShowContacts(false);
@@ -2167,6 +2265,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     console.log('[ChatScreen] Fetching messages for conversation:', conversationId);
     const fetchedMessages = await fetchMessages(contact.id);
     console.log('[ChatScreen] Fetched', fetchedMessages?.length || 0, 'messages');
+
+    // The scroll will be triggered by the updateConversationMessages call with triggerScroll=true
+    // No need for additional scroll logic here as it's handled by the useEffect
 
     // Load wallpaper
     await loadWallpaper(contact.id);
@@ -3677,7 +3778,49 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           renderItem={renderMessage}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
-          onContentSizeChange={() => flatListRef.current?.scrollToEnd({ animated: true })}
+          onContentSizeChange={() => {
+            // Always scroll to end when content size changes, especially on initial load
+            if (currentConversationId && currentMessages.length > 0) {
+              // Check if we should scroll (either triggered or haven't scrolled yet)
+              const shouldScroll = shouldScrollToEnd === currentConversationId || 
+                                 !hasScrolledToEndRef.current[currentConversationId];
+              
+              if (shouldScroll) {
+                // Use requestAnimationFrame to ensure layout is complete
+                requestAnimationFrame(() => {
+                  setTimeout(() => {
+                    flatListRef.current?.scrollToEnd({ animated: hasScrolledToEndRef.current[currentConversationId] });
+                    hasScrolledToEndRef.current[currentConversationId] = true;
+                    if (shouldScrollToEnd === currentConversationId) {
+                      setShouldScrollToEnd(null);
+                    }
+                  }, 50);
+                });
+              }
+            }
+          }}
+          onLayout={() => {
+            // Also scroll on layout to catch initial render
+            if (currentConversationId && currentMessages.length > 0) {
+              const shouldScroll = shouldScrollToEnd === currentConversationId || 
+                                 !hasScrolledToEndRef.current[currentConversationId];
+              
+              if (shouldScroll) {
+                // For initial load, wait longer and don't animate
+                requestAnimationFrame(() => {
+                  requestAnimationFrame(() => {
+                    setTimeout(() => {
+                      flatListRef.current?.scrollToEnd({ animated: hasScrolledToEndRef.current[currentConversationId] });
+                      hasScrolledToEndRef.current[currentConversationId] = true;
+                      if (shouldScrollToEnd === currentConversationId) {
+                        setShouldScrollToEnd(null);
+                      }
+                    }, 100);
+                  });
+                });
+              }
+            }
+          }}
           ListFooterComponent={
             isTyping ? (
               <View style={styles.typingIndicator}>
@@ -4517,18 +4660,24 @@ const createStyles = () => StyleSheet.create({
   },
   inputWrapper: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
+    alignItems: 'center',
     backgroundColor: colors.muted,
     borderRadius: 24,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    minHeight: 48,
+    gap: 8,
   },
   messageInput: {
     flex: 1,
     fontSize: 16,
     color: colors.text,
     maxHeight: 100,
-    paddingVertical: 8,
+    paddingTop: 10,
+    paddingBottom: 6,
+    paddingHorizontal: 8,
+    textAlignVertical: 'top',
+    marginHorizontal: 4,
   },
   sendButton: {
     marginLeft: 8,
@@ -5428,7 +5577,6 @@ const createStyles = () => StyleSheet.create({
     backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: 8,
   },
   recordButtonText: {
     fontSize: 20,
@@ -5468,7 +5616,10 @@ const createStyles = () => StyleSheet.create({
   },
   attachButtonContainer: {
     position: 'relative',
-    marginRight: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 36,
+    height: 36,
   },
   attachButton: {
     width: 36,
