@@ -9,7 +9,8 @@ import {
     Dimensions,
     Platform,
 } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, darkColors, lightColors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 import { SafeImage } from './SafeImage';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -80,6 +81,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     isYouTubeUrl,
     getYouTubeThumbnail,
 }) => {
+    const { theme } = usePreferences();
+    const themeColors = theme === 'dark' ? darkColors : lightColors;
+    const styles = React.useMemo(() => createStyles(theme, themeColors), [theme, themeColors]);
     const [lastTap, setLastTap] = useState<number>(0);
     const [showReactionMenu, setShowReactionMenu] = useState(false);
 
@@ -226,7 +230,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         }
 
         return (
-            <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText]}>
+            <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText, !isOwnMessage && theme === 'dark' && styles.darkMessageText]}>
                 {message.text}
             </Text>
         );
@@ -263,7 +267,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 onPressOut={handleLongPressOut}
                 style={styles.touchableWrapper}
             >
-                <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble]}>
+                <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble, !isOwnMessage && theme === 'dark' && styles.darkMessageBubble]}>
                     {repliedToMessage && renderReplyPreview?.(repliedToMessage, isOwnMessage)}
 
                     {renderMessageContent()}
@@ -279,7 +283,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                                         onPress={() => onReactionPress(message.id, emoji)}
                                     >
                                         <Text style={styles.reactionEmoji}>{emoji}</Text>
-                                        <Text style={[styles.reactionCount, isOwnMessage && styles.ownReactionCount]}>
+                                        <Text style={[styles.reactionCount, isOwnMessage && styles.ownReactionCount, !isOwnMessage && theme === 'dark' && styles.darkReactionCount]}>
                                             {userIds.length}
                                         </Text>
                                     </TouchableOpacity>
@@ -288,7 +292,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                         </View>
                     )}
 
-                    <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime]}>
+                    <Text style={[styles.messageTime, isOwnMessage && styles.ownMessageTime, !isOwnMessage && theme === 'dark' && styles.darkMessageTime]}>
                         {formatTime(message.sentAt || message.createdAt)}
                     </Text>
                 </View>
@@ -348,7 +352,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     );
 };
 
-const styles = StyleSheet.create({
+const createStyles = (theme: string, themeColors: typeof lightColors) => StyleSheet.create({
     messageContainer: {
         marginVertical: 4,
         marginHorizontal: 12,
@@ -361,7 +365,7 @@ const styles = StyleSheet.create({
         maxWidth: '80%',
     },
     messageBubble: {
-        backgroundColor: colors.surface,
+        backgroundColor: themeColors.surface,
         borderRadius: 16,
         padding: 12,
         maxWidth: '100%',
@@ -371,22 +375,31 @@ const styles = StyleSheet.create({
         shadowRadius: 2,
         elevation: 2,
     },
+    darkMessageBubble: {
+        backgroundColor: theme === 'dark' ? themeColors.muted : undefined,
+    },
     ownMessageBubble: {
-        backgroundColor: colors.primary,
+        backgroundColor: themeColors.primary,
     },
     messageText: {
         fontSize: 16,
-        color: colors.text,
+        color: themeColors.text,
         lineHeight: 22,
+    },
+    darkMessageText: {
+        color: '#FFFFFF',
     },
     ownMessageText: {
         color: '#FFFFFF',
     },
     messageTime: {
         fontSize: 11,
-        color: colors.textSecondary,
+        color: themeColors.textSecondary,
         marginTop: 4,
         alignSelf: 'flex-end',
+    },
+    darkMessageTime: {
+        color: 'rgba(255, 255, 255, 0.7)',
     },
     ownMessageTime: {
         color: 'rgba(255, 255, 255, 0.7)',
@@ -423,8 +436,11 @@ const styles = StyleSheet.create({
     },
     reactionCount: {
         fontSize: 12,
-        color: colors.text,
+        color: themeColors.text,
         fontWeight: '600',
+    },
+    darkReactionCount: {
+        color: '#FFFFFF',
     },
     ownReactionCount: {
         color: '#FFFFFF',
@@ -455,8 +471,9 @@ const styles = StyleSheet.create({
     reactionMenu: {
         position: 'absolute',
         flexDirection: 'row',
-        backgroundColor: '#FFFFFF',
-        borderRadius: 30,
+        flexWrap: 'wrap',
+        backgroundColor: theme === 'dark' ? themeColors.muted : '#FFFFFF',
+        borderRadius: 20,
         paddingHorizontal: 8,
         paddingVertical: 8,
         shadowColor: '#000',
@@ -467,7 +484,9 @@ const styles = StyleSheet.create({
         gap: 4,
         top: -60,
         borderWidth: 1,
-        borderColor: 'rgba(0, 0, 0, 0.1)',
+        borderColor: theme === 'dark' ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        width: 200,
+        justifyContent: 'flex-start',
     },
     reactionMenuLeft: {
         left: 0,
@@ -476,11 +495,11 @@ const styles = StyleSheet.create({
         right: 0,
     },
     reactionMenuItem: {
-        width: 44,
-        height: 44,
+        width: 40,
+        height: 40,
         justifyContent: 'center',
         alignItems: 'center',
-        borderRadius: 22,
+        borderRadius: 20,
     },
     reactionMenuEmoji: {
         fontSize: 28,

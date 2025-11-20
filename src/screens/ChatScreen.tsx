@@ -65,7 +65,7 @@ interface ChatMessage {
 export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
-  const styles = React.useMemo(() => createStyles(), [theme]);
+  const styles = React.useMemo(() => createStyles(theme), [theme]);
 
   // Animated recording waveform component (needs access to styles)
   const AnimatedRecordingWaveform: React.FC<{ isRecording: boolean }> = ({ isRecording }) => {
@@ -861,7 +861,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           />
         ) : null}
         <Text style={styles.activeCallSubtitle}>
-          {stream ? 'Video stream active' : placeholderName}
+          {stream ? t('chat.video', 'Video') : placeholderName}
         </Text>
       </View>
     );
@@ -927,7 +927,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     // Fallback placeholder
     return (
       <View style={styles.localVideoContainer}>
-        <Text style={styles.activeCallSubtitle}>Local video</Text>
+        <Text style={styles.activeCallSubtitle}>{t('chat.video', 'Video')}</Text>
       </View>
     );
   };
@@ -3007,7 +3007,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         const result = await sendToUserWithMeta(targetId, newMessage.text, replyTo?.id ?? undefined, id);
         console.log('[ChatScreen] sendToUserWithMeta result:', result);
         if (!result) {
-          setError('Failed to send message. Please try again.');
+          setError(t('chat.failedToSend', 'Failed to send message. Please try again.'));
         }
       } else {
         console.error('[ChatScreen] Invalid target user id:', targetId);
@@ -3048,7 +3048,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       }
     } catch (error) {
       console.error('[ChatScreen] Failed to react to message:', error);
-      setError('Failed to react to message. Please try again.');
+      setError(t('chat.failedToReact', 'Failed to react to message. Please try again.'));
     }
     setEmojiMenuForId(null);
   };
@@ -3135,12 +3135,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         console.error('[ChatScreen] HTTP error details:', httpError?.response?.data || httpError?.message);
         console.error('[ChatScreen] HTTP error status:', httpError?.response?.status);
         // Message was already removed from local state, so just show a warning
-        Alert.alert('Warning', 'Message was removed locally but may not have been deleted on the server. Please check your connection and try again.');
+        Alert.alert(t('chat.warning', 'Warning'), t('chat.messageRemovedLocally', 'Message was removed locally but may not have been deleted on the server. Please check your connection and try again.'));
       }
     } catch (error: any) {
       console.error('[ChatScreen] Failed to delete message:', error);
       console.error('[ChatScreen] Error stack:', error?.stack);
-      Alert.alert('Error', 'Failed to delete message. Please try again.');
+      Alert.alert(t('common.error', 'Error'), t('chat.failedToDelete', 'Failed to delete message. Please try again.'));
     }
   };
 
@@ -3189,14 +3189,14 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
       // Today - show time
       if (diffDays === 0) {
-        if (diffMins < 1) return "Just now";
+        if (diffMins < 1) return t('chat.justNow', 'Just now');
         if (diffMins < 60) return `${diffMins}m`;
         return `${diffHours}h`;
       }
 
       // Yesterday
       if (diffDays === 1) {
-        return "Yesterday";
+        return t('chat.yesterday', 'Yesterday');
       }
 
       // This week - show day name
@@ -3274,9 +3274,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               <Text style={styles.replyPreviewVideoPlayIconText}>▶</Text>
             </View>
           </View>
-          <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
-            {message.text && !looksLikeVideoUrl(message.text) ? message.text : 'Video'}
-          </Text>
+              <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
+                {message.text && !looksLikeVideoUrl(message.text) ? message.text : t('chat.video', 'Video')}
+              </Text>
         </View>
       </View>
     );
@@ -3306,7 +3306,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           </View>
         </View>
         <Text style={styles.replyPreviewText} numberOfLines={1}>
-          {message.text && !looksLikeVideoUrl(message.text) ? message.text : 'Video'}
+          {message.text && !looksLikeVideoUrl(message.text) ? message.text : t('chat.video', 'Video')}
         </Text>
       </View>
     );
@@ -3332,7 +3332,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
             />
             <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
-              {message.text && !looksLikeImageUrl(message.text) ? message.text : 'Photo'}
+              {message.text && !looksLikeImageUrl(message.text) ? message.text : t('chat.photo', 'Photo')}
             </Text>
           </View>
         </View>
@@ -3361,7 +3361,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 </View>
               </View>
               <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
-                {message.text && !isYouTubeUrl(message.text) ? message.text : 'Video'}
+                {message.text && !isYouTubeUrl(message.text) ? message.text : t('chat.video', 'Video')}
               </Text>
             </View>
           </View>
@@ -3384,7 +3384,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       <View style={[styles.replyPreview, compact && styles.replyPreviewCompact]}>
         <View style={[styles.replyLine, isOwnMessage && styles.ownReplyLine]} />
         <Text style={[styles.replyText, isOwnMessage && styles.ownReplyText]} numberOfLines={1}>
-          {message.messageType === 'voice' ? 'Voice message' : (message.text || 'Message')}
+          {message.messageType === 'voice' ? t('chat.voiceMessage', 'Voice message') : (message.text || t('chat.message', 'Message'))}
         </Text>
       </View>
     );
@@ -3623,9 +3623,6 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           >
             <PaletteIcon size={20} color={colors.text} />
           </TouchableOpacity>
-          <TouchableOpacity style={styles.moreButton}>
-            <MoreIcon size={20} color={colors.text} />
-          </TouchableOpacity>
         </View>
       </View>
 
@@ -3639,10 +3636,10 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 style={styles.incomingCallAvatar}
               />
               <Text style={styles.incomingCallSubtitle}>
-                {contacts.find(c => c.id === incomingCall.callerUserId)?.name || 'Unknown'}
+                {contacts.find(c => c.id === incomingCall.callerUserId)?.name || t('chat.unknown', 'Unknown')}
               </Text>
               <Text style={styles.incomingCallTitle}>
-                {incomingCall.callType === 'video' ? 'Video Call' : 'Audio Call'}
+                {incomingCall.callType === 'video' ? t('chat.videoCall', 'Video Call') : t('chat.audioCall', 'Audio Call')}
               </Text>
             </View>
             <View style={styles.incomingCallButtons}>
@@ -3688,7 +3685,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               {/* Call controls overlay */}
               <View style={styles.videoCallControls}>
                 <Text style={styles.callDurationText}>
-                  {callDuration > 0 ? formatCallDuration(callDuration) : 'Connecting...'}
+                  {callDuration > 0 ? formatCallDuration(callDuration) : t('chat.connecting', 'Connecting...')}
                 </Text>
                 <View style={styles.callControlButtons}>
                   <TouchableOpacity
@@ -3729,7 +3726,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   style={styles.activeCallAvatar}
                 />
                 <Text style={styles.activeCallSubtitle}>
-                  {contacts.find(c => c.id === activeCall.otherUserId)?.name || 'Unknown'}
+                  {contacts.find(c => c.id === activeCall.otherUserId)?.name || t('chat.unknown', 'Unknown')}
                 </Text>
               </View>
               {callDuration > 0 ? (
@@ -3738,7 +3735,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                 </Text>
               ) : (
                 <View style={styles.connectingContainer}>
-                  <Text style={styles.callStatusText}>Connecting...</Text>
+                  <Text style={styles.callStatusText}>{t('chat.connecting', 'Connecting...')}</Text>
                 </View>
               )}
               <View style={styles.activeCallButtons}>
@@ -3753,7 +3750,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   onPress={handleEndCall}
                 >
                   <CloseIcon size={24} color="white" />
-                  <Text style={styles.callActionButtonText}>End</Text>
+                  <Text style={styles.callActionButtonText}>{t('chat.end', 'End')}</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -3825,7 +3822,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             isTyping ? (
               <View style={styles.typingIndicator}>
                 <Text style={styles.typingText}>
-                  {selectedContact?.name} is typing...
+                  {t('chat.typing', '{{name}} is typing...', { name: selectedContact?.name || '' })}
                 </Text>
               </View>
             ) : null
@@ -3838,7 +3835,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         <View style={styles.wallpaperModalOverlay}>
           <View style={styles.wallpaperModal}>
             <View style={styles.wallpaperModalHeader}>
-              <Text style={styles.wallpaperModalTitle}>Choose Background</Text>
+              <Text style={styles.wallpaperModalTitle}>{t('chat.chooseBackground', 'Choose Background')}</Text>
               <TouchableOpacity
                 style={styles.wallpaperModalClose}
                 onPress={() => {
@@ -3855,7 +3852,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
             {/* Opacity Control */}
             <View style={styles.opacityControl}>
-              <Text style={styles.opacityLabel}>Opacity: {Math.round(wallpaperOpacity * 100)}%</Text>
+              <Text style={styles.opacityLabel}>{t('chat.opacity', 'Opacity: {{percent}}%', { percent: Math.round(wallpaperOpacity * 100) })}</Text>
               <View style={styles.opacityButtons}>
                 {[0, 25, 50, 75, 100].map(opacity => (
                   <TouchableOpacity
@@ -3883,7 +3880,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               onPress={() => setShowCustomWallpaperUpload(!showCustomWallpaperUpload)}
             >
               <Text style={styles.uploadWallpaperButtonText}>
-                {showCustomWallpaperUpload ? 'Hide Upload' : 'Upload Your Own'}
+                {showCustomWallpaperUpload ? t('chat.hideUpload', 'Hide Upload') : t('chat.uploadYourOwn', 'Upload Your Own')}
               </Text>
             </TouchableOpacity>
 
@@ -4076,7 +4073,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                         fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=Image`}
                       />
                       <Text style={styles.replyPreviewText} numberOfLines={1}>
-                        {replyTo.text && !looksLikeImageUrl(replyTo.text) ? replyTo.text : 'Photo'}
+                        {replyTo.text && !looksLikeImageUrl(replyTo.text) ? replyTo.text : t('chat.photo', 'Photo')}
                       </Text>
                     </View>
                   );
@@ -4101,7 +4098,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                           </View>
                         </View>
                         <Text style={styles.replyPreviewText} numberOfLines={1}>
-                          {replyTo.text && !isYouTubeUrl(replyTo.text) ? replyTo.text : 'Video'}
+                          {replyTo.text && !isYouTubeUrl(replyTo.text) ? replyTo.text : t('chat.video', 'Video')}
                         </Text>
                       </View>
                     );
@@ -4115,7 +4112,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
                 return (
                   <Text style={styles.replyPreviewText} numberOfLines={1}>
-                    {replyTo.messageType === 'voice' ? 'Voice message' : (replyTo.text || 'Message')}
+                    {replyTo.messageType === 'voice' ? t('chat.voiceMessage', 'Voice message') : (replyTo.text || t('chat.message', 'Message'))}
                   </Text>
                 );
               })()}
@@ -4140,7 +4137,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               setInputText("");
             }}
           >
-            <Text style={styles.editIndicatorCancel}>Cancel</Text>
+            <Text style={styles.editIndicatorCancel}>{t('common.cancel', 'Cancel')}</Text>
           </TouchableOpacity>
         </View>
       )}
@@ -4321,7 +4318,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const createStyles = () => StyleSheet.create({
+const createStyles = (theme: 'light' | 'dark') => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -4478,19 +4475,10 @@ const createStyles = () => StyleSheet.create({
   callButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: colors.primary,
     marginRight: 4,
   },
   callButtonText: {
     fontSize: 18,
-  },
-  moreButton: {
-    padding: 4,
-  },
-  moreButtonText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.textSecondary,
   },
 
   // Messages styles
@@ -5276,7 +5264,6 @@ const createStyles = () => StyleSheet.create({
   wallpaperButton: {
     padding: 8,
     borderRadius: 20,
-    backgroundColor: colors.primary,
     marginRight: 4,
   },
 
@@ -5574,7 +5561,6 @@ const createStyles = () => StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -5625,14 +5611,13 @@ const createStyles = () => StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   attachButtonText: {
     fontSize: 24,
-    color: 'white',
     fontWeight: '600',
+    color: colors.text,
   },
   attachMenu: {
     position: 'absolute',

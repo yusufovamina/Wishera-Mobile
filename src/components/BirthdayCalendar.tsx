@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator } from 'react-native';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
@@ -138,6 +140,10 @@ export const BirthdayCalendar: React.FC = () => {
     return `${monthNames[monthIndex]} ${year}`;
   };
 
+  // Animation values for smooth swipe
+  const translateX = useSharedValue(0);
+  const opacity = useSharedValue(1);
+
   const navigateMonth = (direction: 'prev' | 'next') => {
     setCurrentDate(prev => {
       const newDate = new Date(prev);
@@ -148,7 +154,65 @@ export const BirthdayCalendar: React.FC = () => {
       }
       return newDate;
     });
+    // Reset animation values after navigation
+    translateX.value = 0;
+    opacity.value = 1;
   };
+
+  // Smooth swipe gesture for month navigation
+  const swipeGesture = Gesture.Pan()
+    .onUpdate((event) => {
+      // Update position during drag for smooth visual feedback
+      translateX.value = event.translationX;
+      // Fade effect during swipe (subtle)
+      opacity.value = 1 - Math.abs(event.translationX) / 300;
+    })
+    .onEnd((event) => {
+      const { translationX: tx, velocityX } = event;
+      const swipeThreshold = 50;
+      const velocityThreshold = 500;
+
+      if (Math.abs(tx) > swipeThreshold || Math.abs(velocityX) > velocityThreshold) {
+        const direction = tx > 0 || velocityX > 0 ? 'prev' : 'next';
+        
+        // Animate out smoothly
+        translateX.value = withTiming(direction === 'prev' ? 200 : -200, { 
+          duration: 200 
+        });
+        opacity.value = withTiming(0, { duration: 200 }, () => {
+          // Change month
+          runOnJS(navigateMonth)(direction);
+          // Reset and animate in from opposite side
+          translateX.value = direction === 'prev' ? -200 : 200;
+          translateX.value = withSpring(0, {
+            damping: 20,
+            stiffness: 300,
+          });
+          opacity.value = withSpring(1, {
+            damping: 20,
+            stiffness: 300,
+          });
+        });
+      } else {
+        // Spring back smoothly if swipe wasn't strong enough
+        translateX.value = withSpring(0, {
+          damping: 20,
+          stiffness: 300,
+        });
+        opacity.value = withSpring(1, {
+          damping: 20,
+          stiffness: 300,
+        });
+      }
+    });
+
+  // Animated styles for smooth transitions
+  const animatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: translateX.value }],
+      opacity: opacity.value,
+    };
+  });
 
   const isToday = (date: Date) => {
     const today = new Date();
@@ -179,33 +243,26 @@ export const BirthdayCalendar: React.FC = () => {
   }
 
   return (
-    <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerTitle}>
-          <CalendarIcon size={18} color={colors.text} />
-          <Text style={styles.headerText}>{t('calendar.title', undefined, 'Birthday Calendar')}</Text>
-        </View>
-        <View style={styles.headerActions}>
-          <TouchableOpacity onPress={loadBirthdays} style={styles.iconButton}>
-            <RefreshIcon size={16} color={colors.text} />
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigateMonth('prev')} style={styles.iconButton}>
-            <Text style={styles.iconText}>‹</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={() => navigateMonth('next')} style={styles.iconButton}>
-            <Text style={styles.iconText}>›</Text>
+    <GestureDetector gesture={swipeGesture}>
+      <Animated.View style={[styles.container, animatedStyle]}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View style={styles.headerTitle}>
+            <CalendarIcon size={18} color={colors.text} />
+            <Text style={styles.headerText}>{t('calendar.title', undefined, 'Birthday Calendar')}</Text>
+          </View>
+          <TouchableOpacity onPress={loadBirthdays} style={styles.refreshButton}>
+            <RefreshIcon size={18} color={colors.text} />
           </TouchableOpacity>
         </View>
-      </View>
 
-      {/* Month/Year */}
-      <View style={styles.monthYearContainer}>
-        <Text style={styles.monthYearText}>{formatDate(currentDate)}</Text>
-      </View>
+        {/* Month/Year */}
+        <View style={styles.monthYearContainer}>
+          <Text style={styles.monthYearText}>{formatDate(currentDate)}</Text>
+        </View>
 
-      {/* Calendar Grid */}
-      <View style={styles.calendarGrid}>
+        {/* Calendar Grid */}
+        <View style={styles.calendarGrid}>
         {/* Day Headers */}
         {dayNames.map(day => (
           <View key={day} style={styles.dayHeader}>
@@ -331,7 +388,8 @@ export const BirthdayCalendar: React.FC = () => {
         </Text>
         <Text style={styles.statsValue}>{birthdays.length}</Text>
       </View>
-    </View>
+      </Animated.View>
+    </GestureDetector>
   );
 };
 
@@ -370,16 +428,12 @@ const createStyles = (theme: string) => StyleSheet.create({
     fontWeight: '600',
     color: colors.text,
   },
-  headerActions: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  iconButton: {
-    width: 32,
-    height: 32,
+  refreshButton: {
+    width: 36,
+    height: 36,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: 8,
+    borderRadius: 18,
     backgroundColor: colors.muted,
   },
   monthYearContainer: {

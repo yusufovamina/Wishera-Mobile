@@ -1,12 +1,16 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, lightColors, darkColors } from '../theme/colors';
 import { endpoints, userApi } from '../api/client';
+import { usePreferences } from '../state/preferences';
 
 type UserItem = { id: string; username: string; avatarUrl?: string | null };
 
 export const FollowingScreen: React.FC<any> = ({ route }) => {
   const { userId } = route.params as { userId: string };
+  const { theme } = usePreferences();
+  const themeColors = useMemo(() => theme === 'dark' ? darkColors : lightColors, [theme]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [loading, setLoading] = useState(true);
   const [users, setUsers] = useState<UserItem[]>([]);
 
@@ -27,7 +31,7 @@ export const FollowingScreen: React.FC<any> = ({ route }) => {
   return (
     <View style={styles.container}>
       {loading ? (
-        <ActivityIndicator color={colors.primary} style={{ marginTop: 24 }} />
+        <ActivityIndicator color={themeColors.primary} style={{ marginTop: 24 }} />
       ) : (
         <FlatList
           data={users}
@@ -46,12 +50,15 @@ export const FollowingScreen: React.FC<any> = ({ route }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  row: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.surface, padding: 12, borderRadius: 12 },
-  avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: colors.muted },
-  username: { color: colors.text, fontSize: 16, fontWeight: '600' },
-  sep: { height: 12 },
-});
+const createStyles = (theme: string) => {
+  const themeColors = theme === 'dark' ? darkColors : lightColors;
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: themeColors.background },
+    row: { flexDirection: 'row', alignItems: 'center', backgroundColor: themeColors.surface, padding: 12, borderRadius: 12 },
+    avatar: { width: 40, height: 40, borderRadius: 20, marginRight: 12, backgroundColor: themeColors.muted },
+    username: { color: themeColors.text, fontSize: 16, fontWeight: '600' },
+    sep: { height: 12 },
+  });
+};
 
 

@@ -1,12 +1,15 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, lightColors, darkColors } from '../theme/colors';
 import { endpoints, wishlistApi } from '../api/client';
+import { usePreferences } from '../state/preferences';
 
 type WishlistFeedItem = { id: string; title: string; description?: string | null };
 
 export const UserWishlistsScreen: React.FC<any> = ({ route, navigation }) => {
   const { userId } = route.params as { userId: string };
+  const { theme } = usePreferences();
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<WishlistFeedItem[]>([]);
 
@@ -44,11 +47,14 @@ export const UserWishlistsScreen: React.FC<any> = ({ route, navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 12 },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  desc: { color: colors.textSecondary, fontSize: 14 },
-});
+const createStyles = (theme: string) => {
+  const themeColors = theme === 'dark' ? darkColors : lightColors;
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: themeColors.background },
+    card: { backgroundColor: themeColors.surface, borderRadius: 12, padding: 12 },
+    title: { color: themeColors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+    desc: { color: themeColors.textSecondary, fontSize: 14 },
+  });
+};
 
 

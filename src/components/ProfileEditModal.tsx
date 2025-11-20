@@ -1,7 +1,10 @@
-import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image, Alert } from 'react-native';
+import React, { useEffect, useState, useMemo } from 'react';
+import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView, Image, Alert, ActivityIndicator, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors } from '../theme/colors';
+import * as ImagePicker from 'expo-image-picker';
+import { colors, lightColors, darkColors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
+import { userApi, endpoints } from '../api/client';
 
 interface ProfileEditModalProps {
   visible: boolean;
@@ -9,6 +12,7 @@ interface ProfileEditModalProps {
   onSubmit: (data: Partial<ProfileData>) => Promise<void>;
   loading?: boolean;
   profile?: ProfileData | null;
+  onAvatarUpdate?: (avatarUrl: string) => void;
 }
 
 interface ProfileData {
@@ -32,7 +36,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   onSubmit,
   loading = false,
   profile = null,
+  onAvatarUpdate,
 }) => {
+  const { theme } = usePreferences();
+  const themeColors = useMemo(() => theme === 'dark' ? darkColors : lightColors, [theme]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [formData, setFormData] = useState<ProfileData>({
     username: profile?.username || '',
     bio: profile?.bio || '',
@@ -43,6 +51,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   });
   const [errors, setErrors] = useState<Partial<ProfileData>>({});
   const [interestInput, setInterestInput] = useState('');
+  const [avatarUploading, setAvatarUploading] = useState(false);
 
   const validateForm = () => {
     const newErrors: Partial<ProfileData> = {};
@@ -122,6 +131,86 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
     }
   };
 
+  const pickAndUploadAvatar = async () => {
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (permission.status !== 'granted') {
+        Alert.alert('Permission required', 'Please allow access to your photos to update avatar.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({ 
+        mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+        allowsEditing: true, 
+        quality: 0.8, 
+        aspect: [1, 1] 
+      });
+      if (result.canceled) return;
+      const asset = result.assets[0];
+      if (!asset?.uri) return;
+
+      setAvatarUploading(true);
+      const form = new FormData();
+      
+      // For web platform, we need to fetch the file and create a Blob
+      if (Platform.OS === 'web') {
+        try {
+          const response = await fetch(asset.uri);
+          const blob = await response.blob();
+          form.append('file', blob, 'avatar.jpg');
+        } catch (error) {
+          console.log('Error creating blob from URI:', error);
+          // Fallback: try to use the URI directly if it's already a blob URL
+          const file = asset as any;
+          if (file.file) {
+            form.append('file', file.file, 'avatar.jpg');
+          } else {
+            throw new Error('Unable to create file for upload');
+          }
+        }
+      } else {
+        // For mobile platforms
+        form.append('file', {
+          uri: asset.uri,
+          name: 'avatar.jpg',
+          type: 'image/jpeg',
+        } as any);
+      }
+      
+      const res = await userApi.post(endpoints.uploadAvatar, form, {
+        headers: Platform.OS === 'web' 
+          ? {} // Let browser set Content-Type with boundary for web
+          : { 'Content-Type': 'multipart/form-data' },
+      });
+      console.log('Avatar upload response:', res.data);
+      const newUrl = res.data?.avatarUrl || res.data?.url || res.data?.data?.avatarUrl || res.data?.data?.url || asset.uri;
+      console.log('Setting avatar URL to:', newUrl);
+      
+      // Update form data
+      setFormData(prev => {
+        const updated = { ...prev, avatarUrl: newUrl };
+        console.log('Updated formData:', updated);
+        return updated;
+      });
+      
+      // Immediately update profile if callback provided
+      if (onAvatarUpdate) {
+        onAvatarUpdate(newUrl);
+      }
+      
+      // Also save immediately to update profile
+      try {
+        await onSubmit({ avatarUrl: newUrl });
+      } catch (e) {
+        console.log('Error saving avatar URL:', e);
+      }
+    } catch (e) {
+      console.log('Avatar upload failed:', e);
+      Alert.alert('Upload failed', 'Could not upload avatar. Please try again.');
+    } finally {
+      setAvatarUploading(false);
+    }
+  };
+
   return (
     <Modal
       visible={visible}
@@ -148,7 +237,11 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
           <View style={styles.avatarSection}>
             <View style={styles.avatarContainer}>
               {formData.avatarUrl ? (
-                <Image source={{ uri: formData.avatarUrl }} style={styles.avatar} />
+                <Image 
+                  source={{ uri: formData.avatarUrl }} 
+                  style={styles.avatar}
+                  key={formData.avatarUrl}
+                />
               ) : (
                 <View style={styles.avatarPlaceholder}>
                   <Text style={styles.avatarPlaceholderText}>
@@ -157,8 +250,18 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
                 </View>
               )}
             </View>
-            <TouchableOpacity style={styles.editAvatarButton}>
-              <Text style={styles.editAvatarText}>Edit Avatar</Text>
+            <TouchableOpacity 
+              style={styles.editAvatarButton} 
+              onPress={pickAndUploadAvatar}
+              disabled={avatarUploading}
+            >
+              {avatarUploading ? (
+                <View>
+                  <ActivityIndicator size="small" color={themeColors.primary} />
+                </View>
+              ) : (
+                <Text style={styles.editAvatarText}>Edit Avatar</Text>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -168,7 +271,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             <TextInput
               style={[styles.input, errors.username && styles.inputError]}
               placeholder="Enter username"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={themeColors.textMuted}
               value={formData.username}
               onChangeText={(text) => setFormData(prev => ({ ...prev, username: text }))}
               autoCapitalize="none"
@@ -183,7 +286,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             <TextInput
               style={[styles.input, styles.textArea]}
               placeholder="Tell us about yourself..."
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={themeColors.textMuted}
               value={formData.bio}
               onChangeText={(text) => setFormData(prev => ({ ...prev, bio: text }))}
               multiline
@@ -215,7 +318,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
               <TextInput
                 style={styles.interestInput}
                 placeholder="Add interest..."
-                placeholderTextColor={colors.textMuted}
+                placeholderTextColor={themeColors.textMuted}
                 value={interestInput}
                 onChangeText={setInterestInput}
                 onSubmitEditing={addInterest}
@@ -247,7 +350,7 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
             <TextInput
               style={styles.input}
               placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={themeColors.textMuted}
               value={formData.birthday}
               onChangeText={(text) => setFormData(prev => ({ ...prev, birthday: text }))}
             />
@@ -284,221 +387,224 @@ export const ProfileEditModal: React.FC<ProfileEditModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  saveButton: {
-    padding: 8,
-  },
-  saveButtonText: {
-    fontSize: 16,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  saveButtonDisabled: {
-    color: colors.textMuted,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  avatarSection: {
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  avatarContainer: {
-    marginBottom: 12,
-  },
-  avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.muted,
-  },
-  avatarPlaceholder: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  avatarPlaceholderText: {
-    fontSize: 32,
-    fontWeight: '700',
-    color: 'white',
-  },
-  editAvatarButton: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.muted,
-  },
-  editAvatarText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.primary,
-  },
-  inputGroup: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  inputError: {
-    borderColor: colors.danger,
-  },
-  textArea: {
-    height: 100,
-  },
-  errorText: {
-    fontSize: 14,
-    color: colors.danger,
-    marginTop: 4,
-  },
-  interestsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginBottom: 12,
-  },
-  interestChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: colors.primary,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-    gap: 6,
-  },
-  interestChipText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: 'white',
-  },
-  interestRemove: {
-    fontSize: 16,
-    fontWeight: '700',
-    color: 'white',
-  },
-  addInterestContainer: {
-    flexDirection: 'row',
-    gap: 8,
-    marginBottom: 12,
-  },
-  interestInput: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  addInterestButton: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    borderRadius: 12,
-    justifyContent: 'center',
-  },
-  addInterestButtonText: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: 'white',
-  },
-  suggestedLabel: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: colors.textSecondary,
-    marginBottom: 8,
-  },
-  suggestedInterests: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  suggestedInterest: {
-    backgroundColor: colors.muted,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 16,
-  },
-  suggestedInterestText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textSecondary,
-  },
-  privacyContainer: {
-    marginTop: 8,
-  },
-  privacyOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  radioButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.border,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  radioButtonSelected: {
-    borderColor: colors.primary,
-  },
-  radioButtonInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  privacyText: {
-    fontSize: 16,
-    color: colors.text,
-    flex: 1,
-  },
-});
+const createStyles = (theme: string) => {
+  const themeColors = theme === 'dark' ? darkColors : lightColors;
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: themeColors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: themeColors.border,
+    },
+    closeButton: {
+      padding: 8,
+    },
+    closeButtonText: {
+      fontSize: 16,
+      color: themeColors.textSecondary,
+      fontWeight: '500',
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: themeColors.text,
+    },
+    saveButton: {
+      padding: 8,
+    },
+    saveButtonText: {
+      fontSize: 16,
+      color: themeColors.primary,
+      fontWeight: '600',
+    },
+    saveButtonDisabled: {
+      color: themeColors.textMuted,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+    },
+    avatarSection: {
+      alignItems: 'center',
+      marginBottom: 24,
+    },
+    avatarContainer: {
+      marginBottom: 12,
+    },
+    avatar: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: themeColors.muted,
+    },
+    avatarPlaceholder: {
+      width: 80,
+      height: 80,
+      borderRadius: 40,
+      backgroundColor: themeColors.primary,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    avatarPlaceholderText: {
+      fontSize: 32,
+      fontWeight: '700',
+      color: 'white',
+    },
+    editAvatarButton: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      backgroundColor: themeColors.muted,
+    },
+    editAvatarText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: themeColors.primary,
+    },
+    inputGroup: {
+      marginBottom: 24,
+    },
+    label: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: themeColors.text,
+      marginBottom: 8,
+    },
+    input: {
+      backgroundColor: themeColors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: themeColors.text,
+      borderWidth: 2,
+      borderColor: themeColors.border,
+    },
+    inputError: {
+      borderColor: themeColors.danger,
+    },
+    textArea: {
+      height: 100,
+    },
+    errorText: {
+      fontSize: 14,
+      color: themeColors.danger,
+      marginTop: 4,
+    },
+    interestsContainer: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: 12,
+    },
+    interestChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: themeColors.primary,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+      gap: 6,
+    },
+    interestChipText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: 'white',
+    },
+    interestRemove: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: 'white',
+    },
+    addInterestContainer: {
+      flexDirection: 'row',
+      gap: 8,
+      marginBottom: 12,
+    },
+    interestInput: {
+      flex: 1,
+      backgroundColor: themeColors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: themeColors.text,
+      borderWidth: 2,
+      borderColor: themeColors.border,
+    },
+    addInterestButton: {
+      backgroundColor: themeColors.primary,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      borderRadius: 12,
+      justifyContent: 'center',
+    },
+    addInterestButtonText: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: 'white',
+    },
+    suggestedLabel: {
+      fontSize: 14,
+      fontWeight: '600',
+      color: themeColors.textSecondary,
+      marginBottom: 8,
+    },
+    suggestedInterests: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+    },
+    suggestedInterest: {
+      backgroundColor: themeColors.muted,
+      paddingHorizontal: 12,
+      paddingVertical: 6,
+      borderRadius: 16,
+    },
+    suggestedInterestText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: themeColors.textSecondary,
+    },
+    privacyContainer: {
+      marginTop: 8,
+    },
+    privacyOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    radioButton: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: themeColors.border,
+      marginRight: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    radioButtonSelected: {
+      borderColor: themeColors.primary,
+    },
+    radioButtonInner: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: themeColors.primary,
+    },
+    privacyText: {
+      fontSize: 16,
+      color: themeColors.text,
+      flex: 1,
+    },
+  });
+};

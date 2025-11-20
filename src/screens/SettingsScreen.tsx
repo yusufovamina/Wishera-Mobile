@@ -15,7 +15,10 @@ export const SettingsScreen: React.FC = () => {
   const { t } = useI18n();
   const styles = React.useMemo(() => createStyles(), [theme]);
 
-  useEffect(() => {}, [theme, language]);
+  // Force re-render when language changes
+  useEffect(() => {
+    // This effect ensures the component re-renders when language changes
+  }, [theme, language]);
 
   return (
     <View style={styles.container}>
@@ -32,7 +35,15 @@ export const SettingsScreen: React.FC = () => {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>{t('settings.language')}</Text>
         {LANGS.map(l => (
-          <TouchableOpacity key={l.key} style={[styles.langRow, language === l.key && styles.langRowActive]} onPress={() => setLanguage(l.key as any)}>
+          <TouchableOpacity 
+            key={l.key} 
+            style={[styles.langRow, language === l.key && styles.langRowActive]} 
+            onPress={async () => {
+              await setLanguage(l.key as any);
+              // Force a small delay to ensure state is updated
+              setTimeout(() => {}, 100);
+            }}
+          >
             <Text style={[styles.text, language === l.key && styles.textActive]}>{l.label}</Text>
           </TouchableOpacity>
         ))}

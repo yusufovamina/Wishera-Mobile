@@ -28,6 +28,7 @@ import { SettingsScreen } from '../screens/SettingsScreen';
 import { EventDetailScreen } from '../screens/EventDetailScreen';
 import { useAuthStore } from '../state/auth';
 import { useChatNotifications } from '../hooks/useChatNotifications';
+import { useI18n } from '../i18n';
 
 const Stack = createNativeStackNavigator();
 const Tabs = createBottomTabNavigator();
@@ -120,6 +121,7 @@ const TabIcon = ({ IconComponent, focused, label, styles, badgeCount }: { IconCo
 
 const TabsNavigator: React.FC = () => {
   const { theme } = usePreferences();
+  const { t } = useI18n();
   const styles = React.useMemo(() => createStyles(), [theme]);
   const { totalUnread: chatUnreadCount } = useChatNotifications();
   const [notificationUnreadCount, setNotificationUnreadCount] = React.useState(0);
@@ -163,7 +165,7 @@ const TabsNavigator: React.FC = () => {
         component={HomeScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon IconComponent={HomeIcon} focused={focused} label="Home" styles={styles} />
+            <TabIcon IconComponent={HomeIcon} focused={focused} label={t('tabs.home', 'Home')} styles={styles} />
           ),
         }}
       />
@@ -172,7 +174,7 @@ const TabsNavigator: React.FC = () => {
         component={ChatScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon IconComponent={ChatIcon} focused={focused} label="Chats" styles={styles} badgeCount={chatUnreadCount} />
+            <TabIcon IconComponent={ChatIcon} focused={focused} label={t('tabs.chats', 'Chats')} styles={styles} badgeCount={chatUnreadCount} />
           ),
         }}
       />
@@ -181,7 +183,7 @@ const TabsNavigator: React.FC = () => {
         component={NotificationsScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon IconComponent={NotificationsIcon} focused={focused} label="Notifications" styles={styles} badgeCount={notificationUnreadCount} />
+            <TabIcon IconComponent={NotificationsIcon} focused={focused} label={t('tabs.notifications', 'Notifications')} styles={styles} badgeCount={notificationUnreadCount} />
           ),
         }}
       />
@@ -190,7 +192,7 @@ const TabsNavigator: React.FC = () => {
         component={ProfileScreen} 
         options={{
           tabBarIcon: ({ focused }) => (
-            <TabIcon IconComponent={ProfileIcon} focused={focused} label="Profile" styles={styles} />
+            <TabIcon IconComponent={ProfileIcon} focused={focused} label={t('tabs.profile', 'Profile')} styles={styles} />
           ),
         }}
       />

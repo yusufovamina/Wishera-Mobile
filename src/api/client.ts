@@ -226,6 +226,7 @@ export const endpoints = {
   wishlistById: (id: string) => `/api/wishlists/${id}`,
   updateWishlist: (id: string) => `/api/wishlists/${id}`,
   wishlistLike: (id: string) => `/api/wishlists/${id}/like`,
+  wishlistUnlike: (id: string) => `/api/wishlists/${id}/unlike`,
   giftsForUser: '/api/gift/wishlist',
   updateGift: (id: string) => `/api/gift/${id}`,
   uploadGiftImage: (id: string) => `/api/gift/${id}/upload-image`,
@@ -236,6 +237,7 @@ export const endpoints = {
   likedWishlists: (page: number = 1, pageSize: number = 20) => `/api/wishlists/liked?page=${page}&pageSize=${pageSize}`,
   userWishlists: (userId: string, page: number = 1, pageSize: number = 20) => `/api/wishlists/user/${userId}?page=${page}&pageSize=${pageSize}`,
   reservedGifts: '/api/gift/reserved',
+  unreserveGift: (giftId: string) => `/api/Gift/${giftId}/unreserve`,
   // Events
   createEvent: '/api/events',
   myEvents: (page: number = 1, pageSize: number = 10) => `/api/events/my-events?page=${page}&pageSize=${pageSize}`,
@@ -276,10 +278,10 @@ export const endpoints = {
   // Chat media upload
   uploadChatMedia: '/api/chat/upload-media',
   // Notifications endpoints
-  getNotifications: (page: number = 1, pageSize: number = 20) => `/api/notifications?page=${page}&pageSize=${pageSize}`,
-  markNotificationRead: (notificationId: string) => `/api/notifications/${notificationId}/read`,
-  markAllNotificationsRead: '/api/notifications/read-all',
-  deleteNotification: (notificationId: string) => `/api/notifications/${notificationId}`,
+  getNotifications: (page: number = 1, pageSize: number = 20) => `/api/Notifications?page=${page}&pageSize=${pageSize}`,
+  markNotificationRead: '/api/Notifications/mark-read',
+  markAllNotificationsRead: '/api/Notifications/mark-all-read',
+  deleteNotification: (notificationId: string) => `/api/Notifications/${notificationId}`,
   // Birthday endpoints
   getUpcomingBirthdays: (daysAhead: number = 30) => `/api/notifications/birthdays?daysAhead=${daysAhead}`,
 };
@@ -301,7 +303,7 @@ export const getApiClient = (endpoint: string) => {
       return chatApi;
     } else if (endpoint.startsWith('/api/events')) {
       return userApi; // Events are handled by user service
-    } else if (endpoint.startsWith('/api/notifications')) {
+    } else if (endpoint.startsWith('/api/notifications') || endpoint.startsWith('/api/Notifications')) {
       return userApi; // Notifications are handled by user service
     }
     return api; // default to api gateway
@@ -318,7 +320,7 @@ export const getApiClient = (endpoint: string) => {
     return chatApi;
   } else if (endpoint.startsWith('/api/events')) {
     return userApi; // Events are handled by user service
-  } else if (endpoint.startsWith('/api/notifications')) {
+  } else if (endpoint.startsWith('/api/notifications') || endpoint.startsWith('/api/Notifications')) {
     return userApi; // Notifications are handled by user service
   }
   return api; // default

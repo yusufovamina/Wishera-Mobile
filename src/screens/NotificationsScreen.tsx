@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { View, StyleSheet, Text, FlatList, TouchableOpacity, Image, RefreshControl, Alert } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
@@ -43,14 +45,18 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
   const fetchNotifications = async () => {
     try {
       setLoading(true);
-      const notificationApi = getApiClient(endpoints.getNotifications(1, 50));
-      const response = await notificationApi.get(endpoints.getNotifications(1, 50));
+      const notificationsEndpoint = endpoints.getNotifications(1, 50);
+      const notificationApi = getApiClient(notificationsEndpoint);
+      const response = await notificationApi.get(notificationsEndpoint);
       
       // Transform backend notifications to match our UI structure
       // Handle different response formats
       let backendNotifications: any[] = [];
       
-      if (Array.isArray(response.data)) {
+      // Backend returns NotificationListDTO with Notifications property
+      if (response.data?.Notifications && Array.isArray(response.data.Notifications)) {
+        backendNotifications = response.data.Notifications;
+      } else if (Array.isArray(response.data)) {
         backendNotifications = response.data;
       } else if (response.data?.items && Array.isArray(response.data.items)) {
         backendNotifications = response.data.items;
@@ -121,21 +127,7 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
   const handleNotificationPress = async (notification: Notification) => {
     // Mark as read if not already read
     if (!notification.isRead) {
-      try {
-        const notificationApi = getApiClient(endpoints.markNotificationRead(notification.id));
-        await notificationApi.post(endpoints.markNotificationRead(notification.id));
-        
-        // Update local state
-        setNotifications(prev => 
-          prev.map(n => n.id === notification.id ? { ...n, isRead: true, read: true } : n)
-        );
-      } catch (error) {
-        console.log('Error marking notification as read:', error);
-        // Still update UI even if API call fails
-        setNotifications(prev => 
-          prev.map(n => n.id === notification.id ? { ...n, isRead: true, read: true } : n)
-        );
-      }
+      await handleMarkAsRead(notification);
     }
 
     // Handle navigation based on notification type
@@ -234,9 +226,52 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  const handleMarkAsRead = async (notification: Notification) => {
+    if (notification.isRead) return;
+    
+    try {
+      const notificationApi = getApiClient(endpoints.markNotificationRead);
+      await notificationApi.put(endpoints.markNotificationRead, {
+        NotificationIds: [notification.id]
+      });
+      
+      // Update local state
+      setNotifications(prev => 
+        prev.map(n => n.id === notification.id ? { ...n, isRead: true, read: true } : n)
+      );
+    } catch (error) {
+      console.log('Error marking notification as read:', error);
+      // Still update UI even if API call fails
+      setNotifications(prev => 
+        prev.map(n => n.id === notification.id ? { ...n, isRead: true, read: true } : n)
+      );
+    }
+  };
+
+  const handleDeleteNotification = async (notificationId: string) => {
+    try {
+      const deleteEndpoint = endpoints.deleteNotification(notificationId);
+      const notificationApi = getApiClient(deleteEndpoint);
+      await notificationApi.delete(deleteEndpoint);
+      
+      // Remove from local state immediately
+      setNotifications(prev => {
+        const filtered = prev.filter(n => n.id !== notificationId);
+        console.log('Deleted notification, remaining count:', filtered.length);
+        return filtered;
+      });
+    } catch (error: any) {
+      console.log('Error deleting notification:', error);
+      console.log('Error response:', error?.response?.data);
+      // If deletion fails, show error but don't revert animation
+      // The item will remain in the list but user can try again
+      Alert.alert('Error', error?.response?.data?.message || 'Failed to delete notification');
+    }
+  };
+
   const handleRespondToInvitation = async (notification: Notification, accept: boolean) => {
     if (!notification.invitationId) {
-      Alert.alert('Error', 'Invalid invitation');
+      Alert.alert(t('common.error', 'Error'), t('notifications.invalidInvitation', 'Invalid invitation'));
       return;
     }
 
@@ -255,60 +290,146 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
         )
       );
       
-      Alert.alert('Success', accept ? 'Invitation accepted!' : 'Invitation declined');
+      Alert.alert(
+        t('common.success', 'Success'), 
+        accept ? t('invitations.accepted', 'Invitation accepted!') : t('invitations.declined', 'Invitation declined')
+      );
       
       // Refresh notifications
       await fetchNotifications();
     } catch (error: any) {
       console.error('Error responding to invitation:', error);
-      Alert.alert('Error', error?.response?.data?.message || 'Failed to respond to invitation');
+      Alert.alert(
+        t('common.error', 'Error'), 
+        error?.response?.data?.message || t('invitations.responseFailed', 'Failed to respond to invitation')
+      );
     }
   };
 
-  const renderNotification = ({ item }: { item: Notification }) => {
+  const SwipeableNotificationItem: React.FC<{ item: Notification }> = ({ item }) => {
+    const translateX = useSharedValue(0);
+    const opacity = useSharedValue(1);
+    const SWIPE_THRESHOLD = 80;
+    const ACTION_WIDTH = 80;
+
     const isEventInvitation = item.type === 'event' && item.invitationId;
     const canRespond = isEventInvitation && item.invitationStatus === 'pending';
-    
+
+    const panGesture = Gesture.Pan()
+      .onUpdate((e) => {
+        // Allow swiping left (negative) for delete, right (positive) for mark as read
+        if (e.translationX < 0) {
+          // Swipe left - show delete action
+          translateX.value = Math.max(e.translationX, -ACTION_WIDTH);
+        } else if (e.translationX > 0 && !item.isRead) {
+          // Swipe right - show mark as read action (only if unread)
+          translateX.value = Math.min(e.translationX, ACTION_WIDTH);
+        }
+      })
+      .onEnd((e) => {
+        if (e.translationX < -SWIPE_THRESHOLD) {
+          // Swipe left enough - trigger delete
+          // Animate out first, then delete
+          translateX.value = withTiming(-1000, { duration: 300 });
+          opacity.value = withTiming(0, { duration: 300 }, (finished) => {
+            if (finished) {
+              // After animation completes, delete from API and remove from list
+              runOnJS(handleDeleteNotification)(item.id);
+            }
+          });
+        } else if (e.translationX > SWIPE_THRESHOLD && !item.isRead) {
+          // Swipe right enough - trigger mark as read
+          translateX.value = withSpring(ACTION_WIDTH);
+          runOnJS(handleMarkAsRead)(item);
+          setTimeout(() => {
+            translateX.value = withSpring(0);
+          }, 300);
+        } else {
+          // Snap back
+          translateX.value = withSpring(0);
+        }
+      });
+
+    const animatedStyle = useAnimatedStyle(() => ({
+      transform: [{ translateX: translateX.value }],
+      opacity: opacity.value,
+    }));
+
+    const leftActionStyle = useAnimatedStyle(() => {
+      const opacity = translateX.value < 0 ? Math.abs(translateX.value) / ACTION_WIDTH : 0;
+      return {
+        opacity: withTiming(opacity, { duration: 200 }),
+      };
+    });
+
+    const rightActionStyle = useAnimatedStyle(() => {
+      const opacity = translateX.value > 0 ? translateX.value / ACTION_WIDTH : 0;
+      return {
+        opacity: withTiming(opacity, { duration: 200 }),
+      };
+    });
+
     return (
       <View style={[styles.notificationItem, !item.isRead && styles.unreadNotification]}>
-        <TouchableOpacity
-          style={styles.notificationContent}
-          onPress={() => !isEventInvitation && handleNotificationPress(item)}
-          disabled={isEventInvitation}
-        >
-          {/* User Avatar or Icon */}
-          {item.avatar || item.avatarUrl ? (
-            <Image 
-              source={{ uri: item.avatar || item.avatarUrl }} 
-              style={styles.notificationAvatar}
-            />
-          ) : (
-            <View style={styles.notificationIcon}>
-              {getNotificationIcon(item.type)}
-            </View>
-          )}
-          
-          <View style={styles.notificationInfo}>
-            <Text style={styles.notificationTitle}>{item.title}</Text>
-            <Text style={styles.notificationMessage}>{item.message}</Text>
-            <Text style={styles.notificationTime}>
-              {getTimeAgo(item.createdAt)}
-            </Text>
-            {isEventInvitation && item.invitationStatus && item.invitationStatus !== 'pending' && (
-              <View style={[styles.statusBadge, { 
-                backgroundColor: item.invitationStatus === 'accepted' ? colors.success + '20' : colors.danger + '20' 
-              }]}>
-                <Text style={[styles.statusText, { 
-                  color: item.invitationStatus === 'accepted' ? colors.success : colors.danger 
-                }]}>
-                  {item.invitationStatus.charAt(0).toUpperCase() + item.invitationStatus.slice(1)}
+        {/* Left Action - Delete (swipe left) */}
+        <Animated.View style={[styles.swipeAction, styles.deleteAction, leftActionStyle]}>
+          <CloseIcon size={24} color="white" />
+          <Text style={styles.swipeActionText}>{t('notifications.delete', 'Delete')}</Text>
+        </Animated.View>
+
+        {/* Right Action - Mark as Read (swipe right, only if unread) */}
+        {!item.isRead && (
+          <Animated.View style={[styles.swipeAction, styles.readAction, rightActionStyle]}>
+            <CheckIcon size={24} color="white" />
+            <Text style={styles.swipeActionText}>{t('notifications.read', 'Read')}</Text>
+          </Animated.View>
+        )}
+
+        {/* Main Content */}
+        <GestureDetector gesture={panGesture}>
+          <Animated.View style={animatedStyle}>
+            <TouchableOpacity
+              style={styles.notificationContent}
+              onPress={() => !isEventInvitation && handleNotificationPress(item)}
+              disabled={isEventInvitation}
+            >
+              {/* User Avatar or Icon */}
+              {item.avatar || item.avatarUrl ? (
+                <Image 
+                  source={{ uri: item.avatar || item.avatarUrl }} 
+                  style={styles.notificationAvatar}
+                />
+              ) : (
+                <View style={styles.notificationIcon}>
+                  {getNotificationIcon(item.type)}
+                </View>
+              )}
+              
+              <View style={styles.notificationInfo}>
+                <Text style={styles.notificationTitle}>{item.title}</Text>
+                <Text style={styles.notificationMessage}>{item.message}</Text>
+                <Text style={styles.notificationTime}>
+                  {getTimeAgo(item.createdAt)}
                 </Text>
+                {isEventInvitation && item.invitationStatus && item.invitationStatus !== 'pending' && (
+                  <View style={[styles.statusBadge, { 
+                    backgroundColor: item.invitationStatus === 'accepted' ? colors.success + '20' : colors.danger + '20' 
+                  }]}>
+                    <Text style={[styles.statusText, { 
+                      color: item.invitationStatus === 'accepted' ? colors.success : colors.danger 
+                    }]}>
+                      {item.invitationStatus === 'accepted' 
+                        ? t('invitations.accepted', 'Accepted')
+                        : t('invitations.declined', 'Declined')}
+                    </Text>
+                  </View>
+                )}
               </View>
-            )}
-          </View>
-          
-          {!item.isRead && <View style={styles.unreadDot} />}
-        </TouchableOpacity>
+              
+              {!item.isRead && <View style={styles.unreadDot} />}
+            </TouchableOpacity>
+          </Animated.View>
+        </GestureDetector>
         
         {/* Accept/Decline buttons for event invitations */}
         {canRespond && (
@@ -318,14 +439,14 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
               onPress={() => handleRespondToInvitation(item, true)}
             >
               <CheckIcon size={16} color="white" />
-              <Text style={styles.invitationButtonText}>Accept</Text>
+              <Text style={styles.invitationButtonText}>{t('notifications.accept', 'Accept')}</Text>
             </TouchableOpacity>
             <TouchableOpacity
               style={[styles.invitationButton, styles.declineButton]}
               onPress={() => handleRespondToInvitation(item, false)}
             >
               <CloseIcon size={16} color="white" />
-              <Text style={styles.invitationButtonText}>Decline</Text>
+              <Text style={styles.invitationButtonText}>{t('notifications.decline', 'Decline')}</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -333,15 +454,19 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
     );
   };
 
+  const renderNotification = ({ item }: { item: Notification }) => {
+    return <SwipeableNotificationItem item={item} />;
+  };
+
   const getTimeAgo = (dateString: string) => {
     const now = new Date();
     const date = new Date(dateString);
     const diffInSeconds = Math.floor((now.getTime() - date.getTime()) / 1000);
     
-    if (diffInSeconds < 60) return 'Just now';
-    if (diffInSeconds < 3600) return `${Math.floor(diffInSeconds / 60)}m ago`;
-    if (diffInSeconds < 86400) return `${Math.floor(diffInSeconds / 3600)}h ago`;
-    return `${Math.floor(diffInSeconds / 86400)}d ago`;
+    if (diffInSeconds < 60) return t('notifications.justNow', 'Just now');
+    if (diffInSeconds < 3600) return t('notifications.minutesAgo', { minutes: Math.floor(diffInSeconds / 60) }, '{{minutes}}m ago');
+    if (diffInSeconds < 86400) return t('notifications.hoursAgo', { hours: Math.floor(diffInSeconds / 3600) }, '{{hours}}h ago');
+    return t('notifications.daysAgo', { days: Math.floor(diffInSeconds / 86400) }, '{{days}}d ago');
   };
 
   const unreadCount = notifications.filter(n => !n.isRead).length;
@@ -364,6 +489,7 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
         keyExtractor={(item) => item.id}
         renderItem={renderNotification}
         contentContainerStyle={styles.notificationsList}
+        extraData={notifications.length}
         refreshControl={
           <RefreshControl 
             tintColor={colors.primary} 
@@ -429,6 +555,8 @@ const createStyles = () => StyleSheet.create({
     paddingVertical: 16,
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
+    overflow: 'hidden',
+    position: 'relative',
   },
   unreadNotification: {
     backgroundColor: colors.muted,
@@ -436,6 +564,8 @@ const createStyles = () => StyleSheet.create({
   notificationContent: {
     flexDirection: 'row',
     alignItems: 'flex-start',
+    backgroundColor: 'transparent',
+    zIndex: 1,
   },
   notificationIcon: {
     width: 40,
@@ -538,5 +668,30 @@ const createStyles = () => StyleSheet.create({
   statusText: {
     fontSize: 12,
     fontWeight: '600',
+  },
+
+  // Swipe action styles
+  swipeAction: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    width: 80,
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
+  },
+  deleteAction: {
+    right: 0,
+    backgroundColor: colors.danger,
+  },
+  readAction: {
+    left: 0,
+    backgroundColor: colors.success,
+  },
+  swipeActionText: {
+    color: 'white',
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 4,
   },
 });

@@ -1,7 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, lightColors, darkColors } from '../theme/colors';
 import { endpoints, wishlistApi } from '../api/client';
+import { usePreferences } from '../state/preferences';
+import { HeartIcon, ChatIcon } from '../components/Icon';
 
 type WishlistFeedItem = {
   id: string;
@@ -13,6 +15,9 @@ type WishlistFeedItem = {
 };
 
 export const LikedWishlistsScreen: React.FC<any> = ({ navigation }) => {
+  const { theme } = usePreferences();
+  const themeColors = useMemo(() => theme === 'dark' ? darkColors : lightColors, [theme]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [loading, setLoading] = useState(true);
   const [items, setItems] = useState<WishlistFeedItem[]>([]);
 
@@ -41,11 +46,11 @@ export const LikedWishlistsScreen: React.FC<any> = ({ navigation }) => {
             {!!item.description && <Text style={styles.desc}>{item.description}</Text>}
             <View style={styles.meta}>
               <View style={styles.metaItem}>
-                <HeartIcon size={14} color={colors.textSecondary} />
+                <HeartIcon size={14} color={themeColors.textSecondary} />
                 <Text style={styles.metaText}>{item.likeCount ?? 0}</Text>
               </View>
               <View style={styles.metaItem}>
-                <ChatIcon size={14} color={colors.textSecondary} />
+                <ChatIcon size={14} color={themeColors.textSecondary} />
                 <Text style={styles.metaText}>{item.commentCount ?? 0}</Text>
               </View>
               <Text style={styles.metaText}>by @{item.username || 'user'}</Text>
@@ -61,26 +66,29 @@ export const LikedWishlistsScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background },
-  card: { backgroundColor: colors.surface, borderRadius: 12, padding: 12 },
-  title: { color: colors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
-  desc: { color: colors.textSecondary, fontSize: 14, marginBottom: 6 },
-  meta: { 
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    marginTop: 8,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  metaText: {
-    color: colors.textSecondary,
-    fontSize: 12,
-  },
-});
+const createStyles = (theme: string) => {
+  const themeColors = theme === 'dark' ? darkColors : lightColors;
+  return StyleSheet.create({
+    container: { flex: 1, backgroundColor: themeColors.background },
+    card: { backgroundColor: themeColors.surface, borderRadius: 12, padding: 12 },
+    title: { color: themeColors.text, fontSize: 16, fontWeight: '700', marginBottom: 6 },
+    desc: { color: themeColors.textSecondary, fontSize: 14, marginBottom: 6 },
+    meta: { 
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 12,
+      marginTop: 8,
+    },
+    metaItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    metaText: {
+      color: themeColors.textSecondary,
+      fontSize: 12,
+    },
+  });
+};
 
 

@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { View, Text, StyleSheet, FlatList, TouchableOpacity, RefreshControl, StatusBar } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, lightColors, darkColors } from '../theme/colors';
 import { endpoints, getApiClient } from '../api/client';
 import { usePreferences } from '../state/preferences';
 import { useI18n } from '../i18n';
+import { CalendarIcon, TimeIcon, LocationIcon } from '../components/Icon';
 
 type EventItem = { 
   id: string; 
@@ -20,7 +21,8 @@ type EventItem = {
 export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
   const { theme } = usePreferences();
   const { t } = useI18n();
-  const styles = useMemo(() => createStyles(), [theme]);
+  const themeColors = useMemo(() => theme === 'dark' ? darkColors : lightColors, [theme]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [items, setItems] = useState<EventItem[]>([]);
@@ -96,10 +98,10 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
       }}
     >
       <View style={styles.cardHeader}>
-        <Text style={styles.title}>{item.title || 'Untitled Event'}</Text>
+        <Text style={styles.title}>{item.title || t('events.untitled', 'Untitled Event')}</Text>
         {item.isCancelled && (
           <View style={styles.cancelledBadge}>
-            <Text style={styles.cancelledText}>Cancelled</Text>
+            <Text style={styles.cancelledText}>{t('events.cancelled', 'Cancelled')}</Text>
           </View>
         )}
       </View>
@@ -111,21 +113,21 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
       <View style={styles.metaContainer}>
         {item.eventDate && (
           <View style={styles.metaItem}>
-            <CalendarIcon size={16} color={colors.textSecondary} />
+            <CalendarIcon size={16} color={themeColors.textSecondary} />
             <Text style={styles.metaText}>{formatDate(item.eventDate)}</Text>
           </View>
         )}
         
         {item.eventTime && (
           <View style={styles.metaItem}>
-            <TimeIcon size={16} color={colors.textSecondary} />
+            <TimeIcon size={16} color={themeColors.textSecondary} />
             <Text style={styles.metaText}>{formatTime(item.eventTime)}</Text>
           </View>
         )}
         
         {item.location && (
           <View style={styles.metaItem}>
-            <LocationIcon size={16} color={colors.textSecondary} />
+            <LocationIcon size={16} color={themeColors.textSecondary} />
             <Text style={styles.metaText} numberOfLines={1}>{item.location}</Text>
           </View>
         )}
@@ -149,9 +151,9 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
       
       {items.length === 0 && !loading ? (
         <View style={styles.emptyContainer}>
-          <CalendarIcon size={48} color={colors.textSecondary} />
-          <Text style={styles.emptyText}>No events yet</Text>
-          <Text style={styles.emptySubtext}>Create your first event to get started!</Text>
+          <CalendarIcon size={48} color={themeColors.textSecondary} />
+          <Text style={styles.emptyText}>{t('events.empty', 'No events yet')}</Text>
+          <Text style={styles.emptySubtext}>{t('events.emptyHint', 'Create your first event to get started!')}</Text>
         </View>
       ) : (
         <FlatList
@@ -162,7 +164,7 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
           contentContainerStyle={styles.listContent}
           refreshControl={
             <RefreshControl 
-              tintColor={colors.primary} 
+              tintColor={themeColors.primary} 
               refreshing={refreshing} 
               onRefresh={onRefresh} 
             />
@@ -170,7 +172,7 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
           ListEmptyComponent={
             loading ? (
               <View style={styles.loadingContainer}>
-                <Text style={styles.loadingText}>Loading events...</Text>
+                <Text style={styles.loadingText}>{t('events.loading', 'Loading events...')}</Text>
               </View>
             ) : null
           }
@@ -180,117 +182,120 @@ export const MyEventsScreen: React.FC<any> = ({ navigation }) => {
   );
 };
 
-const createStyles = () => StyleSheet.create({
-  container: { 
-    flex: 1, 
-    backgroundColor: colors.background 
-  },
+const createStyles = (theme: string) => {
+  const themeColors = theme === 'dark' ? darkColors : lightColors;
+  return StyleSheet.create({
+    container: { 
+      flex: 1, 
+      backgroundColor: themeColors.background 
+    },
   listContent: {
     padding: 16,
   },
-  card: { 
-    backgroundColor: colors.surface, 
-    borderRadius: 16, 
-    padding: 16,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  cardHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 8,
-  },
-  title: { 
-    color: colors.text, 
-    fontSize: 18, 
-    fontWeight: '700', 
-    flex: 1,
-    marginRight: 8,
-  },
-  cancelledBadge: {
-    backgroundColor: colors.danger + '20',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  cancelledText: {
-    color: colors.danger,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  description: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    lineHeight: 20,
-    marginBottom: 12,
-  },
-  metaContainer: {
-    marginTop: 8,
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-  },
-  metaItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  metaText: {
-    color: colors.textSecondary,
-    fontSize: 14,
-    flex: 1,
-  },
-  typeBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: colors.primary + '20',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 8,
-  },
-  typeText: {
-    color: colors.primary,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  inviteeCount: {
-    color: colors.textMuted,
-    fontSize: 12,
-    marginTop: 8,
-  },
-  separator: {
-    height: 12,
-  },
-  emptyContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 40,
-  },
-  emptyText: {
-    fontSize: 20,
-    fontWeight: '700',
-    color: colors.text,
-    marginBottom: 8,
-    textAlign: 'center',
-  },
-  emptySubtext: {
-    fontSize: 14,
-    color: colors.textSecondary,
-    textAlign: 'center',
-  },
-  loadingContainer: {
-    padding: 40,
-    alignItems: 'center',
-  },
-  loadingText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-  },
-});
+    card: { 
+      backgroundColor: themeColors.surface, 
+      borderRadius: 16, 
+      padding: 16,
+      shadowColor: themeColors.primary,
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: 0.1,
+      shadowRadius: 8,
+      elevation: 4,
+    },
+    cardHeader: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'flex-start',
+      marginBottom: 8,
+    },
+    title: { 
+      color: themeColors.text, 
+      fontSize: 18, 
+      fontWeight: '700', 
+      flex: 1,
+      marginRight: 8,
+    },
+    cancelledBadge: {
+      backgroundColor: themeColors.danger + '20',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 8,
+    },
+    cancelledText: {
+      color: themeColors.danger,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    description: {
+      color: themeColors.textSecondary,
+      fontSize: 14,
+      lineHeight: 20,
+      marginBottom: 12,
+    },
+    metaContainer: {
+      marginTop: 8,
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 12,
+    },
+    metaItem: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+    },
+    metaText: {
+      color: themeColors.textSecondary,
+      fontSize: 14,
+      flex: 1,
+    },
+    typeBadge: {
+      alignSelf: 'flex-start',
+      backgroundColor: themeColors.primary + '20',
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: 12,
+      marginTop: 8,
+    },
+    typeText: {
+      color: themeColors.primary,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    inviteeCount: {
+      color: themeColors.textMuted,
+      fontSize: 12,
+      marginTop: 8,
+    },
+    separator: {
+      height: 12,
+    },
+    emptyContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      paddingHorizontal: 40,
+    },
+    emptyText: {
+      fontSize: 20,
+      fontWeight: '700',
+      color: themeColors.text,
+      marginBottom: 8,
+      textAlign: 'center',
+    },
+    emptySubtext: {
+      fontSize: 14,
+      color: themeColors.textSecondary,
+      textAlign: 'center',
+    },
+    loadingContainer: {
+      padding: 40,
+      alignItems: 'center',
+    },
+    loadingText: {
+      fontSize: 16,
+      color: themeColors.textSecondary,
+    },
+  });
+};
 
 

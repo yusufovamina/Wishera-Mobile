@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, StyleSheet, Text, TextInput, TouchableOpacity, Modal, ScrollView } from 'react-native';
-import { colors } from '../theme/colors';
+import { colors, lightColors, darkColors } from '../theme/colors';
+import { usePreferences } from '../state/preferences';
 
 interface EditWishlistModalProps {
   visible: boolean;
@@ -52,6 +53,9 @@ export const EditWishlistModal: React.FC<EditWishlistModalProps> = ({
   wishlist,
   loading = false,
 }) => {
+  const { theme } = usePreferences();
+  const themeColors = useMemo(() => theme === 'dark' ? darkColors : lightColors, [theme]);
+  const styles = useMemo(() => createStyles(theme), [theme]);
   const [formData, setFormData] = useState<EditWishlistData>({
     title: '',
     description: '',
@@ -149,7 +153,7 @@ export const EditWishlistModal: React.FC<EditWishlistModalProps> = ({
             <TextInput
               style={[styles.input, errors.title && styles.inputError]}
               placeholder="Enter wishlist title"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={themeColors.textMuted}
               value={formData.title}
               onChangeText={(text) => setFormData(prev => ({ ...prev, title: text }))}
               autoCapitalize="words"
@@ -163,7 +167,7 @@ export const EditWishlistModal: React.FC<EditWishlistModalProps> = ({
             <TextInput
               style={[styles.input, styles.textArea]}
               placeholder="Enter description (optional)"
-              placeholderTextColor={colors.textMuted}
+              placeholderTextColor={themeColors.textMuted}
               value={formData.description}
               onChangeText={(text) => setFormData(prev => ({ ...prev, description: text }))}
               multiline
@@ -228,134 +232,137 @@ export const EditWishlistModal: React.FC<EditWishlistModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.border,
-  },
-  closeButton: {
-    padding: 8,
-  },
-  closeButtonText: {
-    fontSize: 16,
-    color: colors.textSecondary,
-    fontWeight: '500',
-  },
-  title: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: colors.text,
-  },
-  saveButton: {
-    padding: 8,
-  },
-  saveButtonText: {
-    fontSize: 16,
-    color: colors.primary,
-    fontWeight: '600',
-  },
-  saveButtonDisabled: {
-    color: colors.textMuted,
-  },
-  content: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-  },
-  inputGroup: {
-    marginBottom: 24,
-  },
-  label: {
-    fontSize: 16,
-    fontWeight: '600',
-    color: colors.text,
-    marginBottom: 8,
-  },
-  input: {
-    backgroundColor: colors.surface,
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    fontSize: 16,
-    color: colors.text,
-    borderWidth: 2,
-    borderColor: colors.border,
-  },
-  inputError: {
-    borderColor: colors.danger,
-  },
-  textArea: {
-    height: 100,
-  },
-  errorText: {
-    fontSize: 14,
-    color: colors.danger,
-    marginTop: 4,
-  },
-  categoryScroll: {
-    marginTop: 8,
-  },
-  categoryChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: colors.muted,
-    marginRight: 8,
-    borderWidth: 2,
-    borderColor: 'transparent',
-  },
-  categoryChipSelected: {
-    backgroundColor: colors.primary,
-    borderColor: colors.primary,
-  },
-  categoryChipText: {
-    fontSize: 14,
-    fontWeight: '500',
-    color: colors.textSecondary,
-  },
-  categoryChipTextSelected: {
-    color: 'white',
-  },
-  privacyContainer: {
-    marginTop: 8,
-  },
-  privacyOption: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 12,
-  },
-  radioButton: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: colors.border,
-    marginRight: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  radioButtonSelected: {
-    borderColor: colors.primary,
-  },
-  radioButtonInner: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
-    backgroundColor: colors.primary,
-  },
-  privacyText: {
-    fontSize: 16,
-    color: colors.text,
-    flex: 1,
-  },
-});
+const createStyles = (theme: string) => {
+  const themeColors = theme === 'dark' ? darkColors : lightColors;
+  return StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: themeColors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: 20,
+      paddingVertical: 16,
+      borderBottomWidth: 1,
+      borderBottomColor: themeColors.border,
+    },
+    closeButton: {
+      padding: 8,
+    },
+    closeButtonText: {
+      fontSize: 16,
+      color: themeColors.textSecondary,
+      fontWeight: '500',
+    },
+    title: {
+      fontSize: 18,
+      fontWeight: '700',
+      color: themeColors.text,
+    },
+    saveButton: {
+      padding: 8,
+    },
+    saveButtonText: {
+      fontSize: 16,
+      color: themeColors.primary,
+      fontWeight: '600',
+    },
+    saveButtonDisabled: {
+      color: themeColors.textMuted,
+    },
+    content: {
+      flex: 1,
+      paddingHorizontal: 20,
+      paddingTop: 20,
+    },
+    inputGroup: {
+      marginBottom: 24,
+    },
+    label: {
+      fontSize: 16,
+      fontWeight: '600',
+      color: themeColors.text,
+      marginBottom: 8,
+    },
+    input: {
+      backgroundColor: themeColors.surface,
+      borderRadius: 12,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      fontSize: 16,
+      color: themeColors.text,
+      borderWidth: 2,
+      borderColor: themeColors.border,
+    },
+    inputError: {
+      borderColor: themeColors.danger,
+    },
+    textArea: {
+      height: 100,
+    },
+    errorText: {
+      fontSize: 14,
+      color: themeColors.danger,
+      marginTop: 4,
+    },
+    categoryScroll: {
+      marginTop: 8,
+    },
+    categoryChip: {
+      paddingHorizontal: 16,
+      paddingVertical: 8,
+      borderRadius: 20,
+      backgroundColor: themeColors.muted,
+      marginRight: 8,
+      borderWidth: 2,
+      borderColor: 'transparent',
+    },
+    categoryChipSelected: {
+      backgroundColor: themeColors.primary,
+      borderColor: themeColors.primary,
+    },
+    categoryChipText: {
+      fontSize: 14,
+      fontWeight: '500',
+      color: themeColors.textSecondary,
+    },
+    categoryChipTextSelected: {
+      color: 'white',
+    },
+    privacyContainer: {
+      marginTop: 8,
+    },
+    privacyOption: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+    },
+    radioButton: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      borderWidth: 2,
+      borderColor: themeColors.border,
+      marginRight: 12,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    radioButtonSelected: {
+      borderColor: themeColors.primary,
+    },
+    radioButtonInner: {
+      width: 10,
+      height: 10,
+      borderRadius: 5,
+      backgroundColor: themeColors.primary,
+    },
+    privacyText: {
+      fontSize: 16,
+      color: themeColors.text,
+      flex: 1,
+    },
+  });
+};
 

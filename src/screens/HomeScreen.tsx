@@ -1,5 +1,7 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated, Easing, Dimensions, StatusBar, TextInput } from 'react-native';
+import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated as RNAnimated, Easing, Dimensions, StatusBar, TextInput } from 'react-native';
+import { GestureDetector, Gesture } from 'react-native-gesture-handler';
+import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -7,14 +9,71 @@ import { usePreferences } from '../state/preferences';
 import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
+import { EditWishlistModal } from '../components/EditWishlistModal';
 import { SafeImage } from '../components/SafeImage';
 import { BirthdayCalendar } from '../components/BirthdayCalendar';
 import { BirthdayCountdownBanner } from '../components/BirthdayCountdownBanner';
-import { CalendarIcon, SearchIcon, CloseIcon } from '../components/Icon';
+import { CalendarIcon, SearchIcon, CloseIcon, HeartIcon, EditIcon, DeleteIcon } from '../components/Icon';
+import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../state/auth';
 import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
 const { width, height } = Dimensions.get('window');
+
+// Heart animation component - must be outside to use hooks properly
+const AnimatedHeartButton: React.FC<{ 
+  item: {
+    id: string;
+    isLiked: boolean;
+    likes: number;
+  };
+  onPress: () => void;
+}> = ({ item, onPress }) => {
+  const heartScale = useSharedValue(1);
+  
+  const handlePress = () => {
+    // Animate heart
+    heartScale.value = withSpring(1.3, {
+      damping: 10,
+      stiffness: 300,
+    }, () => {
+      heartScale.value = withSpring(1, {
+        damping: 10,
+        stiffness: 300,
+      });
+    });
+    onPress();
+  };
+
+  const heartAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ scale: heartScale.value }],
+    };
+  });
+
+  return (
+    <TouchableOpacity 
+      style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+      onPress={handlePress}
+    >
+      <Animated.View style={heartAnimatedStyle}>
+        <Ionicons 
+          name={item.isLiked ? "heart" : "heart-outline"} 
+          size={20} 
+          color={item.isLiked ? colors.danger : colors.textSecondary} 
+        />
+      </Animated.View>
+      <Text style={{
+        fontSize: 14,
+        color: item.isLiked ? colors.danger : colors.textSecondary,
+        fontWeight: '500',
+        marginLeft: 4,
+      }}>
+        {item.likes}
+      </Text>
+    </TouchableOpacity>
+  );
+};
 
 type WishlistItem = {
   id: string;
@@ -57,28 +116,35 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [suggestedUsers, setSuggestedUsers] = useState<any[]>([]);
   const [showSearchDropdown, setShowSearchDropdown] = useState(false);
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingWishlist, setEditingWishlist] = useState<WishlistItem | null>(null);
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
+  const [editLoading, setEditLoading] = useState(false);
   const [showBirthdayNotification, setShowBirthdayNotification] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
+  const [menuWishlistId, setMenuWishlistId] = useState<string | null>(null);
   const { user, logout } = useAuthStore();
   
   // Animation refs
-  const fadeIn = useRef(new Animated.Value(0)).current;
-  const slideUp = useRef(new Animated.Value(50)).current;
-  const floatY = useRef(new Animated.Value(0)).current;
-  const calendarSlideAnim = useRef(new Animated.Value(width)).current;
+  const fadeIn = useRef(new RNAnimated.Value(0)).current;
+  const slideUp = useRef(new RNAnimated.Value(50)).current;
+  const floatY = useRef(new RNAnimated.Value(0)).current;
+  const calendarSlideAnim = useRef(new RNAnimated.Value(width)).current;
+  
+  // Reanimated value for smooth panel animation
+  const panelTranslateX = useSharedValue(width);
 
   useEffect(() => {
     // Entrance animations
-    Animated.parallel([
-      Animated.timing(fadeIn, {
+    RNAnimated.parallel([
+      RNAnimated.timing(fadeIn, {
         toValue: 1,
         duration: 800,
         easing: Easing.out(Easing.cubic),
         useNativeDriver: true,
       }),
-      Animated.timing(slideUp, {
+      RNAnimated.timing(slideUp, {
         toValue: 0,
         duration: 800,
         easing: Easing.out(Easing.cubic),
@@ -87,15 +153,15 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     ]).start();
 
     // Floating background animation
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatY, {
+    RNAnimated.loop(
+      RNAnimated.sequence([
+        RNAnimated.timing(floatY, {
           toValue: 20,
           duration: 6000,
           easing: Easing.inOut(Easing.sin),
           useNativeDriver: true,
         }),
-        Animated.timing(floatY, {
+        RNAnimated.timing(floatY, {
           toValue: -20,
           duration: 6000,
           easing: Easing.inOut(Easing.sin),
@@ -104,6 +170,24 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       ])
     ).start();
   }, []);
+
+  useEffect(() => {
+    if (showCalendar) {
+      panelTranslateX.value = withSpring(0, {
+        damping: 20,
+        stiffness: 300,
+      });
+      // Also update legacy animated value for compatibility
+      RNAnimated.spring(calendarSlideAnim, {
+        toValue: 0,
+        useNativeDriver: true,
+        tension: 50,
+        friction: 8,
+      }).start();
+    } else {
+      panelTranslateX.value = width;
+    }
+  }, [showCalendar, width]);
 
   const fetchFeed = async () => {
     setLoading(true);
@@ -319,6 +403,51 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
     hydrateLikedItems();
   }, [likedWishlists, user?.id]);
+
+  // Hydrate my wishlists with gifts if missing
+  useEffect(() => {
+    if (!user?.id || myWishlists.length === 0) return;
+
+    const hydrateMyItems = async () => {
+      const wishlistsToHydrate = myWishlists.filter(w => !w.gifts || w.gifts.length === 0);
+      
+      if (wishlistsToHydrate.length === 0) return;
+
+      console.log(`[HomeScreen] Hydrating ${wishlistsToHydrate.length} my wishlists with missing gifts`);
+      
+      for (const w of wishlistsToHydrate) {
+        try {
+          console.log(`[HomeScreen] Fetching detailed my wishlist for ${w.id}`);
+          const res = await wishlistApi.get(endpoints.wishlistById(w.id));
+          const detailedWishlist = res.data;
+          
+          // Extract gifts from detailed response (check both gifts and items)
+          const gifts = detailedWishlist.gifts || detailedWishlist.items || [];
+          const transformedGifts = gifts.map((gift: any, idx: number) => ({
+            id: gift.giftId || gift.id || `gift-${idx}`,
+            name: gift.title || gift.name || 'Unnamed Gift',
+            price: gift.price,
+            imageUrl: gift.imageUrl || gift.image,
+            description: gift.description,
+            category: gift.category,
+          })).filter((gift: any) => gift.name && gift.name !== 'Unnamed Gift' || gift.id);
+          
+          console.log(`[HomeScreen] Hydrated my wishlist ${w.id} with ${transformedGifts.length} gifts`);
+          
+          // Update the my wishlist in state
+          setMyWishlists(prev => prev.map(wishlist => 
+            wishlist.id === w.id 
+              ? { ...wishlist, gifts: transformedGifts, likes: detailedWishlist.likeCount || detailedWishlist.likes || wishlist.likes || 0 }
+              : wishlist
+          ));
+        } catch (error: any) {
+          console.error(`[HomeScreen] Error hydrating my wishlist ${w.id}:`, error.message);
+        }
+      }
+    };
+
+    hydrateMyItems();
+  }, [myWishlists, user?.id]);
 
   useEffect(() => {
     // Only fetch feed if user is authenticated
@@ -543,28 +672,62 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
   const handleLike = async (wishlistId: string) => {
     try {
-      // If already liked, do nothing (server only supports like, not unlike)
-      const target = wishlists.find(w => w.id === wishlistId);
-      if (target?.isLiked) return;
+      // Find the wishlist in any of the lists
+      const target = wishlists.find(w => w.id === wishlistId) || 
+                     likedWishlists.find(w => w.id === wishlistId) ||
+                     myWishlists.find(w => w.id === wishlistId);
+      
+      const isCurrentlyLiked = target?.isLiked || false;
+      const currentLikes = target?.likes || 0;
 
-      await wishlistApi.post(endpoints.wishlistLike(wishlistId));
-      setWishlists(prev => prev.map(w => 
-        w.id === wishlistId 
-          ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
-          : w
-      ));
-    } catch (err: any) {
-      const msg = err?.response?.data || err?.message || '';
-      // Treat "already liked" from backend as idempotent success
-      if (typeof msg === 'string' && msg.toLowerCase().includes('already liked')) {
+      if (isCurrentlyLiked) {
+        // Unlike the wishlist
+        await wishlistApi.delete(endpoints.wishlistUnlike(wishlistId));
+        // Update in all lists
         setWishlists(prev => prev.map(w => 
           w.id === wishlistId 
-            ? { ...w, isLiked: true, likes: w.isLiked ? w.likes : (w.likes || 0) + 1 }
+            ? { ...w, isLiked: false, likes: Math.max(0, (w.likes || 0) - 1) }
             : w
         ));
+        setLikedWishlists(prev => prev.map(w => 
+          w.id === wishlistId 
+            ? { ...w, isLiked: false, likes: Math.max(0, (w.likes || 0) - 1) }
+            : w
+        ));
+        setMyWishlists(prev => prev.map(w => 
+          w.id === wishlistId 
+            ? { ...w, isLiked: false, likes: Math.max(0, (w.likes || 0) - 1) }
+            : w
+        ));
+      } else {
+        // Like the wishlist
+        await wishlistApi.post(endpoints.wishlistLike(wishlistId));
+        // Update in all lists
+        setWishlists(prev => prev.map(w => 
+          w.id === wishlistId 
+            ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
+            : w
+        ));
+        setLikedWishlists(prev => prev.map(w => 
+          w.id === wishlistId 
+            ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
+            : w
+        ));
+        setMyWishlists(prev => prev.map(w => 
+          w.id === wishlistId 
+            ? { ...w, isLiked: true, likes: (w.likes || 0) + 1 }
+            : w
+        ));
+      }
+    } catch (err: any) {
+      const msg = err?.response?.data || err?.message || '';
+      // Handle "already liked" or "not liked" errors gracefully
+      if (typeof msg === 'string' && (msg.toLowerCase().includes('already liked') || msg.toLowerCase().includes('not liked'))) {
+        // Sync state with server - refresh the wishlist
+        console.log('Like state mismatch, will sync on next refresh');
         return;
       }
-      console.log('Error liking wishlist:', err);
+      console.log('Error toggling like:', err);
     }
   };
 
@@ -624,8 +787,39 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   };
 
   const handleEditWishlist = (wishlist: WishlistItem) => {
-    // TODO: Implement edit wishlist modal
-    console.log('Edit wishlist:', wishlist.id);
+    setEditingWishlist(wishlist);
+    setShowEditModal(true);
+  };
+
+  const handleUpdateWishlist = async (data: any) => {
+    if (!editingWishlist) return;
+    
+    try {
+      setEditLoading(true);
+      await wishlistApi.put(endpoints.updateWishlist(editingWishlist.id), {
+        title: data.title,
+        description: data.description || null,
+        category: data.category,
+        isPublic: data.isPublic,
+      });
+      
+      // Update the wishlist in all lists
+      const updateWishlist = (w: WishlistItem) => 
+        w.id === editingWishlist.id 
+          ? { ...w, title: data.title, description: data.description, category: data.category, isPublic: data.isPublic }
+          : w;
+      
+      setWishlists(prev => prev.map(updateWishlist));
+      setLikedWishlists(prev => prev.map(updateWishlist));
+      setMyWishlists(prev => prev.map(updateWishlist));
+      
+      setShowEditModal(false);
+      setEditingWishlist(null);
+    } catch (error) {
+      console.log('Error updating wishlist:', error);
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const handleDeleteWishlist = async (wishlist: WishlistItem) => {
@@ -684,16 +878,91 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     console.log('Bookmark toggled for wishlist:', wishlistId);
   };
 
-  const renderWishlistCard = React.useCallback(({ item }: { item: WishlistItem }) => (
-    <Animated.View
-      style={[
-        styles.wishlistCard,
-        {
-          opacity: fadeIn,
-          transform: [{ translateY: slideUp }],
-        },
-      ]}
-    >
+  const closeCalendarPanel = useCallback(() => {
+    panelTranslateX.value = withSpring(width, {
+      damping: 20,
+      stiffness: 300,
+    }, () => {
+      runOnJS(setShowCalendar)(false);
+    });
+    // Also update the legacy animated value for compatibility
+    RNAnimated.spring(calendarSlideAnim, {
+      toValue: width,
+      useNativeDriver: true,
+      tension: 50,
+      friction: 8,
+    }).start(() => {
+      setShowCalendar(false);
+    });
+  }, [panelTranslateX, width, calendarSlideAnim]);
+
+  // Smooth swipe gesture for closing calendar panel
+  const calendarSwipeGesture = useMemo(() => 
+    Gesture.Pan()
+      .onUpdate((event) => {
+        // Only allow right swipe (positive translationX) with visual feedback
+        if (event.translationX > 0) {
+          panelTranslateX.value = event.translationX;
+        }
+      })
+      .onEnd((event) => {
+        const { translationX, velocityX } = event;
+        const swipeThreshold = 80;
+        const velocityThreshold = 500;
+
+        // Swipe right to close
+        if ((translationX > swipeThreshold || velocityX > velocityThreshold) && showCalendar) {
+          // Smooth close animation
+          panelTranslateX.value = withSpring(width, {
+            damping: 20,
+            stiffness: 300,
+          }, () => {
+            runOnJS(setShowCalendar)(false);
+          });
+          // Update legacy animated value
+          RNAnimated.spring(calendarSlideAnim, {
+            toValue: width,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 8,
+          }).start(() => {
+            setShowCalendar(false);
+          });
+        } else {
+          // Spring back smoothly if swipe wasn't strong enough
+          panelTranslateX.value = withSpring(0, {
+            damping: 20,
+            stiffness: 300,
+          });
+          RNAnimated.spring(calendarSlideAnim, {
+            toValue: 0,
+            useNativeDriver: true,
+            tension: 50,
+            friction: 8,
+          }).start();
+        }
+      }), 
+    [showCalendar, panelTranslateX, width, calendarSlideAnim]
+  );
+
+  // Animated style for smooth panel movement
+  const panelAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [{ translateX: panelTranslateX.value }],
+    };
+  });
+
+  const renderWishlistCard = React.useCallback(({ item }: { item: WishlistItem }) => {
+    return (
+      <RNAnimated.View
+        style={[
+          styles.wishlistCard,
+          {
+            opacity: fadeIn,
+            transform: [{ translateY: slideUp }],
+          },
+        ]}
+      >
       <TouchableOpacity 
         onPress={() => navigation.navigate('WishlistDetail', { id: item.id })}
         style={styles.cardTouchable}
@@ -712,8 +981,14 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               <Text style={styles.userHandle}>@{item.user.username}</Text>
             </View>
           </View>
-          <TouchableOpacity style={styles.moreButton}>
-              <Text style={styles.moreText}>...</Text>
+          <TouchableOpacity 
+            style={styles.moreButton}
+            onPress={(e) => {
+              e.stopPropagation();
+              setMenuWishlistId(item.id);
+            }}
+          >
+            <Ionicons name="ellipsis-horizontal" size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
 
@@ -802,43 +1077,10 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         {/* Card footer with actions */}
         <View style={styles.cardFooter}>
           <View style={styles.actionButtons}>
-            <TouchableOpacity 
-              style={styles.actionButton}
+            <AnimatedHeartButton 
+              item={{ id: item.id, isLiked: item.isLiked, likes: item.likes }}
               onPress={() => handleLike(item.id)}
-            >
-              <Text style={[styles.actionIcon, item.isLiked && styles.likedIcon]}>
-                {item.isLiked ? 'Liked' : 'Like'}
-              </Text>
-              <Text style={styles.actionText}>{item.likes}</Text>
-            </TouchableOpacity>
-            
-            <TouchableOpacity 
-              style={styles.actionButton}
-              onPress={() => handleBookmark(item.id)}
-            >
-              <Text style={styles.actionIcon}>
-                {item.isBookmarked ? 'Saved' : 'Save'}
-              </Text>
-            </TouchableOpacity>
-            
-            {/* Edit/Delete buttons for own wishlists */}
-            {item.user.id === user?.id && (
-              <>
-                <TouchableOpacity 
-                  style={styles.actionButton}
-                  onPress={() => handleEditWishlist(item)}
-                >
-                  <Text style={styles.actionIcon}>Edit</Text>
-                </TouchableOpacity>
-                
-                <TouchableOpacity 
-                  style={styles.actionButton}
-                  onPress={() => handleDeleteWishlist(item)}
-                >
-                  <Text style={[styles.actionIcon, { color: colors.danger }]}>Delete</Text>
-                </TouchableOpacity>
-              </>
-            )}
+            />
           </View>
           
           <Text style={styles.timestamp}>
@@ -846,11 +1088,69 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           </Text>
         </View>
       </TouchableOpacity>
-    </Animated.View>
-  ), [navigation, user, fadeIn, slideUp, handleLike, handleBookmark, handleEditWishlist, handleDeleteWishlist]);
+
+      {/* Menu Modal */}
+      {menuWishlistId === item.id && (
+        <View style={styles.menuWrapper} pointerEvents="box-none">
+          <TouchableOpacity
+            style={styles.menuBackdrop}
+            activeOpacity={1}
+            onPress={() => setMenuWishlistId(null)}
+          />
+          <View style={styles.menuContainer} pointerEvents="box-none">
+            <View style={styles.menuContent}>
+              <TouchableOpacity
+                style={styles.menuItem}
+                onPress={() => {
+                  handleBookmark(item.id);
+                  setMenuWishlistId(null);
+                }}
+              >
+                <Ionicons 
+                  name={item.isBookmarked ? "bookmark" : "bookmark-outline"} 
+                  size={20} 
+                  color={colors.text} 
+                />
+                <Text style={styles.menuItemText}>
+                  {item.isBookmarked ? 'Unsave' : 'Save'}
+                </Text>
+              </TouchableOpacity>
+              
+              {item.user.id === user?.id && (
+                <>
+                  <TouchableOpacity
+                    style={styles.menuItem}
+                    onPress={() => {
+                      handleEditWishlist(item);
+                      setMenuWishlistId(null);
+                    }}
+                  >
+                    <EditIcon size={20} color={colors.text} />
+                    <Text style={styles.menuItemText}>Edit</Text>
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={[styles.menuItem, styles.menuItemDanger]}
+                    onPress={() => {
+                      handleDeleteWishlist(item);
+                      setMenuWishlistId(null);
+                    }}
+                  >
+                    <DeleteIcon size={20} color={colors.danger} />
+                    <Text style={[styles.menuItemText, styles.menuItemTextDanger]}>Delete</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+            </View>
+          </View>
+        </View>
+      )}
+      </RNAnimated.View>
+    );
+  }, [navigation, user, fadeIn, slideUp, handleLike, handleBookmark, handleEditWishlist, handleDeleteWishlist, menuWishlistId]);
 
   const Header = useMemo(() => (
-    <Animated.View 
+    <RNAnimated.View 
       style={[
         styles.header,
         {
@@ -861,7 +1161,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     >
       {/* Background blobs */}
       <View style={styles.blobContainer} pointerEvents="none">
-        <Animated.View
+        <RNAnimated.View
           style={[
             styles.blob,
             styles.blob1,
@@ -870,7 +1170,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             },
           ]}
         />
-        <Animated.View
+        <RNAnimated.View
           style={[
             styles.blob,
             styles.blob2,
@@ -899,18 +1199,22 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               <Text style={styles.headerUserName}>{user?.username || 'User'}</Text>
             </View>
           </View>
-          <TouchableOpacity 
-            onPress={() => {
-              setShowCalendar(true);
-              Animated.spring(calendarSlideAnim, {
-                toValue: 0,
-                useNativeDriver: true,
-                tension: 50,
-                friction: 8,
-              }).start();
-            }}
-            style={styles.calendarButton}
-          >
+           <TouchableOpacity 
+             onPress={() => {
+               setShowCalendar(true);
+               panelTranslateX.value = withSpring(0, {
+                 damping: 20,
+                 stiffness: 300,
+               });
+               RNAnimated.spring(calendarSlideAnim, {
+                 toValue: 0,
+                 useNativeDriver: true,
+                 tension: 50,
+                 friction: 8,
+               }).start();
+             }}
+             style={styles.calendarButton}
+           >
             <CalendarIcon size={20} color={colors.text} />
           </TouchableOpacity>
         </View>
@@ -1022,7 +1326,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
 
       </View>
-    </Animated.View>
+    </RNAnimated.View>
   ), [user, fadeIn, slideUp, floatY, activeTab, theme, searchQuery, t, showBirthdayNotification, navigation, calendarSlideAnim]);
 
   return (
@@ -1065,7 +1369,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         ListEmptyComponent={
           loading && getCurrentData().length === 0 ? (
             <View style={styles.loadingContainer}>
-              <Text style={styles.loadingText}>Loading wishlists...</Text>
+              <Text style={styles.loadingText}>{t('home.loadingWishlists', 'Loading wishlists...')}</Text>
             </View>
           ) : (
             <View style={styles.emptyContainer}>
@@ -1074,7 +1378,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               </Text>
               {!loading && (
                 <Text style={styles.emptySubtext}>
-                  Pull down to refresh or create a new wishlist
+                  {t('home.emptyHint', 'Pull down to refresh or create a new wishlist')}
                 </Text>
               )}
             </View>
@@ -1103,6 +1407,18 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         loading={createLoading}
       />
 
+      {/* Edit Wishlist Modal */}
+      <EditWishlistModal
+        visible={showEditModal}
+        onClose={() => {
+          setShowEditModal(false);
+          setEditingWishlist(null);
+        }}
+        onSubmit={handleUpdateWishlist}
+        wishlist={editingWishlist}
+        loading={editLoading}
+      />
+
       {/* Birthday Calendar Slide-out Panel */}
       {showCalendar && (
         <>
@@ -1110,48 +1426,30 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           <TouchableOpacity
             style={styles.calendarBackdrop}
             activeOpacity={1}
-            onPress={() => {
-              Animated.spring(calendarSlideAnim, {
-                toValue: width,
-                useNativeDriver: true,
-                tension: 50,
-                friction: 8,
-              }).start(() => {
-                setShowCalendar(false);
-              });
-            }}
+            onPress={closeCalendarPanel}
           />
-          {/* Slide-out Panel */}
-          <Animated.View
-            style={[
-              styles.calendarPanel,
-              {
-                transform: [{ translateX: calendarSlideAnim }],
-              },
-            ]}
-          >
-            <View style={styles.calendarPanelHeader}>
-              <Text style={styles.calendarPanelTitle}>{t('calendar.title', 'Birthday Calendar')}</Text>
-              <TouchableOpacity
-                onPress={() => {
-                  Animated.spring(calendarSlideAnim, {
-                    toValue: width,
-                    useNativeDriver: true,
-                    tension: 50,
-                    friction: 8,
-                  }).start(() => {
-                    setShowCalendar(false);
-                  });
-                }}
-                style={styles.calendarCloseButton}
-              >
-                <CloseIcon size={18} color={colors.text} />
-              </TouchableOpacity>
-            </View>
-            <ScrollView style={styles.calendarPanelContent} showsVerticalScrollIndicator={false}>
-              <BirthdayCalendar />
-            </ScrollView>
-          </Animated.View>
+           {/* Slide-out Panel */}
+           <GestureDetector gesture={calendarSwipeGesture}>
+             <Animated.View
+               style={[
+                 styles.calendarPanel,
+                 panelAnimatedStyle,
+               ]}
+             >
+              <View style={styles.calendarPanelHeader}>
+                <Text style={styles.calendarPanelTitle}>{t('calendar.title', 'Birthday Calendar')}</Text>
+                <TouchableOpacity
+                  onPress={closeCalendarPanel}
+                  style={styles.calendarCloseButton}
+                >
+                  <CloseIcon size={18} color={colors.text} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.calendarPanelContent} showsVerticalScrollIndicator={false}>
+                <BirthdayCalendar />
+              </ScrollView>
+            </Animated.View>
+          </GestureDetector>
         </>
       )}
     </View>
@@ -1595,10 +1893,69 @@ const createStyles = () => StyleSheet.create({
     fontSize: 14,
     color: colors.textSecondary,
     fontWeight: '500',
+    marginLeft: 4,
+  },
+  likedText: {
+    color: colors.danger,
   },
   timestamp: {
     fontSize: 12,
     color: colors.textMuted,
+  },
+  menuWrapper: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    zIndex: 1000,
+  },
+  menuBackdrop: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'transparent',
+  },
+  menuContainer: {
+    position: 'absolute',
+    top: 50,
+    right: 10,
+  },
+  menuContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 12,
+    paddingVertical: 8,
+    minWidth: 150,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
+    borderWidth: 1,
+    borderColor: colors.muted,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 12,
+  },
+  menuItemDanger: {
+    borderTopWidth: 1,
+    borderTopColor: colors.muted,
+    marginTop: 4,
+    paddingTop: 12,
+  },
+  menuItemText: {
+    fontSize: 16,
+    color: colors.text,
+    fontWeight: '500',
+  },
+  menuItemTextDanger: {
+    color: colors.danger,
   },
 
   // Floating Action Button

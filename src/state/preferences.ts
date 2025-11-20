@@ -19,8 +19,8 @@ export const usePreferences = create<PreferencesState>((set, get) => ({
     await AsyncStorage.setItem('pref_theme', t);
   },
   setLanguage: async (l) => {
-    set({ language: l });
     await AsyncStorage.setItem('pref_lang', l);
+    set({ language: l });
   },
   hydrate: async () => {
     try {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert, Linking, Modal, FlatList } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert, Linking, Modal, FlatList, TextInput } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
@@ -51,6 +51,10 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
   const [showEditModal, setShowEditModal] = useState(false);
   const [showSettingsMenu, setShowSettingsMenu] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState(1);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteReason, setDeleteReason] = useState<string>('');
   const [activeTab, setActiveTab] = useState<'wishlists' | 'gifts' | 'events'>('wishlists');
   const [wishlists, setWishlists] = useState<WishlistItem[]>([]);
   const [gifts, setGifts] = useState<any[]>([]);
@@ -397,7 +401,10 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
       setProfile(prev => prev ? { ...prev, avatarUrl: newUrl } : prev);
     } catch (e) {
       console.log('Avatar upload failed:', e);
-      Alert.alert('Upload failed', 'Could not upload avatar. Please try again.');
+      Alert.alert(
+        t('profile.uploadFailed', 'Upload failed'), 
+        t('profile.uploadFailedMessage', 'Could not upload avatar. Please try again.')
+      );
     } finally {
       setEditLoading(false);
     }
@@ -407,37 +414,84 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     await logout();
   };
 
-  const handleDeleteAccount = async () => {
-    Alert.alert(
-      'Delete Account',
-      'Are you sure you want to delete your account? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
+  const deleteReasons = [
+    t('profile.deleteReasons.privacy', 'Privacy concerns'),
+    t('profile.deleteReasons.notifications', 'Too many notifications'),
+    t('profile.deleteReasons.notFinding', 'Not finding what I need'),
+    t('profile.deleteReasons.betterAlternative', 'Found a better alternative'),
+    t('profile.deleteReasons.temporary', 'Temporary account'),
+    t('profile.deleteReasons.other', 'Other reason'),
+  ];
+
+  const whatYouLose = [
+    t('profile.whatYouLose.wishlists', 'All your wishlists and gifts'),
+    t('profile.whatYouLose.savedWishlists', 'All your saved wishlists from others'),
+    t('profile.whatYouLose.messages', 'All your messages and conversations'),
+    t('profile.whatYouLose.events', 'All your events and invitations'),
+    t('profile.whatYouLose.followers', 'All your followers and following relationships'),
+    t('profile.whatYouLose.profile', 'Your profile and account settings'),
+    t('profile.whatYouLose.likes', 'All your likes and bookmarks'),
+  ];
+
+  const handleDeleteAccount = () => {
+    setDeleteConfirmStep(1);
+    setDeleteConfirmText('');
+    setDeleteReason('');
+    setShowDeleteConfirm(true);
+  };
+
+  const handleDeleteStep1 = () => {
+    if (!deleteReason) {
+      Alert.alert(
+        t('common.required', 'Required'), 
+        t('profile.deleteReasonRequired', 'Please select a reason for deleting your account.')
+      );
+      return;
+    }
+    setDeleteConfirmStep(2);
+    setDeleteConfirmText('');
+  };
+
+  const handleDeleteStep2 = () => {
+    if (deleteConfirmText.toUpperCase() !== 'DELETE') {
+      Alert.alert(
+        t('profile.incorrectConfirmation', 'Incorrect Confirmation'),
+        t('profile.mustTypeDelete', 'You must type "DELETE" exactly to confirm account deletion.'),
+        [{ text: t('common.ok', 'OK') }]
+      );
+      return;
+    }
+    setDeleteConfirmStep(3);
+  };
+
+  const handleDeleteFinal = async () => {
     try {
       setEditLoading(true);
-      await api.delete(endpoints.deleteAccount);
+      setShowDeleteConfirm(false);
+      // Send deletion reason if backend supports it
+      await api.delete(endpoints.deleteAccount, {
+        data: { reason: deleteReason }
+      });
       await logout();
     } catch (error) {
       console.log('Error deleting account:', error);
-              Alert.alert('Error', 'Failed to delete account. Please try again.');
+      Alert.alert(
+        t('common.error', 'Error'), 
+        t('profile.deleteFailed', 'Failed to delete account. Please try again.')
+      );
     } finally {
       setEditLoading(false);
+      setDeleteConfirmStep(1);
+      setDeleteConfirmText('');
+      setDeleteReason('');
     }
-          },
-        },
-      ]
-    );
   };
 
   const renderWishlistGrid = () => {
     if (loadingWishlists) {
       return (
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading wishlists...</Text>
+          <Text style={styles.loadingText}>{t('profile.loadingWishlists', 'Loading wishlists...')}</Text>
         </View>
       );
     }
@@ -445,7 +499,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     if (wishlists.length === 0) {
       return (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No wishlists yet</Text>
+          <Text style={styles.emptyText}>{t('profile.noWishlists', 'No wishlists yet')}</Text>
         </View>
       );
     }
@@ -484,7 +538,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     if (loadingGifts) {
       return (
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading gifts...</Text>
+          <Text style={styles.loadingText}>{t('profile.loadingGifts', 'Loading gifts...')}</Text>
         </View>
       );
     }
@@ -492,7 +546,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     if (gifts.length === 0) {
       return (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No gifts yet</Text>
+          <Text style={styles.emptyText}>{t('profile.noGifts', 'No gifts yet')}</Text>
         </View>
       );
     }
@@ -518,7 +572,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               </View>
             )}
             <View style={styles.gridOverlay}>
-              <Text style={styles.gridTitle} numberOfLines={2}>{gift.name || gift.title || 'Gift'}</Text>
+              <Text style={styles.gridTitle} numberOfLines={2}>{gift.name || gift.title || t('gift.defaultName', 'Gift')}</Text>
               {gift.price !== undefined && gift.price !== null && (
                 <Text style={styles.gridPrice}>${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}</Text>
               )}
@@ -533,7 +587,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     if (isViewingOtherUser) {
       return (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>Events are private</Text>
+          <Text style={styles.emptyText}>{t('profile.eventsPrivate', 'Events are private')}</Text>
         </View>
       );
     }
@@ -541,7 +595,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     if (loadingEvents) {
       return (
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading events...</Text>
+          <Text style={styles.loadingText}>{t('profile.loadingEvents', 'Loading events...')}</Text>
           </View>
       );
     }
@@ -549,7 +603,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     if (events.length === 0) {
       return (
         <View style={styles.emptyContainer}>
-          <Text style={styles.emptyText}>No events yet</Text>
+          <Text style={styles.emptyText}>{t('profile.noEvents', 'No events yet')}</Text>
         </View>
       );
     }
@@ -566,7 +620,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               <CalendarIcon size={32} color={colors.textSecondary} />
             </View>
             <View style={styles.gridOverlay}>
-              <Text style={styles.gridTitle} numberOfLines={2}>{event.title || 'Event'}</Text>
+              <Text style={styles.gridTitle} numberOfLines={2}>{event.title || t('events.defaultName', 'Event')}</Text>
               {event.eventDate && (
                 <Text style={styles.gridDate}>{new Date(event.eventDate).toLocaleDateString()}</Text>
               )}
@@ -599,7 +653,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   setShowEditModal(true);
                 }}
               >
-                <Text style={styles.menuOptionText}>Edit Profile</Text>
+                <Text style={styles.menuOptionText}>{t('profile.menu.editProfile', 'Edit Profile')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuOption}
@@ -608,16 +662,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   navigation.navigate('Settings');
                 }}
               >
-                <Text style={styles.menuOptionText}>Settings</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.menuOption}
-                onPress={() => {
-                  setShowSettingsMenu(false);
-                  navigation.navigate('LikedWishlists');
-                }}
-              >
-                <Text style={styles.menuOptionText}>Liked Wishlists</Text>
+                <Text style={styles.menuOptionText}>{t('profile.menu.settings', 'Settings')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuOption}
@@ -626,7 +671,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   navigation.navigate('ReservedGifts');
                 }}
               >
-                <Text style={styles.menuOptionText}>Reserved Gifts</Text>
+                <Text style={styles.menuOptionText}>{t('profile.menu.reservedGifts', 'Reserved Gifts')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuOption}
@@ -635,7 +680,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   navigation.navigate('MyEvents');
                 }}
               >
-                <Text style={styles.menuOptionText}>My Events</Text>
+                <Text style={styles.menuOptionText}>{t('profile.menu.myEvents', 'My Events')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuOption}
@@ -644,13 +689,13 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   Linking.openURL('https://wishera.app/support');
                 }}
               >
-                <Text style={styles.menuOptionText}>Help & Support</Text>
+                <Text style={styles.menuOptionText}>{t('profile.menu.helpSupport', 'Help & Support')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={[styles.menuOption, styles.menuOptionDanger]}
                 onPress={handleDeleteAccount}
               >
-                <Text style={[styles.menuOptionText, styles.menuOptionTextDanger]}>Delete Account</Text>
+                <Text style={[styles.menuOptionText, styles.menuOptionTextDanger]}>{t('profile.menu.deleteAccount', 'Delete Account')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuOption}
@@ -659,13 +704,13 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                   handleLogout();
                 }}
               >
-                <Text style={styles.menuOptionText}>Logout</Text>
+                <Text style={styles.menuOptionText}>{t('profile.menu.logout', 'Logout')}</Text>
               </TouchableOpacity>
               <TouchableOpacity
                 style={styles.menuCancel}
                 onPress={() => setShowSettingsMenu(false)}
               >
-                <Text style={styles.menuCancelText}>Cancel</Text>
+                <Text style={styles.menuCancelText}>{t('common.cancel', 'Cancel')}</Text>
               </TouchableOpacity>
       </View>
     </TouchableOpacity>
@@ -680,7 +725,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
       <View style={styles.container}>
         <StatusBar barStyle="light-content" backgroundColor="transparent" translucent />
         <View style={styles.loadingContainer}>
-          <Text style={styles.loadingText}>Loading profile...</Text>
+          <Text style={styles.loadingText}>{t('profile.loading', 'Loading profile...')}</Text>
         </View>
       </View>
     );
@@ -754,12 +799,12 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                     <AddIcon size={18} color={colors.text} />
                   )}
                   <Text style={[styles.actionButtonText, profile.isFollowing && styles.actionButtonTextFollowing]}>
-                    {profile.isFollowing ? 'Following' : 'Follow'}
+                    {profile.isFollowing ? t('profile.following', 'Following') : t('profile.follow', 'Follow')}
                   </Text>
                 </TouchableOpacity>
                 <TouchableOpacity style={[styles.actionButton, styles.actionButtonMessage]}>
                   <ChatIcon size={18} color={colors.text} />
-                  <Text style={styles.actionButtonText}>Message</Text>
+                  <Text style={styles.actionButtonText}>{t('profile.message', 'Message')}</Text>
                 </TouchableOpacity>
               </>
             ) : (
@@ -767,7 +812,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                 style={[styles.actionButton, styles.actionButtonEdit]}
                 onPress={() => setShowEditModal(true)}
               >
-                <Text style={styles.actionButtonText}>Edit Profile</Text>
+                <Text style={styles.actionButtonText}>{t('profile.menu.editProfile', 'Edit Profile')}</Text>
               </TouchableOpacity>
             )}
           </View>
@@ -776,15 +821,15 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
           <View style={styles.statsContainer}>
             <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('Following', { userId: profile.id })}>
               <Text style={styles.statNumber}>{Number(followingCount).toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Following</Text>
+              <Text style={styles.statLabel}>{t('profile.stats.following', 'Following')}</Text>
             </TouchableOpacity>
             <TouchableOpacity style={styles.statItem} onPress={() => navigation.navigate('Followers', { userId: profile.id })}>
               <Text style={styles.statNumber}>{Number(followersCount).toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
+              <Text style={styles.statLabel}>{t('profile.stats.followers', 'Followers')}</Text>
             </TouchableOpacity>
             <View style={styles.statItem}>
               <Text style={styles.statNumber}>{Number(likesCount).toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Likes</Text>
+              <Text style={styles.statLabel}>{t('profile.stats.likes', 'Likes')}</Text>
             </View>
           </View>
 
@@ -800,7 +845,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               onPress={() => setActiveTab('wishlists')}
             >
               <ListIcon size={20} color={activeTab === 'wishlists' ? colors.primary : colors.textSecondary} />
-              <Text style={[styles.tabText, activeTab === 'wishlists' && styles.tabTextActive]}>Wishlists</Text>
+              <Text style={[styles.tabText, activeTab === 'wishlists' && styles.tabTextActive]}>{t('profile.tabs.wishlists', 'Wishlists')}</Text>
               {activeTab === 'wishlists' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
             <TouchableOpacity
@@ -808,7 +853,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               onPress={() => setActiveTab('gifts')}
             >
               <GiftIcon size={20} color={activeTab === 'gifts' ? colors.primary : colors.textSecondary} />
-              <Text style={[styles.tabText, activeTab === 'gifts' && styles.tabTextActive]}>Gifts</Text>
+              <Text style={[styles.tabText, activeTab === 'gifts' && styles.tabTextActive]}>{t('profile.tabs.gifts', 'Gifts')}</Text>
               {activeTab === 'gifts' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
             <TouchableOpacity
@@ -816,7 +861,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
               onPress={() => setActiveTab('events')}
             >
               <CalendarIcon size={20} color={activeTab === 'events' ? colors.primary : colors.textSecondary} />
-              <Text style={[styles.tabText, activeTab === 'events' && styles.tabTextActive]}>Events</Text>
+              <Text style={[styles.tabText, activeTab === 'events' && styles.tabTextActive]}>{t('profile.tabs.events', 'Events')}</Text>
               {activeTab === 'events' && <View style={styles.tabIndicator} />}
             </TouchableOpacity>
           </View>
@@ -840,7 +885,145 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
         onSubmit={handleUpdateProfile}
         loading={editLoading}
         profile={profile}
+        onAvatarUpdate={(avatarUrl) => {
+          setProfile(prev => prev ? { ...prev, avatarUrl } : null);
+        }}
       />
+
+      {/* Delete Account Confirmation Modal */}
+      <Modal
+        visible={showDeleteConfirm}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowDeleteConfirm(false)}
+      >
+        <View style={styles.deleteModalOverlay}>
+          <View style={styles.deleteModalContent}>
+            {deleteConfirmStep === 1 && (
+              <>
+                <Text style={styles.deleteModalTitle}>{t('profile.deleteAccount', 'Delete Account')}</Text>
+                <Text style={styles.deleteModalText}>
+                  {t('profile.deleteBeforeProceed', "Before you proceed, please understand what you'll lose:")}
+                </Text>
+                
+                <ScrollView style={styles.deleteModalScroll} showsVerticalScrollIndicator={false}>
+                  <View style={styles.deleteModalList}>
+                    {whatYouLose.map((item, index) => (
+                      <View key={index} style={styles.deleteModalListItem}>
+                        <Text style={styles.deleteModalListBullet}>•</Text>
+                        <Text style={styles.deleteModalListText}>{item}</Text>
+                      </View>
+                    ))}
+                  </View>
+                </ScrollView>
+
+                <Text style={[styles.deleteModalText, { marginTop: 16, marginBottom: 12 }]}>
+                  {t('profile.deleteReason', 'Why are you deleting your account?')}
+                </Text>
+                <ScrollView style={styles.deleteModalReasonsScroll} showsVerticalScrollIndicator={false}>
+                  {deleteReasons.map((reason) => (
+                    <TouchableOpacity
+                      key={reason}
+                      style={[
+                        styles.deleteModalReasonOption,
+                        deleteReason === reason && styles.deleteModalReasonOptionSelected
+                      ]}
+                      onPress={() => setDeleteReason(reason)}
+                    >
+                      <View style={[
+                        styles.deleteModalRadio,
+                        deleteReason === reason && styles.deleteModalRadioSelected
+                      ]}>
+                        {deleteReason === reason && <View style={styles.deleteModalRadioInner} />}
+                      </View>
+                      <Text style={[
+                        styles.deleteModalReasonText,
+                        deleteReason === reason && styles.deleteModalReasonTextSelected
+                      ]}>
+                        {reason}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+
+                <View style={styles.deleteModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.deleteModalButton, styles.deleteModalButtonCancel]}
+                    onPress={() => setShowDeleteConfirm(false)}
+                  >
+                    <Text style={styles.deleteModalButtonTextCancel}>{t('common.cancel', 'Cancel')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.deleteModalButton, styles.deleteModalButtonDanger, !deleteReason && styles.deleteModalButtonDisabled]}
+                    onPress={handleDeleteStep1}
+                    disabled={!deleteReason}
+                  >
+                    <Text style={styles.deleteModalButtonTextDanger}>{t('common.continue', 'Continue')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {deleteConfirmStep === 2 && (
+              <>
+                <Text style={styles.deleteModalTitle}>{t('profile.confirmDeletion', 'Confirm Deletion')}</Text>
+                <Text style={styles.deleteModalText}>
+                  {t('profile.typeDeleteToConfirm', 'To confirm, please type "DELETE" in the box below:')}
+                </Text>
+                <TextInput
+                  style={styles.deleteModalInput}
+                  value={deleteConfirmText}
+                  onChangeText={setDeleteConfirmText}
+                  placeholder={t('profile.typeDeletePlaceholder', 'Type DELETE')}
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="characters"
+                  autoCorrect={false}
+                />
+                <View style={styles.deleteModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.deleteModalButton, styles.deleteModalButtonCancel]}
+                    onPress={() => setShowDeleteConfirm(false)}
+                  >
+                    <Text style={styles.deleteModalButtonTextCancel}>{t('common.cancel', 'Cancel')}</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.deleteModalButton, styles.deleteModalButtonDanger]}
+                    onPress={handleDeleteStep2}
+                  >
+                    <Text style={styles.deleteModalButtonTextDanger}>{t('common.continue', 'Continue')}</Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+
+            {deleteConfirmStep === 3 && (
+              <>
+                <Text style={styles.deleteModalTitle}>Final Warning</Text>
+                <Text style={styles.deleteModalText}>
+                  This is your last chance to cancel. Your account and all data will be permanently deleted. Are you absolutely sure?
+                </Text>
+                <View style={styles.deleteModalButtons}>
+                  <TouchableOpacity
+                    style={[styles.deleteModalButton, styles.deleteModalButtonCancel]}
+                    onPress={() => setShowDeleteConfirm(false)}
+                  >
+                    <Text style={styles.deleteModalButtonTextCancel}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.deleteModalButton, styles.deleteModalButtonDanger]}
+                    onPress={handleDeleteFinal}
+                    disabled={editLoading}
+                  >
+                    <Text style={styles.deleteModalButtonTextDanger}>
+                      {editLoading ? 'Deleting...' : 'Yes, Delete Forever'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 };
@@ -1164,6 +1347,150 @@ const createStyles = () => StyleSheet.create({
     fontSize: 16,
     color: colors.textSecondary,
     textAlign: 'center',
+    fontWeight: '600',
+  },
+
+  // Delete Account Modal styles
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  deleteModalContent: {
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+    maxHeight: '90%',
+  },
+  deleteModalTitle: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: colors.danger,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  deleteModalText: {
+    fontSize: 16,
+    color: colors.text,
+    lineHeight: 22,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  deleteModalInput: {
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.border,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    fontSize: 16,
+    color: colors.text,
+    marginBottom: 24,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  deleteModalButton: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  deleteModalButtonCancel: {
+    backgroundColor: colors.muted,
+  },
+  deleteModalButtonDanger: {
+    backgroundColor: colors.danger,
+  },
+  deleteModalButtonTextCancel: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  deleteModalButtonTextDanger: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: 'white',
+  },
+  deleteModalButtonDisabled: {
+    opacity: 0.5,
+  },
+  deleteModalScroll: {
+    maxHeight: 120,
+    marginBottom: 16,
+  },
+  deleteModalList: {
+    marginBottom: 8,
+  },
+  deleteModalListItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  deleteModalListBullet: {
+    fontSize: 16,
+    color: colors.danger,
+    marginRight: 8,
+    fontWeight: '700',
+  },
+  deleteModalListText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+    lineHeight: 20,
+  },
+  deleteModalReasonsScroll: {
+    maxHeight: 180,
+    marginBottom: 16,
+  },
+  deleteModalReasonOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginBottom: 8,
+    backgroundColor: colors.background,
+    borderWidth: 2,
+    borderColor: colors.border,
+  },
+  deleteModalReasonOptionSelected: {
+    borderColor: colors.danger,
+    backgroundColor: colors.danger + '10',
+  },
+  deleteModalRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: colors.border,
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  deleteModalRadioSelected: {
+    borderColor: colors.danger,
+  },
+  deleteModalRadioInner: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: colors.danger,
+  },
+  deleteModalReasonText: {
+    flex: 1,
+    fontSize: 14,
+    color: colors.text,
+  },
+  deleteModalReasonTextSelected: {
+    color: colors.danger,
     fontWeight: '600',
   },
 });
