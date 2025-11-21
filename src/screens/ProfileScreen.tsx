@@ -686,7 +686,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                 style={styles.menuOption}
                 onPress={() => {
                   setShowSettingsMenu(false);
-                  Linking.openURL('https://wishera.app/support');
+                  navigation.navigate('HelpSupport');
                 }}
               >
                 <Text style={styles.menuOptionText}>{t('profile.menu.helpSupport', 'Help & Support')}</Text>

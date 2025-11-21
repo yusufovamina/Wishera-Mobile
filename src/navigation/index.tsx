@@ -26,6 +26,7 @@ import { InvitationsScreen } from '../screens/InvitationsScreen';
 import { UserWishlistsScreen } from '../screens/UserWishlistsScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { EventDetailScreen } from '../screens/EventDetailScreen';
+import { HelpSupportScreen } from '../screens/HelpSupportScreen';
 import { useAuthStore } from '../state/auth';
 import { useChatNotifications } from '../hooks/useChatNotifications';
 import { useI18n } from '../i18n';
@@ -84,6 +85,7 @@ export const AppNavigator: React.FC = () => {
             <Stack.Screen name="Invitations" component={InvitationsScreen} options={{ title: 'Invitations' }} />
             <Stack.Screen name="UserWishlists" component={UserWishlistsScreen} options={{ title: 'My Wishlists' }} />
             <Stack.Screen name="Settings" component={SettingsScreen} options={{ title: 'Settings' }} />
+            <Stack.Screen name="HelpSupport" component={HelpSupportScreen} options={{ title: 'Help & Support' }} />
           </>
         ) : (
           // Not authenticated - show auth screens
