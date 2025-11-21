@@ -1,10 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Alert, StatusBar, RefreshControl, Image } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Alert, StatusBar, RefreshControl, Image, Platform } from 'react-native';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { usePreferences } from '../state/preferences';
 import { useAuthStore } from '../state/auth';
-import { endpoints, getApiClient } from '../api/client';
+import { endpoints, getApiClient, userApi } from '../api/client';
 import { EventModal } from '../components/EventModal';
 import { CalendarIcon, TimeIcon, LocationIcon, DocumentTextIcon, CheckIcon, CloseIcon, EditIcon, DeleteIcon, BanIcon } from '../components/Icon';
 
@@ -72,125 +72,156 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
       // Transform backend response to match our EventDetail type
       const eventData = res.data;
       
-      // Extract invitations with better status handling
+      // ALWAYS fetch invitations separately to ensure we get all invitees
+      // The backend has a dedicated endpoint for event invitations that returns InviteeId
       let invitations: any[] = [];
       
-      // Try different possible invitation fields
-      if (Array.isArray(eventData.invitations)) {
-        invitations = eventData.invitations;
-      } else if (Array.isArray(eventData.invitees)) {
-        invitations = eventData.invitees;
-      } else if (Array.isArray(eventData.invitationList)) {
-        invitations = eventData.invitationList;
-      } else if (Array.isArray(eventData.invitationsList)) {
-        invitations = eventData.invitationsList;
-      }
-      
-      console.log('Raw invitations data:', invitations);
-      console.log('Invitation count:', invitations.length);
-      console.log('Full event data keys:', Object.keys(eventData));
-      console.log('Event data structure:', JSON.stringify(eventData, null, 2));
-      
-      // If no invitations in the event response, try fetching them separately
-      if (invitations.length === 0) {
-        console.log('No invitations in event response, trying to fetch separately...');
-        try {
-          const invitationsApi = getApiClient(endpoints.eventInvitations(eventId));
-          const invitationsRes = await invitationsApi.get(endpoints.eventInvitations(eventId));
-          console.log('Separate invitations response:', invitationsRes.data);
-          
-          if (Array.isArray(invitationsRes.data)) {
-            invitations = invitationsRes.data;
-          } else if (Array.isArray(invitationsRes.data?.items)) {
-            invitations = invitationsRes.data.items;
-          } else if (Array.isArray(invitationsRes.data?.invitations)) {
-            invitations = invitationsRes.data.invitations;
-          }
-          console.log('Fetched invitations separately, count:', invitations.length);
-        } catch (invError: any) {
-          console.log('Could not fetch invitations separately:', invError?.response?.status, invError?.response?.data);
-          // Continue with empty invitations if separate fetch fails
+      try {
+        console.log('Fetching event invitations from separate endpoint...');
+        const invitationsApi = getApiClient(endpoints.eventInvitations(eventId));
+        const invitationsRes = await invitationsApi.get(endpoints.eventInvitations(eventId));
+        console.log('Separate invitations response:', invitationsRes.data);
+        
+        if (Array.isArray(invitationsRes.data)) {
+          invitations = invitationsRes.data;
+        } else if (Array.isArray(invitationsRes.data?.items)) {
+          invitations = invitationsRes.data.items;
+        } else if (Array.isArray(invitationsRes.data?.invitations)) {
+          invitations = invitationsRes.data.invitations;
         }
+        console.log('✅ Fetched invitations separately, count:', invitations.length);
+        // Log each invitation's InviteeId and InviterId to debug
+        invitations.forEach((inv: any, index: number) => {
+          console.log(`📋 Invitation ${index + 1}:`, {
+            id: inv.id || inv.invitationId,
+            InviteeId: inv.InviteeId || inv.inviteeId,
+            InviterId: inv.InviterId || inv.inviterId,
+            InviterUsername: inv.InviterUsername || inv.inviterUsername,
+            Status: inv.status || inv.invitationStatus,
+          });
+        });
+       } catch (invError: any) {
+         console.warn('⚠️ Could not fetch invitations separately, trying event response:', invError?.response?.status, invError?.response?.data);
+        
+        // Fallback: try to get invitations from event response if separate fetch fails
+        if (Array.isArray(eventData.invitations)) {
+          invitations = eventData.invitations;
+        } else if (Array.isArray(eventData.invitees)) {
+          invitations = eventData.invitees;
+        } else if (Array.isArray(eventData.invitationList)) {
+          invitations = eventData.invitationList;
+        } else if (Array.isArray(eventData.invitationsList)) {
+          invitations = eventData.invitationsList;
+        }
+        console.log('Fallback: Found invitations in event response, count:', invitations.length);
       }
       
       // Transform invitations with proper status extraction
-      const transformedInvitations = await Promise.all(invitations.map(async (inv: any) => {
+      console.log(`🔄 Starting to transform ${invitations.length} invitations...`);
+      const transformedInvitations = await Promise.all(invitations.map(async (inv: any, index: number) => {
+        console.log(`\n📄 Processing invitation ${index + 1}/${invitations.length}:`, {
+          invitationId: inv.id || inv.invitationId,
+          rawInviteeId: inv.InviteeId || inv.inviteeId,
+          rawInviterId: inv.InviterId || inv.inviterId,
+          rawInviterUsername: inv.InviterUsername || inv.inviterUsername,
+        });
+        
+        // Log the full raw invitation for debugging
+        console.log('Raw invitation object:', JSON.stringify(inv, null, 2));
+        
         // Try multiple possible status field names and normalize to lowercase
         let status = 'pending';
-        if (inv.status) {
+        if (inv.status !== undefined) {
           status = String(inv.status).toLowerCase();
-        } else if (inv.invitationStatus) {
+        } else if (inv.invitationStatus !== undefined) {
           status = String(inv.invitationStatus).toLowerCase();
-        } else if (inv.responseStatus) {
+        } else if (inv.responseStatus !== undefined) {
           status = String(inv.responseStatus).toLowerCase();
-        } else if (inv.response) {
+        } else if (inv.response !== undefined) {
           status = String(inv.response).toLowerCase();
         }
         
         // Normalize status values
-        if (status === 'accept' || status === 'accepted') {
+        if (status === 'accept' || status === 'accepted' || status === '1') {
           status = 'accepted';
-        } else if (status === 'decline' || status === 'declined' || status === 'rejected') {
+        } else if (status === 'decline' || status === 'declined' || status === 'rejected' || status === '2') {
           status = 'declined';
         } else {
           status = 'pending';
         }
         
-        console.log('Invitation:', {
+        console.log('Invitation status extracted:', {
           id: inv.id || inv.invitationId,
-          username: inv.username || inv.inviteeUsername || inv.name,
-          status: status,
-          rawStatus: inv.status || inv.invitationStatus || inv.responseStatus,
+          rawStatus: inv.status,
+          normalizedStatus: status,
         });
         
         // Extract invitee (person being invited) information, NOT the inviter
-        // The invitee is the person who received the invitation
-        // First, get the invitee's userId - this is the person who was invited
+        // The backend returns:
+        // - InviteeId: the ID of the person who was invited
+        // - InviterUsername/InviterAvatarUrl: the inviter's (event creator's) info
+        // - Possibly username/avatarUrl fields that might be inviter data
+        // We MUST only use InviteeId to fetch invitee info, and ignore all inviter fields
+        
         const eventCreatorId = eventData.createdBy || eventData.creatorId || eventData.userId || '';
         
-        // Get potential invitee ID from various fields
-        let inviteeUserId = inv.inviteeId || inv.inviteeUserId || inv.invitee?.id || inv.invitee?.userId || '';
+        // Get invitee ID from backend response (this is the person who was invited)
+        // Backend returns this as "InviteeId" (capital I) or "inviteeId" (camelCase)
+        const inviteeId = inv.InviteeId || inv.inviteeId || inv.inviteeUserId || 
+                         inv.invitee?.id || inv.invitee?.userId || '';
         
-        // If no invitee-specific ID, try userId but make sure it's not the creator
-        if (!inviteeUserId) {
-          const potentialUserId = inv.userId || inv.user?.id || '';
-          if (potentialUserId && potentialUserId !== eventCreatorId) {
-            inviteeUserId = potentialUserId;
-          }
+        // Get inviter ID to make sure we're not mixing them up
+        const inviterId = inv.InviterId || inv.inviterId || eventCreatorId || '';
+        
+        console.log(`🔍 Extracted IDs for invitation ${index + 1}:`, {
+          inviteeId: inviteeId,
+          inviterId: inviterId,
+          eventCreatorId: eventCreatorId,
+          inviteeIdMatchesCreator: inviteeId === eventCreatorId,
+        });
+        
+        // Make sure we have an invitee ID and it's not the creator
+        const actualInviteeId = inviteeId && inviteeId !== eventCreatorId ? inviteeId : '';
+        
+        if (!actualInviteeId) {
+          console.error(`❌ PROBLEM: No valid InviteeId for invitation ${index + 1}!`, {
+            inviteeId: inviteeId,
+            eventCreatorId: eventCreatorId,
+            isCreator: inviteeId === eventCreatorId,
+          });
         }
         
-        // Final check: make sure we're not using the creator's ID as the invitee
-        const actualInviteeId = inviteeUserId && inviteeUserId !== eventCreatorId ? inviteeUserId : '';
+        // IMPORTANT: Do NOT use any of these fields as they might be inviter data:
+        // - inv.username (could be InviterUsername)
+        // - inv.avatarUrl (could be InviterAvatarUrl)
+        // - inv.InviterUsername (definitely inviter)
+        // - inv.InviterAvatarUrl (definitely inviter)
+        // - inv.name (could be inviter name)
         
         let username = 'Unknown';
         let avatarUrl = '';
         
-        // Priority: Check invitee-specific fields first (person being invited)
+        // Only check for explicitly invitee-specific fields (which backend likely doesn't provide)
         if (inv.invitee?.username) {
           username = inv.invitee.username;
-          avatarUrl = inv.invitee.avatarUrl || inv.invitee.avatar || '';
-        } else if (inv.invitee?.name) {
-          username = inv.invitee.name;
           avatarUrl = inv.invitee.avatarUrl || inv.invitee.avatar || '';
         } else if (inv.inviteeUsername) {
           username = inv.inviteeUsername;
           avatarUrl = inv.inviteeAvatarUrl || inv.inviteeAvatar || '';
-        } else if (inv.inviteeName) {
-          username = inv.inviteeName;
-          avatarUrl = inv.inviteeAvatarUrl || inv.inviteeAvatar || '';
-        } else if (inv.user?.id && inv.user.id === actualInviteeId && inv.user.id !== eventCreatorId) {
-          // Only use if this user object is the invitee (not the creator)
-          username = inv.user.username || inv.user.name || 'Unknown';
-          avatarUrl = inv.user.avatarUrl || inv.user.avatar || '';
-        } else if (inv.username && inv.userId === actualInviteeId && inv.userId !== eventCreatorId) {
-          // Only use if this is the invitee's username (not the creator)
-          username = inv.username;
-          avatarUrl = inv.avatarUrl || inv.avatar || '';
-        } else if (actualInviteeId && actualInviteeId !== eventCreatorId) {
-          // If we have invitee userId but no username, fetch user info
+        }
+        
+        // ALWAYS fetch invitee info using InviteeId - this is the only reliable way
+        // The backend provides InviteeId, so we use it to get the invitee's user info
+        // Use /api/users/{userId} endpoint (like ChatScreen and ProfileScreen do), NOT /api/users/profile
+        if (actualInviteeId) {
           try {
-            const userApi = getApiClient(endpoints.identification);
-            const userRes = await userApi.get(`${endpoints.identification}?userId=${actualInviteeId}`);
+            const userApi = getApiClient(`/api/users/${actualInviteeId}`);
+            const userRes = await userApi.get(`/api/users/${actualInviteeId}`);
+            console.log(`👤 User API response for InviteeId ${actualInviteeId}:`, {
+              username: userRes.data?.username,
+              name: userRes.data?.name,
+              avatarUrl: userRes.data?.avatarUrl ? 'present' : 'none',
+            });
             if (userRes.data?.username) {
               username = userRes.data.username;
             } else if (userRes.data?.name) {
@@ -199,34 +230,62 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
             if (userRes.data?.avatarUrl) {
               avatarUrl = userRes.data.avatarUrl;
             }
-            console.log('Fetched invitee info for userId:', actualInviteeId, 'username:', username);
+            console.log(`✅ Fetched INVITEE info for invitation ${index + 1} - InviteeId: ${actualInviteeId}, username: ${username}, avatarUrl: ${avatarUrl ? 'present' : 'none'}`);
           } catch (userError: any) {
-            console.log('Could not fetch invitee info for userId:', actualInviteeId, userError?.response?.status);
+            console.error(`❌ Could not fetch invitee info for InviteeId: ${actualInviteeId}`, {
+              status: userError?.response?.status,
+              data: userError?.response?.data,
+              message: userError?.message,
+            });
+            // If fetch fails and we still don't have a username, keep it as Unknown
           }
+        } else {
+          console.warn('⚠️ No valid InviteeId found in invitation:', inv);
         }
         
-        console.log('Extracted invitee username:', username, 'from invitation:', {
-          inviteeUserId: actualInviteeId,
-          eventCreatorId: eventCreatorId,
-          isCreator: actualInviteeId === eventCreatorId,
-          hasInvitee: !!inv.invitee,
-          hasInviteeUsername: !!inv.inviteeUsername,
-          hasInviteeName: !!inv.inviteeName,
-          hasUser: !!inv.user,
-          userIsInvitee: inv.user?.id === actualInviteeId && inv.user?.id !== eventCreatorId,
-          fullInvitation: JSON.stringify(inv, null, 2),
+        // IMPORTANT: We fetched using InviteeId, so username and avatarUrl are definitely the invitee's info
+        // We don't compare with inviter values because usernames/avatars can legitimately be the same
+        // The key is that we used InviteeId to fetch, not InviterUsername/InviterAvatarUrl
+        
+        console.log(`✅ Final extracted INVITEE data for invitation ${index + 1}:`, {
+          invitationId: inv.id || inv.invitationId,
+          inviteeId: actualInviteeId,
+          inviteeUsername: username,
+          inviteeAvatarUrl: avatarUrl ? 'present' : 'none',
+          inviterId: inviterId,
+          inviterUsername: inv.InviterUsername || inv.inviterUsername || 'N/A',
+          fetchedUsingInviteeId: !!actualInviteeId,
         });
         
-        return {
+        const invitationResult = {
           id: inv.id || inv.invitationId || '',
           userId: actualInviteeId,
           username: username,
           status: status as 'pending' | 'accepted' | 'declined',
           avatarUrl: avatarUrl,
         };
+        
+        console.log(`✅ Final invitation result ${index + 1}:`, {
+          id: invitationResult.id,
+          inviteeUserId: invitationResult.userId,
+          inviteeUsername: invitationResult.username,
+          inviteeAvatarUrl: invitationResult.avatarUrl ? 'present' : 'none',
+          status: invitationResult.status,
+        });
+        
+        return invitationResult;
       }));
       
-      console.log('Transformed invitations:', transformedInvitations);
+      console.log('\n📊 All transformed invitations summary:');
+      transformedInvitations.forEach((inv, index) => {
+        console.log(`  Invitation ${index + 1}:`, {
+          id: inv.id,
+          userId: inv.userId,
+          username: inv.username,
+          status: inv.status,
+        });
+      });
+      console.log('Transformed invitations array:', transformedInvitations);
       
       const transformedEvent: EventDetail = {
         id: eventData.id || eventId,
@@ -309,99 +368,164 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
     }
   };
 
-  const handleDelete = async () => {
-    Alert.alert(
-      'Delete Event',
-      'Are you sure you want to delete this event? This action cannot be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              setDeleteLoading(true);
-              console.log('Deleting event:', eventId);
-              console.log('Delete endpoint:', endpoints.deleteEvent(eventId));
-              
-              const eventApi = getApiClient(endpoints.deleteEvent(eventId));
-              console.log('Using API client:', eventApi.defaults.baseURL);
-              
-              const response = await eventApi.delete(endpoints.deleteEvent(eventId));
-              console.log('Delete response:', response.data);
-              console.log('Event deleted successfully');
-              
-              Alert.alert('Success', 'Event deleted successfully!', [
-                { text: 'OK', onPress: () => navigation.goBack() }
-              ]);
-            } catch (error: any) {
-              console.error('Error deleting event:', error);
-              console.error('Error response:', error?.response?.data);
-              console.error('Error status:', error?.response?.status);
-              console.error('Error config:', error?.config?.url);
-              
-              const errorMessage = error?.response?.data?.message || 
-                                 error?.response?.data?.error || 
-                                 error?.message || 
-                                 'Failed to delete event';
-              Alert.alert('Error', errorMessage);
-            } finally {
-              setDeleteLoading(false);
+  const performDeleteAction = async () => {
+    console.log('performDeleteAction called, making API call...');
+    console.log('Delete endpoint:', endpoints.deleteEvent(eventId));
+    console.log('UserApi baseURL:', userApi.defaults.baseURL);
+    console.log('Full URL:', userApi.defaults.baseURL + endpoints.deleteEvent(eventId));
+    
+    try {
+      setDeleteLoading(true);
+      
+      // Use userApi directly like web version uses axios directly
+      const response = await userApi.delete(endpoints.deleteEvent(eventId));
+      
+      console.log('Delete API call successful, status:', response.status);
+      console.log('Delete response:', response.data);
+      
+      if (Platform.OS === 'web') {
+        window.alert('Event deleted successfully!');
+        navigation.goBack();
+      } else {
+        Alert.alert('Success', 'Event deleted successfully!', [
+          { 
+            text: 'OK', 
+            onPress: () => {
+              console.log('Navigating back after delete');
+              navigation.goBack();
             }
-          },
-        },
-      ]
-    );
+          }
+        ]);
+      }
+    } catch (error: any) {
+      console.error('Delete API call failed:', error);
+      console.error('Error response:', error?.response?.data);
+      console.error('Error status:', error?.response?.status);
+      console.error('Error message:', error?.message);
+      
+      const errorMessage = error?.response?.data?.message || 
+                         error?.response?.data?.error || 
+                         error?.message || 
+                         'Failed to delete event';
+      console.error('Showing error alert:', errorMessage);
+      
+      if (Platform.OS === 'web') {
+        window.alert(`Error: ${errorMessage}`);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    } finally {
+      console.log('Setting deleteLoading to false');
+      setDeleteLoading(false);
+    }
   };
 
-  const handleCancel = async () => {
-    Alert.alert(
-      'Cancel Event',
-      'Are you sure you want to cancel this event?',
-      [
-        { text: 'No', style: 'cancel' },
-        {
-          text: 'Yes',
-          onPress: async () => {
-            try {
-              setDeleteLoading(true);
-              console.log('Cancelling event:', eventId);
-              console.log('Cancel endpoint:', endpoints.cancelEvent(eventId));
-              
-              const eventApi = getApiClient(endpoints.cancelEvent(eventId));
-              console.log('Using API client:', eventApi.defaults.baseURL);
-              
-              // Try POST first, if that fails try PUT
-              try {
-                const response = await eventApi.post(endpoints.cancelEvent(eventId), {});
-                console.log('Cancel response (POST):', response.data);
-              } catch (postError: any) {
-                console.log('POST failed, trying PUT:', postError?.response?.status);
-                const response = await eventApi.put(endpoints.cancelEvent(eventId), { isCancelled: true });
-                console.log('Cancel response (PUT):', response.data);
-              }
-              
-              console.log('Event cancelled successfully');
-              await fetchEvent(); // Refresh event data
-              Alert.alert('Success', 'Event cancelled successfully!');
-            } catch (error: any) {
-              console.error('Error cancelling event:', error);
-              console.error('Error response:', error?.response?.data);
-              console.error('Error status:', error?.response?.status);
-              console.error('Error config:', error?.config?.url);
-              
-              const errorMessage = error?.response?.data?.message || 
-                                 error?.response?.data?.error || 
-                                 error?.message || 
-                                 'Failed to cancel event';
-              Alert.alert('Error', errorMessage);
-            } finally {
-              setDeleteLoading(false);
+  const handleDelete = () => {
+    console.log('handleDelete called, eventId:', eventId);
+    
+    if (!eventId) {
+      console.error('Event ID is missing');
+      if (Platform.OS === 'web') {
+        window.alert('Error: Event ID is missing');
+      } else {
+        Alert.alert('Error', 'Event ID is missing');
+      }
+      return;
+    }
+    
+    // Use window.confirm on web (like web version), Alert.alert on native
+    if (Platform.OS === 'web') {
+      console.log('Using window.confirm for web platform');
+      if (window.confirm('Are you sure you want to delete this event? This action cannot be undone.')) {
+        performDeleteAction();
+      } else {
+        console.log('Delete cancelled by user');
+      }
+    } else {
+      console.log('Showing delete confirmation Alert for native platform...');
+      Alert.alert(
+        'Delete Event',
+        'Are you sure you want to delete this event? This action cannot be undone.',
+        [
+          { 
+            text: 'Cancel', 
+            style: 'cancel',
+            onPress: () => {
+              console.log('Delete cancelled by user');
             }
           },
-        },
-      ]
-    );
+          {
+            text: 'Delete',
+            style: 'destructive',
+            onPress: performDeleteAction,
+          },
+        ]
+      );
+      console.log('Alert.alert called');
+    }
+  };
+
+  const performCancelAction = async () => {
+    try {
+      setDeleteLoading(true);
+      
+      // Use userApi directly like web version uses axios directly
+      await userApi.put(endpoints.cancelEvent(eventId), null);
+      
+      await fetchEvent(); // Refresh event data
+      
+      if (Platform.OS === 'web') {
+        window.alert('Event cancelled successfully!');
+      } else {
+        Alert.alert('Success', 'Event cancelled successfully!');
+      }
+    } catch (error: any) {
+      const errorMessage = error?.response?.data?.message || 
+                         error?.response?.data?.error || 
+                         error?.message || 
+                         'Failed to cancel event';
+      
+      if (Platform.OS === 'web') {
+        window.alert(`Error: ${errorMessage}`);
+      } else {
+        Alert.alert('Error', errorMessage);
+      }
+    } finally {
+      setDeleteLoading(false);
+    }
+  };
+
+  const handleCancel = () => {
+    if (!eventId) {
+      if (Platform.OS === 'web') {
+        window.alert('Error: Event ID is missing');
+      } else {
+        Alert.alert('Error', 'Event ID is missing');
+      }
+      return;
+    }
+    
+    // Use window.confirm on web (like web version), Alert.alert on native
+    if (Platform.OS === 'web') {
+      if (window.confirm('Are you sure you want to cancel this event?')) {
+        performCancelAction();
+      }
+    } else {
+      Alert.alert(
+        'Cancel Event',
+        'Are you sure you want to cancel this event?',
+        [
+          { 
+            text: 'No', 
+            style: 'cancel'
+          },
+          {
+            text: 'Yes',
+            onPress: performCancelAction,
+          },
+        ]
+      );
+    }
   };
 
   const formatDate = (dateString?: string) => {
@@ -555,7 +679,7 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
         {/* Invitations Section - Always show if event exists */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>
-            Invitations {event.invitations && event.invitations.length > 0 ? `(${event.invitations.length})` : '(0)'}
+            {`Invitations ${event.invitations && event.invitations.length > 0 ? `(${event.invitations.length})` : '(0)'}`}
           </Text>
           {event.invitations && event.invitations.length > 0 ? (
             event.invitations.map((invitation) => {
@@ -580,12 +704,14 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
                     ) : (
                       <View style={styles.invitationAvatarPlaceholder}>
                         <Text style={styles.invitationAvatarText}>
-                          {invitation.username?.charAt(0).toUpperCase() || '?'}
+                          {(invitation.username || '?').charAt(0).toUpperCase()}
                         </Text>
                       </View>
                     )}
                     <View style={styles.invitationDetails}>
-                      <Text style={styles.invitationUsername}>@{invitation.username}</Text>
+                      <Text style={styles.invitationUsername}>
+                        @{invitation.username || invitation.userId || 'Unknown'}
+                      </Text>
                       <View style={[styles.statusBadge, { backgroundColor: statusColor + '20' }]}>
                         <StatusIconComponent size={14} color={statusColor} />
                         <Text style={[styles.statusText, { color: statusColor }]}>
@@ -626,12 +752,21 @@ export const EventDetailScreen: React.FC<any> = ({ navigation, route }) => {
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={[styles.actionButton, styles.deleteButton]}
-              onPress={handleDelete}
+              style={[styles.actionButton, styles.deleteButton, (editLoading || deleteLoading) && styles.disabledButton]}
+              onPress={() => {
+                console.log('Delete button pressed!');
+                if (editLoading || deleteLoading) {
+                  console.log('Button is disabled, ignoring press');
+                  return;
+                }
+                handleDelete();
+              }}
               disabled={editLoading || deleteLoading}
             >
               <DeleteIcon size={18} color="white" />
-              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>Delete Event</Text>
+              <Text style={[styles.actionButtonText, styles.deleteButtonText]}>
+                {deleteLoading ? 'Deleting...' : 'Delete Event'}
+              </Text>
             </TouchableOpacity>
           </View>
         )}

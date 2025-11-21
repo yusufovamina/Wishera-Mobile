@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated as RNAnimated, Easing, Dimensions, StatusBar, TextInput } from 'react-native';
+import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated as RNAnimated, Easing, Dimensions, StatusBar, TextInput, Platform } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -19,6 +19,46 @@ import { useAuthStore } from '../state/auth';
 import { api, wishlistApi, userApi, endpoints } from '../api/client';
 
 const { width, height } = Dimensions.get('window');
+
+// Search Input Component - memoized to prevent re-renders that cause focus loss
+// Don't use custom comparison - let React.memo do shallow comparison to allow value updates
+const SearchInput: React.FC<{
+  value: string;
+  onChangeText: (text: string) => void;
+  onFocus: () => void;
+  onBlur: () => void;
+  placeholder: string;
+  inputRef: React.RefObject<TextInput>;
+  placeholderTextColor: string;
+  textColor: string;
+}> = React.memo(({ value, onChangeText, onFocus, onBlur, placeholder, inputRef, placeholderTextColor, textColor }) => {
+  return (
+    <TextInput
+      ref={inputRef}
+      style={{ flex: 1, fontSize: 16, color: textColor, paddingVertical: 0 }}
+      placeholder={placeholder}
+      placeholderTextColor={placeholderTextColor}
+      value={value}
+      onChangeText={onChangeText}
+      autoCapitalize="none"
+      autoCorrect={false}
+      autoFocus={false}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      blurOnSubmit={false}
+      returnKeyType="search"
+      onSubmitEditing={() => {
+        inputRef.current?.focus();
+      }}
+      // Prevent focus loss on React Native Web
+      selectTextOnFocus={false}
+      // Ensure editable is always true
+      editable={true}
+    />
+  );
+});
+
+SearchInput.displayName = 'SearchInput';
 
 // Heart animation component - must be outside to use hooks properly
 const AnimatedHeartButton: React.FC<{ 
@@ -134,6 +174,35 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   
   // Reanimated value for smooth panel animation
   const panelTranslateX = useSharedValue(width);
+  
+  // Search input ref to maintain focus
+  const searchInputRef = useRef<TextInput>(null);
+  const searchBlurTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  
+  // Memoize the onFocus handler to prevent re-renders
+  const handleSearchFocus = useCallback(() => {
+    // Clear any pending blur timeout
+    if (searchBlurTimeoutRef.current) {
+      clearTimeout(searchBlurTimeoutRef.current);
+      searchBlurTimeoutRef.current = null;
+    }
+    if (suggestedUsers.length > 0 && searchQuery.trim().length >= 2) {
+      setShowSearchDropdown(true);
+    }
+  }, [suggestedUsers.length, searchQuery]);
+  
+  // Memoize the onBlur handler - prevent closing if user is still typing
+  const handleSearchBlur = useCallback(() => {
+    // Delay closing to allow tap on suggestion
+    // Clear any existing timeout first
+    if (searchBlurTimeoutRef.current) {
+      clearTimeout(searchBlurTimeoutRef.current);
+    }
+    searchBlurTimeoutRef.current = setTimeout(() => {
+      setShowSearchDropdown(false);
+      searchBlurTimeoutRef.current = null;
+    }, 250);
+  }, []);
 
   useEffect(() => {
     // Entrance animations
@@ -460,6 +529,34 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
       setFilteredWishlists([]);
     }
   }, [user?.id]);
+
+  // Search users when search query changes - memoized handler to prevent re-renders
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (text.trim().length >= 2) {
+      setShowSearchDropdown(true);
+    } else {
+      setShowSearchDropdown(false);
+      setSuggestedUsers([]);
+    }
+    
+    // For React Native Web: Restore focus immediately after state update
+    // This fixes the issue where input loses focus after each keystroke
+    if (Platform.OS === 'web' && searchInputRef.current) {
+      // Use requestAnimationFrame to restore focus after React finishes rendering
+      requestAnimationFrame(() => {
+        if (searchInputRef.current) {
+          const isCurrentlyFocused = searchInputRef.current.isFocused?.() || 
+                                    (typeof document !== 'undefined' && 
+                                     document.activeElement === (searchInputRef.current as any));
+          // If input should be focused (user is typing), restore focus
+          if (isCurrentlyFocused || text.length > 0) {
+            searchInputRef.current.focus();
+          }
+        }
+      });
+    }
+  }, []);
 
   // Search users when search query changes
   useEffect(() => {
@@ -1220,39 +1317,30 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
 
         {/* Search bar */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
+        <View style={styles.searchContainer} pointerEvents="box-none">
+          <View style={styles.searchBar} key="search-bar-stable">
             <SearchIcon size={16} color={colors.textSecondary} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t('home.searchPlaceholder', 'Search wishlists or users...')}
-              placeholderTextColor={colors.textSecondary}
-              value={searchQuery}
-              onChangeText={(text) => {
-                setSearchQuery(text);
-                if (text.trim().length >= 2) {
-                  setShowSearchDropdown(true);
-                } else {
-                  setShowSearchDropdown(false);
-                }
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              onFocus={() => {
-                if (suggestedUsers.length > 0 && searchQuery.trim().length >= 2) {
-                  setShowSearchDropdown(true);
-                }
-              }}
-              onBlur={() => {
-                // Delay closing to allow tap on suggestion
-                setTimeout(() => setShowSearchDropdown(false), 200);
-              }}
-            />
+            <View key="search-input-wrapper" style={{ flex: 1 }}>
+              <SearchInput
+                inputRef={searchInputRef}
+                value={searchQuery}
+                onChangeText={handleSearchChange}
+                onFocus={handleSearchFocus}
+                onBlur={handleSearchBlur}
+                placeholder={t('home.searchPlaceholder', 'Search wishlists or users...')}
+                placeholderTextColor={colors.textSecondary}
+                textColor={colors.text}
+              />
+            </View>
             {searchQuery.length > 0 && (
               <TouchableOpacity onPress={() => {
                 setSearchQuery('');
                 setSuggestedUsers([]);
                 setShowSearchDropdown(false);
+                // Refocus input after clearing
+                setTimeout(() => {
+                  searchInputRef.current?.focus();
+                }, 100);
               }} style={styles.clearButton}>
                 <CloseIcon size={18} color={colors.textSecondary} />
               </TouchableOpacity>
@@ -1261,10 +1349,11 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
           
           {/* User Search Suggestions Dropdown */}
           {showSearchDropdown && suggestedUsers.length > 0 && searchQuery.trim().length >= 2 && (
-            <View style={styles.searchDropdown}>
+            <View style={styles.searchDropdown} pointerEvents="box-none">
               <ScrollView 
                 style={styles.searchDropdownScroll}
-                keyboardShouldPersistTaps="handled"
+                keyboardShouldPersistTaps="always"
+                keyboardDismissMode="none"
                 nestedScrollEnabled={true}
               >
                 {suggestedUsers.map((user: any) => (

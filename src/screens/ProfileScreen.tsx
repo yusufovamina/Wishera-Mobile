@@ -838,6 +838,17 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
             <Text style={styles.bio}>{profile.bio}</Text>
           )}
 
+          {/* Interests */}
+          {profile.interests && profile.interests.length > 0 && (
+            <View style={styles.interestsContainer}>
+              {profile.interests.map((interest, index) => (
+                <View key={index} style={styles.interestChip}>
+                  <Text style={styles.interestChipText}>{interest}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
           {/* Tabs */}
           <View style={styles.tabsContainer}>
             <TouchableOpacity
@@ -1192,6 +1203,28 @@ const createStyles = () => StyleSheet.create({
     lineHeight: 18,
     marginBottom: 20,
     paddingHorizontal: 20,
+  },
+  interestsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  interestChip: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.muted,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  interestChipText: {
+    fontSize: 12,
+    color: colors.text,
+    fontWeight: '500',
   },
   tabsContainer: {
     flexDirection: 'row',

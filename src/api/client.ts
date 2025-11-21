@@ -252,10 +252,14 @@ export const endpoints = {
   // Chat endpoints
   chatHistory: (userId: string, peerUserId: string, page: number = 1, pageSize: number = 50) => 
     `/api/chat/history/${userId}/${peerUserId}?page=${page}&pageSize=${pageSize}`,
+  getConversations: (userId: string) => 
+    `/api/chat/conversations/${userId}`,
   searchUsers: (query: string, page: number = 1, pageSize: number = 10) => 
     `/api/users/search?query=${encodeURIComponent(query)}&page=${page}&pageSize=${pageSize}`,
   getFollowing: (userId: string, page: number = 1, pageSize: number = 50) => 
     `/api/users/${userId}/following?page=${page}&pageSize=${pageSize}`,
+  getRecentChats: (userId: string) => 
+    `/api/users/${userId}/recent-chats`,
   // Chat message operations
   editChatMessage: '/api/chat/message/edit',
   deleteChatMessage: '/api/chat/message/delete',

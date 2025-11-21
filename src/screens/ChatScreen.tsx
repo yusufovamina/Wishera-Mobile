@@ -598,18 +598,26 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           }
 
           setContacts(prev => {
-            const updated = prev.map(contact =>
-              contact.id === targetContactId
-                ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
-                : contact
-            );
-            // Sort contacts by last message time (most recent first)
-            const sorted = sortContactsByTime(updated);
-            console.log('[ChatScreen] Reordered contacts after sending message:', sorted.map(c => ({
-              name: c.name,
-              lastMessageTime: c.lastMessageTime
-            })));
-            return sorted;
+            const existingContact = prev.find(c => c.id === targetContactId);
+            if (existingContact) {
+              // Update existing contact
+              const updated = prev.map(contact =>
+                contact.id === targetContactId
+                  ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
+                  : contact
+              );
+              // Sort contacts by last message time (most recent first)
+              const sorted = sortContactsByTime(updated);
+              console.log('[ChatScreen] Reordered contacts after sending message:', sorted.map(c => ({
+                name: c.name,
+                lastMessageTime: c.lastMessageTime
+              })));
+              return sorted;
+            } else {
+              // Contact not in list - this shouldn't happen if handleContactSelect worked, but handle it anyway
+              console.log('[ChatScreen] Contact not found in list when updating after send, skipping update');
+              return prev;
+            }
           });
         }
       } else {
@@ -642,7 +650,20 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         setContacts(prev => {
           const contactExists = prev.find(c => c.id === sender);
           if (!contactExists) {
-            return prev;
+            // Add new contact if not in list (e.g., someone who isn't following you sent a message)
+            const newContact: ChatContact = {
+              id: sender,
+              name: username || 'Unknown',
+              avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(username || sender)}`,
+              lastMessage: lastMessagePreview,
+              lastMessageTime: serverTimestamp,
+              unreadCount: !isViewingThisConversation ? 1 : 0,
+              isOnline: false,
+              isFollowing: false
+            };
+            const sorted = sortContactsByTime([...prev, newContact]);
+            console.log('[ChatScreen] Added new contact to list after receiving message:', newContact.name);
+            return sorted;
           }
 
           const updated = prev.map(contact => {
@@ -1624,20 +1645,132 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
   }, [user?.id]);
 
+  // Refresh contacts and messages when screen comes into focus
+  useEffect(() => {
+    if (!navigation) return;
+    
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('[ChatScreen] Screen focused, refreshing contacts and messages');
+      // Always refresh contacts list to get latest messages and users
+      if (user?.id) {
+        fetchContacts();
+        
+        // If viewing a conversation, also refresh messages for that conversation
+        if (selectedContact?.id) {
+          fetchMessages(selectedContact.id).then((messages) => {
+            if (messages && messages.length > 0) {
+              const conversationId = getConversationId(selectedContact.id);
+              updateConversationMessages(conversationId, messages, true);
+            }
+          }).catch((error) => {
+            console.error('[ChatScreen] Failed to refresh messages on focus:', error);
+          });
+        }
+      }
+    });
+    
+    return unsubscribe;
+  }, [navigation, selectedContact?.id, user?.id]);
+
   const fetchContacts = async () => {
     if (!user?.id) return;
 
     try {
       setLoading(true);
+      
       // Get following users as contacts
       const response = await userApi.get(endpoints.getFollowing(user.id, 1, 50));
       const followingUsers = Array.isArray(response.data)
         ? response.data
         : (response.data?.items || response.data?.data || []);
+      
+      // Get all users you've had conversations with from the backend
+      let conversationUsers: any[] = [];
+      try {
+        const conversationsResponse = await chatApi.get(endpoints.getConversations(user.id));
+        const conversationsData = Array.isArray(conversationsResponse.data)
+          ? conversationsResponse.data
+          : (conversationsResponse.data?.items || conversationsResponse.data?.data || []);
+        
+        console.log('[ChatScreen] Found', conversationsData.length, 'conversations from backend');
+        
+        // Extract user IDs and last message data
+        const conversationUserIds = conversationsData.map((conv: any) => conv.userId).filter((id: any) => id);
+        
+        // Fetch user info for all conversation partners
+        if (conversationUserIds.length > 0) {
+          const userInfoPromises = conversationUserIds.map(async (userId: string) => {
+            try {
+              const userResponse = await userApi.get(`/api/users/${userId}`);
+              const convData = conversationsData.find((c: any) => c.userId === userId);
+              return {
+                user: userResponse.data,
+                lastMessage: convData?.lastMessage
+              };
+            } catch (error) {
+              console.log(`[ChatScreen] Could not fetch user info for ${userId}`);
+              return null;
+            }
+          });
+          
+          const userInfos = await Promise.all(userInfoPromises);
+          conversationUsers = userInfos
+            .filter((item: any) => item && item.user && item.user.id)
+            .map((item: any) => ({
+              id: String(item.user.id),
+              username: item.user.username || item.user.userName || 'Unknown',
+              avatarUrl: item.user.avatarUrl || item.user.profileImageUrl,
+              isFollowing: false,
+              lastMessageData: item.lastMessage,
+              lastMessageTime: item.lastMessage?.sentAt || item.lastMessage?.createdAt
+            }));
+          
+          console.log('[ChatScreen] Fetched user info for', conversationUsers.length, 'conversation partners');
+        }
+      } catch (error: any) {
+        console.log('[ChatScreen] Could not fetch conversations from backend:', error?.message || error);
+        // Fallback: extract from existing state if backend endpoint doesn't work yet
+        const conversationUserIds = new Set<string>();
+        Object.keys(conversations).forEach((conversationId) => {
+          const messages = conversations[conversationId];
+          if (messages && messages.length > 0) {
+            const parts = conversationId.split(':');
+            if (parts.length === 2) {
+              const otherUserId = parts[0] === user.id ? parts[1] : parts[0];
+              if (otherUserId && otherUserId !== user.id) {
+                conversationUserIds.add(otherUserId);
+              }
+            }
+          }
+        });
+        console.log('[ChatScreen] Fallback: Found', conversationUserIds.size, 'users from existing conversations state');
+      }
+      
+      // Combine following users and conversation users, removing duplicates
+      const allUserIds = new Set<string>();
+      const combinedUsers: any[] = [];
+      
+      // Add following users first
+      followingUsers.forEach((u: any) => {
+        if (u.id && !allUserIds.has(String(u.id))) {
+          allUserIds.add(String(u.id));
+          combinedUsers.push({ ...u, isFollowing: true });
+        }
+      });
+      
+      // Add conversation users that aren't already in the list
+      conversationUsers.forEach((u: any) => {
+        if (u.id && !allUserIds.has(String(u.id))) {
+          allUserIds.add(String(u.id));
+          combinedUsers.push({ ...u, isFollowing: false });
+        }
+      });
+      
+      console.log('[ChatScreen] Total unique contacts:', combinedUsers.length, '(following:', followingUsers.length, ', conversations:', conversationUsers.length, ')');
 
       // Fetch last message for each conversation
       const contactsWithMessages = await Promise.all(
-        followingUsers.map(async (contactUser: any) => {
+        combinedUsers.map(async (contactUser: any) => {
           const contactId = contactUser.id;
           const conversationId = getConversationId(contactId);
 
@@ -1647,11 +1780,34 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             name: contactUser.username,
             avatar: contactUser.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(contactUser.username)}`,
             lastMessage: "Start a conversation!",
-            lastMessageTime: "",
+            lastMessageTime: contactUser.lastMessageTime || "",
             unreadCount: 0,
             isOnline: false,
-            isFollowing: true
+            isFollowing: contactUser.isFollowing !== false
           };
+
+          // If we have last message data from conversations endpoint, use it
+          if (contactUser.lastMessageData) {
+            const lastMsg = contactUser.lastMessageData;
+            const messageType = lastMsg.messageType || 'text';
+            const messageText = lastMsg.text || lastMsg.message || '';
+            
+            if (messageType === 'voice') {
+              contact.lastMessage = 'Voice message';
+            } else if (messageType === 'image') {
+              contact.lastMessage = 'Image';
+            } else if (messageType === 'video') {
+              contact.lastMessage = 'Video';
+            } else if (messageText) {
+              contact.lastMessage = messageText.length > 50
+                ? messageText.substring(0, 50) + '...'
+                : messageText;
+            }
+            
+            if (contactUser.lastMessageTime) {
+              contact.lastMessageTime = contactUser.lastMessageTime;
+            }
+          }
 
           // Try to fetch messages for this conversation to get last message and unread count
           try {
@@ -2242,6 +2398,45 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  const handleSearchUsers = async (query: string) => {
+    if (!query.trim() || query.trim().length < 2) {
+      setSearchResults([]);
+      setShowSearchResults(false);
+      return;
+    }
+
+    try {
+      setIsSearching(true);
+      const response = await userApi.get(endpoints.searchUsers(query, 1, 20));
+      const users = Array.isArray(response.data)
+        ? response.data
+        : (response.data?.items || response.data?.data || []);
+      
+      // Filter out current user and format as ChatContact
+      const formattedResults = users
+        .filter((u: any) => u.id !== user?.id)
+        .map((u: any) => ({
+          id: u.id,
+          name: u.username || u.name || 'Unknown',
+          avatar: u.avatarUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(u.username || u.name || 'Unknown')}`,
+          lastMessage: "Start a conversation!",
+          lastMessageTime: "",
+          unreadCount: 0,
+          isOnline: false,
+          isFollowing: false
+        }));
+      
+      setSearchResults(formattedResults);
+      setShowSearchResults(true);
+    } catch (error: any) {
+      console.error('Error searching users:', error);
+      setSearchResults([]);
+      setShowSearchResults(false);
+    } finally {
+      setIsSearching(false);
+    }
+  };
+
   const handleContactSelect = async (contact: ChatContact) => {
     console.log('[ChatScreen] Contact selected:', contact.name);
 
@@ -2255,11 +2450,23 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     setCurrentConversationId(conversationId);
     setSelectedContact(contact);
     setShowContacts(false);
+    setShowSearchResults(false);
+    setSearchQuery('');
+    setSearchResults([]);
 
-    // Optimistically set unread count to 0 in UI
-    setContacts(prev => prev.map(c =>
-      c.id === contact.id ? { ...c, unreadCount: 0 } : c
-    ));
+    // Add contact to list if not already present, or update unread count to 0
+    setContacts(prev => {
+      const existingContact = prev.find(c => c.id === contact.id);
+      if (existingContact) {
+        // Update existing contact
+        return prev.map(c =>
+          c.id === contact.id ? { ...c, unreadCount: 0 } : c
+        );
+      } else {
+        // Add new contact to the list
+        return sortContactsByTime([...prev, { ...contact, unreadCount: 0 }]);
+      }
+    });
 
     // Fetch messages - this will update the conversations state
     console.log('[ChatScreen] Fetching messages for conversation:', conversationId);
@@ -2344,6 +2551,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
         // Edit existing message
         const newText = inputText.trim();
+        const originalText = messageToEdit?.text || '';
         setInputText("");
         setEditingId(null);
 
@@ -2359,11 +2567,19 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
 
         try {
           await editMessage(editingId, newText);
-          // Also try API endpoint as backup
-          await chatApi.post(endpoints.editChatMessage, { messageId: editingId, newText });
+          // Message is updated via SignalR, no need for HTTP endpoint
         } catch (error) {
           console.error('Failed to edit message:', error);
           setError('Failed to edit message. Please try again.');
+          // Revert optimistic update on error
+          if (currentConversationId) {
+            setConversations(prev => ({
+              ...prev,
+              [currentConversationId]: prev[currentConversationId]?.map(m =>
+                m.id === editingId ? { ...m, text: originalText } : m
+              ) || []
+            }));
+          }
         }
         return;
       }
@@ -2988,18 +3204,33 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       const lastMessagePreview = text.trim().length > 50 ? text.trim().substring(0, 50) + '...' : text.trim();
 
       setContacts(prev => {
-        const updated = prev.map(contact =>
-          contact.id === targetId
-            ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
-            : contact
-        );
-        // Sort contacts by last message time (most recent first)
-        const sorted = sortContactsByTime(updated);
-        console.log('[ChatScreen] Reordered contacts after sendText:', sorted.map(c => ({
-          name: c.name,
-          lastMessageTime: c.lastMessageTime
-        })));
-        return sorted;
+        const existingContact = prev.find(c => c.id === targetId);
+        if (existingContact) {
+          // Update existing contact
+          const updated = prev.map(contact =>
+            contact.id === targetId
+              ? { ...contact, lastMessage: lastMessagePreview, lastMessageTime: serverTimestamp }
+              : contact
+          );
+          // Sort contacts by last message time (most recent first)
+          const sorted = sortContactsByTime(updated);
+          console.log('[ChatScreen] Reordered contacts after sendText:', sorted.map(c => ({
+            name: c.name,
+            lastMessageTime: c.lastMessageTime
+          })));
+          return sorted;
+        } else {
+          // Add new contact to the list
+          const newContact: ChatContact = {
+            ...selectedContact,
+            lastMessage: lastMessagePreview,
+            lastMessageTime: serverTimestamp,
+            unreadCount: 0
+          };
+          const sorted = sortContactsByTime([...prev, newContact]);
+          console.log('[ChatScreen] Added new contact to list after sendText:', newContact.name);
+          return sorted;
+        }
       });
 
       console.log('[ChatScreen] Sending message to contact:', { targetId, contactName: selectedContact.name });
@@ -3159,6 +3390,71 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     if (selectedContact?.id && connected) {
       await stopTyping(selectedContact.id);
     }
+  };
+
+  // Handler for swipe action on own messages (edit/delete)
+  const handleSwipeAction = (message: ChatMessage, onComplete?: () => void) => {
+    // Only allow swipe action on own messages
+    const isOwnMessage = message.userId === user?.id || message.senderId === user?.id;
+    if (!isOwnMessage) {
+      onComplete?.();
+      return;
+    }
+
+    // Prevent action menu for call messages, voice messages, images, or videos
+    const messageType = message.messageType || 'text';
+    const isImage = messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
+    const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
+    const isVoice = messageType === 'voice';
+    const isCall = messageType === 'call';
+
+    if (isCall || isVoice || isImage || isVideo) {
+      onComplete?.();
+      return; // Don't show menu for media/call messages
+    }
+
+    // Show action menu with Edit and Delete options
+    Alert.alert(
+      t('chat.messageOptions', 'Message Options'),
+      '',
+      [
+        {
+          text: t('common.edit', 'Edit'),
+          onPress: () => {
+            setEditingId(message.id);
+            setInputText(message.text || '');
+            // Small delay to ensure Alert is fully dismissed before resetting animation
+            setTimeout(() => {
+              onComplete?.();
+            }, 200);
+          },
+        },
+        {
+          text: t('common.delete', 'Delete'),
+          style: 'destructive',
+          onPress: () => {
+            handleDeleteMessage(message.id);
+            // Small delay to ensure Alert is fully dismissed before resetting animation
+            setTimeout(() => {
+              onComplete?.();
+            }, 200);
+          },
+        },
+        {
+          text: t('common.cancel', 'Cancel'),
+          style: 'cancel',
+          onPress: () => {
+            // Small delay to ensure Alert is fully dismissed before resetting animation
+            setTimeout(() => {
+              onComplete?.();
+            }, 200);
+          },
+        },
+      ],
+      { 
+        cancelable: true
+      }
+    );
   };
 
   // Helper function to format timestamp for display
@@ -3537,6 +3833,30 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         repliedToMessage={repliedToMessage}
         onDoubleTap={handleDoubleTapLike}
         onSwipeReply={handleSwipeReply}
+        onSwipeAction={handleSwipeAction}
+        onEditMessage={(message) => {
+          const messageType = message.messageType || 'text';
+          const isImage = messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
+          const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
+          const isVoice = messageType === 'voice';
+          const isCall = messageType === 'call';
+
+          if (!isCall && !isVoice && !isImage && !isVideo) {
+            setEditingId(message.id);
+            setInputText(message.text || '');
+          }
+        }}
+        onDeleteMessage={(message) => {
+          const messageType = message.messageType || 'text';
+          const isImage = messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
+          const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
+          const isVoice = messageType === 'voice';
+          const isCall = messageType === 'call';
+
+          if (!isCall && !isVoice && !isImage && !isVideo) {
+            handleDeleteMessage(message.id);
+          }
+        }}
         onLongPress={handleLongPressReaction}
         onReactionPress={handleReactToMessage}
         onImagePress={setEnlargedImage}
@@ -3561,19 +3881,81 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.headerTitle}>{t('chat.messages', 'Messages')}</Text>
-          <TouchableOpacity style={styles.newChatButton}>
+          <TouchableOpacity 
+            style={styles.newChatButton}
+            onPress={() => {
+              setSearchQuery('');
+              setShowSearchResults(true);
+            }}
+          >
             <Text style={styles.newChatButtonText}>+</Text>
           </TouchableOpacity>
         </View>
 
-        {/* Contacts List */}
-        <FlatList
-          data={contacts}
-          keyExtractor={(item) => item.id}
-          renderItem={renderContact}
-          contentContainerStyle={styles.contactsList}
-          showsVerticalScrollIndicator={false}
-        />
+        {/* Search Input */}
+        {showSearchResults && (
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder={t('chat.searchUsers', 'Search users...')}
+              placeholderTextColor={colors.textSecondary}
+              value={searchQuery}
+              onChangeText={(text) => {
+                setSearchQuery(text);
+                if (text.trim().length >= 2) {
+                  handleSearchUsers(text);
+                } else {
+                  setSearchResults([]);
+                }
+              }}
+              autoFocus={true}
+            />
+            <TouchableOpacity
+              style={styles.searchCancelButton}
+              onPress={() => {
+                setSearchQuery('');
+                setSearchResults([]);
+                setShowSearchResults(false);
+              }}
+            >
+              <Text style={styles.searchCancelText}>{t('common.cancel', 'Cancel')}</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* Search Results or Contacts List */}
+        {showSearchResults ? (
+          <FlatList
+            data={searchResults}
+            keyExtractor={(item) => item.id}
+            renderItem={renderContact}
+            contentContainerStyle={styles.contactsList}
+            showsVerticalScrollIndicator={false}
+            ListEmptyComponent={
+              isSearching ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>{t('chat.searching', 'Searching...')}</Text>
+                </View>
+              ) : searchQuery.trim().length >= 2 ? (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>{t('chat.noUsersFound', 'No users found')}</Text>
+                </View>
+              ) : (
+                <View style={styles.emptyContainer}>
+                  <Text style={styles.emptyText}>{t('chat.searchHint', 'Type at least 2 characters to search')}</Text>
+                </View>
+              )
+            }
+          />
+        ) : (
+          <FlatList
+            data={contacts}
+            keyExtractor={(item) => item.id}
+            renderItem={renderContact}
+            contentContainerStyle={styles.contactsList}
+            showsVerticalScrollIndicator={false}
+          />
+        )}
       </View>
     );
   }
@@ -3587,12 +3969,25 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       <View style={styles.chatHeader}>
         <TouchableOpacity
           style={styles.backButton}
-          onPress={() => setShowContacts(true)}
+          onPress={() => {
+            setShowContacts(true);
+            setShowSearchResults(false);
+            setSearchQuery('');
+            setSearchResults([]);
+          }}
         >
           <BackIcon size={24} color={colors.text} />
         </TouchableOpacity>
 
-        <View style={styles.chatHeaderInfo}>
+        <TouchableOpacity
+          style={styles.chatHeaderInfo}
+          onPress={() => {
+            if (selectedContact?.id) {
+              navigation.navigate('UserProfile', { userId: selectedContact.id });
+            }
+          }}
+          activeOpacity={0.7}
+        >
           <Image source={{ uri: selectedContact?.avatar }} style={styles.chatAvatar} />
           <View style={styles.chatUserInfo}>
             <Text style={styles.chatUserName}>{selectedContact?.name}</Text>
@@ -3600,7 +3995,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               {selectedContact?.isOnline ? t('chat.online', 'Online') : t('chat.offline', 'Offline')}
             </Text>
           </View>
-        </View>
+        </TouchableOpacity>
 
         <View style={styles.chatHeaderActions}>
           <TouchableOpacity
@@ -4353,8 +4748,46 @@ const createStyles = (theme: 'light' | 'dark') => StyleSheet.create({
     fontWeight: '700',
     color: 'white',
   },
+  searchContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    gap: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.muted,
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    fontSize: 14,
+    color: colors.text,
+    borderWidth: 1,
+    borderColor: colors.muted,
+  },
+  searchCancelButton: {
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+  },
+  searchCancelText: {
+    fontSize: 14,
+    color: colors.primary,
+    fontWeight: '600',
+  },
 
   // Contacts list styles
+  emptyContainer: {
+    padding: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  emptyText: {
+    fontSize: 14,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   contactsList: {
     paddingVertical: 8,
   },
