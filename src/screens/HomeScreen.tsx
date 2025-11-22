@@ -689,29 +689,6 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
 
-  // Handle search text change with useCallback to prevent re-renders
-  const handleSearchChange = useCallback((text: string) => {
-    setSearchQuery(text);
-    if (text.trim().length >= 2) {
-      setShowSearchDropdown(true);
-    } else {
-      setShowSearchDropdown(false);
-    }
-  }, []);
-
-  // Handle search focus
-  const handleSearchFocus = useCallback(() => {
-    if (suggestedUsers.length > 0 && searchQuery.trim().length >= 2) {
-      setShowSearchDropdown(true);
-    }
-  }, [suggestedUsers, searchQuery]);
-
-  // Handle search blur
-  const handleSearchBlur = useCallback(() => {
-    // Delay closing to allow tap on suggestion
-    setTimeout(() => setShowSearchDropdown(false), 200);
-  }, []);
-
   // Handle clear search
   const handleClearSearch = useCallback(() => {
     setSearchQuery('');
