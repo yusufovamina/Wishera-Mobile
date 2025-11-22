@@ -1401,7 +1401,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
       </View>
     </RNAnimated.View>
-  ), [user, fadeIn, slideUp, floatY, activeTab, theme, t, showBirthdayNotification, navigation, calendarSlideAnim, styles, colors, handleSearchChange, handleSearchFocus, handleSearchBlur, handleClearSearch, handleUserSelect]);
+  ), [user, fadeIn, slideUp, floatY, activeTab, theme, t, navigation, calendarSlideAnim, styles, colors, handleSearchChange, handleSearchFocus, handleSearchBlur, handleClearSearch, handleUserSelect]);
 
   return (
     <View style={styles.container}>
