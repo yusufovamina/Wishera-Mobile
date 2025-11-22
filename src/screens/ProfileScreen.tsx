@@ -686,7 +686,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                 style={styles.menuOption}
                 onPress={() => {
                   setShowSettingsMenu(false);
-                  Linking.openURL('https://wishera.app/support');
+                  navigation.navigate('HelpSupport');
                 }}
               >
                 <Text style={styles.menuOptionText}>{t('profile.menu.helpSupport', 'Help & Support')}</Text>
@@ -836,6 +836,17 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
           {/* Bio */}
           {profile.bio && (
             <Text style={styles.bio}>{profile.bio}</Text>
+          )}
+
+          {/* Interests */}
+          {profile.interests && profile.interests.length > 0 && (
+            <View style={styles.interestsContainer}>
+              {profile.interests.map((interest, index) => (
+                <View key={index} style={styles.interestChip}>
+                  <Text style={styles.interestChipText}>{interest}</Text>
+                </View>
+              ))}
+            </View>
           )}
 
           {/* Tabs */}
@@ -1192,6 +1203,28 @@ const createStyles = () => StyleSheet.create({
     lineHeight: 18,
     marginBottom: 20,
     paddingHorizontal: 20,
+  },
+  interestsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 20,
+    gap: 8,
+  },
+  interestChip: {
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.muted,
+    borderRadius: 16,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  interestChipText: {
+    fontSize: 12,
+    color: colors.text,
+    fontWeight: '500',
   },
   tabsContainer: {
     flexDirection: 'row',

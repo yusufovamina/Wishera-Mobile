@@ -14,7 +14,7 @@ import { usePreferences } from '../state/preferences';
 import { VoiceMessagePlayer } from './VoiceMessagePlayer';
 import { SafeImage } from './SafeImage';
 import { VideoView, useVideoPlayer } from 'expo-video';
-import { ReplyIcon } from './Icon';
+import { ReplyIcon, EditIcon, DeleteIcon } from './Icon';
 import {
     createDoubleTapHeartAnimation,
     createSwipeToReplyAnimation,
@@ -51,6 +51,9 @@ interface MessageBubbleProps {
     repliedToMessage?: ChatMessage | null;
     onDoubleTap: (messageId: string) => void;
     onSwipeReply: (message: ChatMessage) => void;
+    onSwipeAction?: (message: ChatMessage, onComplete?: () => void) => void;
+    onEditMessage?: (message: ChatMessage) => void;
+    onDeleteMessage?: (message: ChatMessage) => void;
     onLongPress: (messageId: string) => void;
     onReactionPress: (messageId: string, emoji: string) => void;
     onImagePress?: (imageUrl: string) => void;
@@ -70,6 +73,9 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     repliedToMessage,
     onDoubleTap,
     onSwipeReply,
+    onSwipeAction,
+    onEditMessage,
+    onDeleteMessage,
     onLongPress,
     onReactionPress,
     onImagePress,
@@ -90,12 +96,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     const heartScale = useRef(new Animated.Value(0)).current;
     const heartOpacity = useRef(new Animated.Value(0)).current;
     const swipeTranslateX = useRef(new Animated.Value(0)).current;
+    const swipeActionTranslateX = useRef(new Animated.Value(0)).current;
     const reactionMenuScale = useRef(new Animated.Value(0)).current;
     const reactionMenuOpacity = useRef(new Animated.Value(0)).current;
     const highlightOpacity = useRef(new Animated.Value(0)).current;
 
     const longPressTimerRef = useRef<NodeJS.Timeout | null>(null);
     const isSwipingRef = useRef(false);
+    const actionMenuVisibleRef = useRef(false);
+    const [showActionIcons, setShowActionIcons] = useState(false);
+    const actionIconsOpacity = useRef(new Animated.Value(0)).current;
 
     const REACTION_EMOJIS = ['🔥', '❤️', '😆', '😮', '😢', '👍', '😡', '🎉', '👏', '🙏', '💯', '✨'];
 
@@ -109,22 +119,96 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 isSwipingRef.current = true;
             },
             onPanResponderMove: (_, gestureState) => {
+                // Swipe right (for reply) - works for all messages
                 if (gestureState.dx > 0 && gestureState.dx < 100) {
                     swipeTranslateX.setValue(gestureState.dx);
+                    swipeActionTranslateX.setValue(0); // Reset action swipe when swiping right
+                    setShowActionIcons(false);
+                    actionIconsOpacity.setValue(0);
+                }
+                // Swipe left (for edit/delete) - only for own messages
+                else if (gestureState.dx < 0 && gestureState.dx > -100 && isOwnMessage && (onSwipeAction || onEditMessage || onDeleteMessage)) {
+                    const absDx = Math.abs(gestureState.dx);
+                    swipeActionTranslateX.setValue(absDx);
+                    swipeTranslateX.setValue(0); // Reset reply swipe when swiping left
+                    // Show icons when threshold is reached
+                    if (absDx >= SWIPE_THRESHOLD) {
+                        setShowActionIcons(true);
+                        Animated.timing(actionIconsOpacity, {
+                            toValue: 1,
+                            duration: 100,
+                            useNativeDriver: true,
+                        }).start();
+                    }
                 }
             },
             onPanResponderRelease: (_, gestureState) => {
                 isSwipingRef.current = false;
 
+                // Swipe right - reply
                 if (gestureState.dx > SWIPE_THRESHOLD) {
                     onSwipeReply(message);
+                    createSwipeToReplyAnimation(swipeTranslateX, 0).start();
                 }
-
-                createSwipeToReplyAnimation(swipeTranslateX, 0).start();
+                // Swipe left - edit/delete (only for own messages)
+                else if (gestureState.dx < -SWIPE_THRESHOLD && isOwnMessage && (onSwipeAction || onEditMessage || onDeleteMessage)) {
+                    // Keep message swiped left to show icons
+                    const swipeAmount = Math.max(Math.abs(gestureState.dx), SWIPE_THRESHOLD);
+                    swipeActionTranslateX.setValue(swipeAmount);
+                    
+                    // Show action icons and keep them visible
+                    setShowActionIcons(true);
+                    actionMenuVisibleRef.current = true;
+                    Animated.timing(actionIconsOpacity, {
+                        toValue: 1,
+                        duration: 200,
+                        useNativeDriver: true,
+                    }).start();
+                    
+                    // Keep icons visible for 5 seconds to allow interaction
+                    setTimeout(() => {
+                        if (actionMenuVisibleRef.current) {
+                            actionMenuVisibleRef.current = false;
+                            setShowActionIcons(false);
+                            Animated.timing(actionIconsOpacity, {
+                                toValue: 0,
+                                duration: 200,
+                                useNativeDriver: true,
+                            }).start(() => {
+                                createSwipeToReplyAnimation(swipeActionTranslateX, 0).start();
+                            });
+                        }
+                    }, 5000);
+                    
+                    // If using Alert approach (onSwipeAction), show it
+                    if (onSwipeAction) {
+                        const resetAnimation = () => {
+                            actionMenuVisibleRef.current = false;
+                            setShowActionIcons(false);
+                            Animated.timing(actionIconsOpacity, {
+                                toValue: 0,
+                                duration: 200,
+                                useNativeDriver: true,
+                            }).start(() => {
+                                createSwipeToReplyAnimation(swipeActionTranslateX, 0).start();
+                            });
+                        };
+                        
+                        onSwipeAction(message, resetAnimation);
+                    }
+                }
+                // Reset animations if threshold not reached
+                else {
+                    if (!showActionIcons) {
+                        createSwipeToReplyAnimation(swipeTranslateX, 0).start();
+                        createSwipeToReplyAnimation(swipeActionTranslateX, 0).start();
+                    }
+                }
             },
             onPanResponderTerminate: () => {
                 isSwipingRef.current = false;
                 createSwipeToReplyAnimation(swipeTranslateX, 0).start();
+                createSwipeToReplyAnimation(swipeActionTranslateX, 0).start();
             },
         })
     ).current;
@@ -241,10 +325,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             style={[
                 styles.messageContainer,
                 isOwnMessage && styles.ownMessageContainer,
-                { transform: [{ translateX: swipeTranslateX }] },
+                { 
+                    transform: [
+                        { translateX: Animated.add(swipeTranslateX, Animated.multiply(swipeActionTranslateX, -1)) }
+                    ] 
+                },
             ]}
             {...panResponder.panHandlers}
         >
+            {/* Swipe right indicator (reply) */}
             <Animated.View
                 style={[
                     styles.swipeReplyIndicator,
@@ -259,6 +348,68 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             >
                 <ReplyIcon size={24} color={colors.primary} />
             </Animated.View>
+
+            {/* Swipe left indicator (edit/delete) - only for own messages */}
+            {isOwnMessage && (onSwipeAction || onEditMessage || onDeleteMessage) && (
+                <Animated.View
+                    style={[
+                        styles.swipeActionIndicator,
+                        {
+                            opacity: showActionIcons 
+                                ? 1
+                                : swipeActionTranslateX.interpolate({
+                                    inputRange: [0, SWIPE_THRESHOLD],
+                                    outputRange: [0, 1],
+                                    extrapolate: 'clamp',
+                                }),
+                        },
+                    ]}
+                    pointerEvents={showActionIcons ? 'auto' : 'none'}
+                >
+                    <View style={styles.swipeActionIcons}>
+                        {onEditMessage && (
+                            <TouchableOpacity
+                                style={styles.swipeActionButton}
+                                onPress={() => {
+                                    onEditMessage(message);
+                                    setShowActionIcons(false);
+                                    actionMenuVisibleRef.current = false;
+                                    Animated.timing(actionIconsOpacity, {
+                                        toValue: 0,
+                                        duration: 200,
+                                        useNativeDriver: true,
+                                    }).start(() => {
+                                        createSwipeToReplyAnimation(swipeActionTranslateX, 0).start();
+                                    });
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <EditIcon size={24} color={colors.primary} />
+                            </TouchableOpacity>
+                        )}
+                        {onDeleteMessage && (
+                            <TouchableOpacity
+                                style={styles.swipeActionButton}
+                                onPress={() => {
+                                    onDeleteMessage(message);
+                                    setShowActionIcons(false);
+                                    actionMenuVisibleRef.current = false;
+                                    Animated.timing(actionIconsOpacity, {
+                                        toValue: 0,
+                                        duration: 200,
+                                        useNativeDriver: true,
+                                    }).start(() => {
+                                        createSwipeToReplyAnimation(swipeActionTranslateX, 0).start();
+                                    });
+                                }}
+                                activeOpacity={0.7}
+                            >
+                                <DeleteIcon size={24} color="#ff3b30" />
+                            </TouchableOpacity>
+                        )}
+                    </View>
+                </Animated.View>
+            )}
 
             <TouchableOpacity
                 activeOpacity={1}
@@ -459,6 +610,30 @@ const createStyles = (theme: string, themeColors: typeof lightColors) => StyleSh
         left: -40,
         top: '50%',
         marginTop: -12,
+    },
+    swipeActionIndicator: {
+        position: 'absolute',
+        right: -120,
+        top: '50%',
+        marginTop: -20,
+        width: 100,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    swipeActionIcons: {
+        flexDirection: 'row',
+        gap: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    swipeActionButton: {
+        padding: 10,
+        borderRadius: 22,
+        backgroundColor: 'rgba(0, 0, 0, 0.2)',
+        minWidth: 44,
+        minHeight: 44,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     reactionMenuBackdrop: {
         position: 'absolute',
