@@ -101,6 +101,108 @@ type WishlistItem = {
   };
 };
 
+// Separate SearchBar component to prevent re-renders
+const SearchBar = React.memo<{
+  searchQuery: string;
+  suggestedUsers: any[];
+  showSearchDropdown: boolean;
+  onSearchChange: (text: string) => void;
+  onSearchFocus: () => void;
+  onSearchBlur: () => void;
+  onClearSearch: () => void;
+  onUserSelect: (userId: string) => void;
+  placeholder: string;
+  styles: any;
+  colors: any;
+}>(({ 
+  searchQuery, 
+  suggestedUsers, 
+  showSearchDropdown, 
+  onSearchChange, 
+  onSearchFocus, 
+  onSearchBlur, 
+  onClearSearch,
+  onUserSelect,
+  placeholder,
+  styles,
+  colors
+}) => {
+  const searchInputRef = useRef<TextInput>(null);
+  
+  // Calculate if dropdown should add bottom margin to push content down
+  const hasDropdown = showSearchDropdown && suggestedUsers.length > 0 && searchQuery.trim().length >= 2;
+  const dropdownHeight = hasDropdown ? Math.min(suggestedUsers.length * 64 + 20, 320) : 0;
+  
+  return (
+    <>
+      <View style={styles.searchContainer}>
+        <View style={styles.searchBar}>
+          <SearchIcon size={16} color={colors.textSecondary} />
+          <TextInput
+            ref={searchInputRef}
+            style={styles.searchInput}
+            placeholder={placeholder}
+            placeholderTextColor={colors.textSecondary}
+            value={searchQuery}
+            onChangeText={onSearchChange}
+            autoCapitalize="none"
+            autoCorrect={false}
+            onFocus={onSearchFocus}
+            onBlur={onSearchBlur}
+            blurOnSubmit={false}
+          />
+          {searchQuery.length > 0 && (
+            <TouchableOpacity onPress={onClearSearch} style={styles.clearButton}>
+              <CloseIcon size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        {/* User Search Suggestions Dropdown */}
+        {hasDropdown && (
+          <View style={styles.searchDropdown} pointerEvents="box-none">
+            <View style={styles.searchDropdownContent}>
+              <ScrollView 
+                style={styles.searchDropdownScroll}
+                keyboardShouldPersistTaps="handled"
+                nestedScrollEnabled={true}
+              >
+                {suggestedUsers.map((user: any) => (
+                  <TouchableOpacity
+                    key={user.id}
+                    style={styles.searchSuggestionItem}
+                    onPress={() => {
+                      onUserSelect(user.id);
+                    }}
+                  >
+                    <SafeImage 
+                      source={{ uri: user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}` }} 
+                      style={styles.searchSuggestionAvatar}
+                      fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}`}
+                      placeholder={user.username?.charAt(0).toUpperCase() || 'U'}
+                    />
+                    <View style={styles.searchSuggestionInfo}>
+                      <Text style={styles.searchSuggestionUsername}>@{user.username || 'Unknown'}</Text>
+                      {user.name && user.name !== user.username && (
+                        <Text style={styles.searchSuggestionName}>{user.name}</Text>
+                      )}
+                    </View>
+                    {user.isFollowing && (
+                      <Text style={styles.searchSuggestionFollowing}>Following</Text>
+                    )}
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </View>
+          </View>
+        )}
+      </View>
+      {/* Spacer to push content down when dropdown is visible */}
+      {hasDropdown && <View style={{ height: dropdownHeight }} />}
+    </>
+  );
+});
+
 export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
@@ -489,6 +591,44 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
     return () => clearTimeout(timeoutId);
   }, [searchQuery]);
+
+  // Handle search text change with useCallback to prevent re-renders
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (text.trim().length >= 2) {
+      setShowSearchDropdown(true);
+    } else {
+      setShowSearchDropdown(false);
+    }
+  }, []);
+
+  // Handle search focus
+  const handleSearchFocus = useCallback(() => {
+    if (suggestedUsers.length > 0 && searchQuery.trim().length >= 2) {
+      setShowSearchDropdown(true);
+    }
+  }, [suggestedUsers, searchQuery]);
+
+  // Handle search blur
+  const handleSearchBlur = useCallback(() => {
+    // Delay closing to allow tap on suggestion
+    setTimeout(() => setShowSearchDropdown(false), 200);
+  }, []);
+
+  // Handle clear search
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    setSuggestedUsers([]);
+    setShowSearchDropdown(false);
+  }, []);
+
+  // Handle user selection from search
+  const handleUserSelect = useCallback((userId: string) => {
+    setSearchQuery('');
+    setSuggestedUsers([]);
+    setShowSearchDropdown(false);
+    navigation.navigate('UserProfile', { userId });
+  }, [navigation]);
 
   // Load data based on active tab
   useEffect(() => {
@@ -1220,86 +1360,20 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         </View>
 
         {/* Search bar */}
-        <View style={styles.searchContainer}>
-          <View style={styles.searchBar}>
-            <SearchIcon size={16} color={colors.textSecondary} />
-            <TextInput
-              style={styles.searchInput}
-              placeholder={t('home.searchPlaceholder', 'Search wishlists or users...')}
-              placeholderTextColor={colors.textSecondary}
-              value={searchQuery}
-              onChangeText={(text) => {
-                setSearchQuery(text);
-                if (text.trim().length >= 2) {
-                  setShowSearchDropdown(true);
-                } else {
-                  setShowSearchDropdown(false);
-                }
-              }}
-              autoCapitalize="none"
-              autoCorrect={false}
-              onFocus={() => {
-                if (suggestedUsers.length > 0 && searchQuery.trim().length >= 2) {
-                  setShowSearchDropdown(true);
-                }
-              }}
-              onBlur={() => {
-                // Delay closing to allow tap on suggestion
-                setTimeout(() => setShowSearchDropdown(false), 200);
-              }}
-            />
-            {searchQuery.length > 0 && (
-              <TouchableOpacity onPress={() => {
-                setSearchQuery('');
-                setSuggestedUsers([]);
-                setShowSearchDropdown(false);
-              }} style={styles.clearButton}>
-                <CloseIcon size={18} color={colors.textSecondary} />
-              </TouchableOpacity>
-            )}
-          </View>
-          
-          {/* User Search Suggestions Dropdown */}
-          {showSearchDropdown && suggestedUsers.length > 0 && searchQuery.trim().length >= 2 && (
-            <View style={styles.searchDropdown}>
-              <ScrollView 
-                style={styles.searchDropdownScroll}
-                keyboardShouldPersistTaps="handled"
-                nestedScrollEnabled={true}
-              >
-                {suggestedUsers.map((user: any) => (
-                  <TouchableOpacity
-                    key={user.id}
-                    style={styles.searchSuggestionItem}
-                    onPress={() => {
-                      setSearchQuery('');
-                      setSuggestedUsers([]);
-                      setShowSearchDropdown(false);
-                      // Navigate to user profile
-                      navigation.navigate('UserProfile', { userId: user.id });
-                    }}
-                  >
-                    <SafeImage 
-                      source={{ uri: user.avatarUrl || `https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}` }} 
-                      style={styles.searchSuggestionAvatar}
-                      fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=${encodeURIComponent(user.username || '')}`}
-                      placeholder={user.username?.charAt(0).toUpperCase() || 'U'}
-                    />
-                    <View style={styles.searchSuggestionInfo}>
-                      <Text style={styles.searchSuggestionUsername}>@{user.username || 'Unknown'}</Text>
-                      {user.name && user.name !== user.username && (
-                        <Text style={styles.searchSuggestionName}>{user.name}</Text>
-                      )}
-                    </View>
-                    {user.isFollowing && (
-                      <Text style={styles.searchSuggestionFollowing}>Following</Text>
-                    )}
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
-            </View>
-          )}
-        </View>
+        <SearchBar
+          key="search-bar"
+          searchQuery={searchQuery}
+          suggestedUsers={suggestedUsers}
+          showSearchDropdown={showSearchDropdown}
+          onSearchChange={handleSearchChange}
+          onSearchFocus={handleSearchFocus}
+          onSearchBlur={handleSearchBlur}
+          onClearSearch={handleClearSearch}
+          onUserSelect={handleUserSelect}
+          placeholder={t('home.searchPlaceholder', 'Search wishlists or users...')}
+          styles={styles}
+          colors={colors}
+        />
 
         {/* Tab Navigation */}
         <View style={styles.tabContainer}>
@@ -1327,7 +1401,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
 
       </View>
     </RNAnimated.View>
-  ), [user, fadeIn, slideUp, floatY, activeTab, theme, searchQuery, t, showBirthdayNotification, navigation, calendarSlideAnim]);
+  ), [user, fadeIn, slideUp, floatY, activeTab, theme, t, showBirthdayNotification, navigation, calendarSlideAnim, styles, colors, handleSearchChange, handleSearchFocus, handleSearchBlur, handleClearSearch, handleUserSelect]);
 
   return (
     <View style={styles.container}>
@@ -1353,7 +1427,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
             onRefresh={onRefresh} 
           />
         }
-        ListHeaderComponent={() => (
+        ListHeaderComponent={useMemo(() => (
           <>
             {Header}
             {/* Birthday Countdown Banner - only show on Home tab */}
@@ -1364,7 +1438,7 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
               />
             )}
           </>
-        )}
+        ), [Header, activeTab, showBirthdayNotification, navigation])}
         showsVerticalScrollIndicator={false}
         ListEmptyComponent={
           loading && getCurrentData().length === 0 ? (
@@ -1564,6 +1638,7 @@ const createStyles = () => StyleSheet.create({
     marginBottom: 10,
     position: 'relative',
     zIndex: 100,
+    overflow: 'visible',
   },
   searchBar: {
     flexDirection: 'row',
@@ -1589,9 +1664,15 @@ const createStyles = () => StyleSheet.create({
   },
   searchDropdown: {
     position: 'absolute',
-    top: 50,
-    left: 20,
-    right: 20,
+    top: '100%',
+    left: 0,
+    right: 0,
+    marginTop: 4,
+    zIndex: 1000,
+    elevation: 10,
+    width: '100%',
+  },
+  searchDropdownContent: {
     maxHeight: 300,
     backgroundColor: colors.surface,
     borderRadius: 12,
@@ -1600,10 +1681,9 @@ const createStyles = () => StyleSheet.create({
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 8,
-    zIndex: 1000,
     borderWidth: 1,
     borderColor: colors.muted,
-    marginTop: 4,
+    overflow: 'hidden',
   },
   searchDropdownScroll: {
     maxHeight: 300,
