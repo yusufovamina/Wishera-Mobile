@@ -3,11 +3,26 @@ import React, { useEffect } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Platform } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { AppNavigator } from './src/navigation';
 import { useAuthStore } from './src/state/auth';
 import { getColors, setThemeMode } from './src/theme/colors';
 import { usePreferences } from './src/state/preferences';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+
+// Try to register WebRTC globals for Expo Go compatibility
+if (Platform.OS !== 'web') {
+  try {
+    const webrtc = require('react-native-webrtc');
+    if (webrtc && webrtc.registerGlobals && typeof webrtc.registerGlobals === 'function') {
+      webrtc.registerGlobals();
+      console.log('[App] WebRTC globals registered');
+    }
+  } catch (e) {
+    // WebRTC not available, will use polyfill
+    console.log('[App] WebRTC not available, will use polyfill');
+  }
+}
 
 export default function App() {
   const identify = useAuthStore((s) => s.identify);
@@ -72,9 +87,11 @@ export default function App() {
   setThemeMode(theme);
   const c = getColors();
   return (
-    <SafeAreaProvider>
-      <StatusBar style={theme === 'dark' ? 'light' : 'dark'} backgroundColor={c.background} />
-      <AppNavigator />
-    </SafeAreaProvider>
+    <GestureHandlerRootView style={{ flex: 1 }}>
+      <SafeAreaProvider>
+        <StatusBar style={theme === 'dark' ? 'light' : 'dark'} backgroundColor={c.background} />
+        <AppNavigator />
+      </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

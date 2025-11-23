@@ -11,6 +11,7 @@ export default ({ config }: any) => {
       'expo-video',
       'expo-web-browser',
       'expo-audio',
+      '@config-plugins/react-native-webrtc',
     ],
     extra: {
       apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5219',

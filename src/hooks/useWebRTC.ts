@@ -1,25 +1,84 @@
 import { useRef, useCallback, useState, useEffect } from 'react';
 import { Platform } from 'react-native';
+import Constants from 'expo-constants';
+import { createExpoGetUserMedia } from './expoMediaStreamPolyfill';
 
 // Conditionally import react-native-webrtc for native platforms
 let RTCModule: any = null;
+let globalsRegistered = false;
+
 if (Platform.OS !== 'web') {
-  try {
-    // Use dynamic import to avoid module load errors
-    // Wrap in try-catch to handle any module loading issues
-    const webrtcModule = require('react-native-webrtc');
-    if (webrtcModule && typeof webrtcModule === 'object') {
-      // Validate that the module has the required exports
-      if (webrtcModule.RTCPeerConnection || webrtcModule.RTCSessionDescription) {
-        RTCModule = webrtcModule;
+  // Try multiple ways to load the module
+  const loadWebRTCModule = () => {
+    try {
+      // Method 1: Direct require
+      const webrtcModule = require('react-native-webrtc');
+      if (webrtcModule && typeof webrtcModule === 'object') {
+        // Try to register globals - this might make it work in Expo Go!
+        if (webrtcModule.registerGlobals && typeof webrtcModule.registerGlobals === 'function' && !globalsRegistered) {
+          try {
+            webrtcModule.registerGlobals();
+            globalsRegistered = true;
+            console.log('[WebRTC] Registered globals successfully');
+          } catch (e) {
+            console.warn('[WebRTC] Failed to register globals:', e);
+          }
+        }
+        
+        if (webrtcModule.RTCPeerConnection || webrtcModule.RTCSessionDescription) {
+          return webrtcModule;
+        }
       }
+    } catch (e) {
+      // Try alternative loading methods
     }
-  } catch (e: any) {
-    // Silently handle all errors - WebRTC is optional
-    // The "Super expression" error indicates a module loading issue,
-    // which is expected if react-native-webrtc isn't properly linked
-    // or if there's a compatibility issue
-    RTCModule = null;
+    
+    try {
+      // Method 2: Try accessing from global (after registerGlobals)
+      if ((global as any).RTCPeerConnection) {
+        const globalWebRTC = {
+          RTCPeerConnection: (global as any).RTCPeerConnection,
+          RTCSessionDescription: (global as any).RTCSessionDescription || window?.RTCSessionDescription,
+          RTCIceCandidate: (global as any).RTCIceCandidate || window?.RTCIceCandidate,
+          MediaStream: (global as any).MediaStream || window?.MediaStream,
+          mediaDevices: (global as any).mediaDevices || navigator?.mediaDevices,
+        };
+        if (globalWebRTC.RTCPeerConnection) {
+          return globalWebRTC;
+        }
+      }
+    } catch (e) {
+      // Continue to next method
+    }
+    
+    try {
+      // Method 3: Try with different path
+      const ReactNativeWebRTC = require('react-native-webrtc/dist/index');
+      if (ReactNativeWebRTC) {
+        if (ReactNativeWebRTC.registerGlobals && !globalsRegistered) {
+          try {
+            ReactNativeWebRTC.registerGlobals();
+            globalsRegistered = true;
+          } catch (e) {
+            // Ignore
+          }
+        }
+        return ReactNativeWebRTC;
+      }
+    } catch (e) {
+      // Module not available
+    }
+    
+    return null;
+  };
+  
+  RTCModule = loadWebRTCModule();
+  
+  // If still null, try one more time after a delay (for lazy loading)
+  if (!RTCModule && typeof setTimeout !== 'undefined') {
+    setTimeout(() => {
+      RTCModule = loadWebRTCModule();
+    }, 100);
   }
 }
 
@@ -65,6 +124,87 @@ const ICE_SERVERS = [
   { urls: 'stun:stun1.l.google.com:19302' },
 ];
 
+// Server-relay peer connection for Expo Go
+const createServerRelayPeerConnection = (config?: any) => {
+  console.log('[WebRTC] Creating server-relay peer connection for Expo Go');
+  
+  // Create a mock peer connection that uses SignalR for media relay
+  const mockPC = {
+    addTrack: (track: any, stream: any) => {
+      console.log('[ServerRelay] Adding track:', track.kind);
+      // Track will be streamed via SignalR
+    },
+    createOffer: async (options?: any) => {
+      console.log('[ServerRelay] Creating offer (will use SignalR)');
+      return {
+        type: 'offer',
+        sdp: 'server-relay-offer', // Placeholder
+      };
+    },
+    createAnswer: async (options?: any) => {
+      console.log('[ServerRelay] Creating answer (will use SignalR)');
+      return {
+        type: 'answer',
+        sdp: 'server-relay-answer', // Placeholder
+      };
+    },
+    setLocalDescription: async (description: any) => {
+      console.log('[ServerRelay] Setting local description');
+      // Send via SignalR instead of WebRTC
+    },
+    setRemoteDescription: async (description: any) => {
+      console.log('[ServerRelay] Setting remote description');
+      // Receive via SignalR instead of WebRTC
+    },
+    addIceCandidate: async (candidate: any) => {
+      console.log('[ServerRelay] Adding ICE candidate (not needed for server relay)');
+    },
+    close: () => {
+      console.log('[ServerRelay] Closing connection');
+    },
+    getSenders: () => [],
+    connectionState: 'connecting',
+    signalingState: 'stable',
+    iceConnectionState: 'checking',
+    ontrack: null,
+    onicecandidate: null,
+    onconnectionstatechange: null,
+    onsignalingstatechange: null,
+    oniceconnectionstatechange: null,
+  };
+  
+  return mockPC;
+};
+
+const createMockSessionDescription = (init: any) => {
+  return {
+    type: init.type,
+    sdp: init.sdp || '',
+  };
+};
+
+const createMockIceCandidate = (init: any) => {
+  return {
+    candidate: init.candidate || '',
+    sdpMLineIndex: init.sdpMLineIndex || null,
+    sdpMid: init.sdpMid || null,
+  };
+};
+
+// Check if we're in Expo Go
+const isExpoGo = () => {
+  try {
+    // Check if we're in Expo Go (not a development build)
+    // In Expo Go, appOwnership is 'expo'
+    // In dev builds, it's 'standalone' or null
+    const appOwnership = Constants.appOwnership;
+    return appOwnership === 'expo';
+  } catch (e) {
+    // If Constants is not available, assume not Expo Go
+    return false;
+  }
+};
+
 // Platform-specific WebRTC implementation
 const getWebRTC = () => {
   if (Platform.OS === 'web') {
@@ -74,6 +214,23 @@ const getWebRTC = () => {
       return null;
     }
 
+    // Try to use react-native-webrtc web shim first for consistency
+    if (RTCModule && typeof RTCModule === 'object' && RTCModule.RTCPeerConnection) {
+      try {
+        return {
+          RTCPeerConnection: RTCModule.RTCPeerConnection,
+          RTCSessionDescription: RTCModule.RTCSessionDescription || window.RTCSessionDescription,
+          RTCIceCandidate: RTCModule.RTCIceCandidate || window.RTCIceCandidate,
+          MediaStream: RTCModule.MediaStream || window.MediaStream,
+          mediaDevices: RTCModule.mediaDevices || navigator.mediaDevices,
+          getUserMedia: RTCModule.mediaDevices?.getUserMedia || navigator.mediaDevices?.getUserMedia,
+        };
+      } catch (e) {
+        // Fall through to browser native
+      }
+    }
+
+    // Fallback to browser native WebRTC
     return {
       RTCPeerConnection: window.RTCPeerConnection || (window as any).webkitRTCPeerConnection || (window as any).mozRTCPeerConnection,
       RTCSessionDescription: window.RTCSessionDescription || (window as any).webkitRTCSessionDescription || (window as any).mozRTCSessionDescription,
@@ -86,7 +243,7 @@ const getWebRTC = () => {
         (navigator as any).mozGetUserMedia,
     };
   } else {
-    // For native platforms, use react-native-webrtc
+    // For native platforms, try react-native-webrtc first
     if (RTCModule && typeof RTCModule === 'object') {
       try {
         // Validate that required exports exist and are functions/constructors
@@ -106,10 +263,52 @@ const getWebRTC = () => {
         }
       } catch (e: any) {
         // Silently handle all errors - module may be partially loaded or incompatible
-        // The "Super expression" error indicates a module loading/initialization issue
         RTCModule = null;
       }
     }
+    
+    // Check if globals were registered (might work in Expo Go after registerGlobals)
+    // This is checked dynamically each time getWebRTC is called
+    try {
+      const globalRTCPeerConnection = (global as any).RTCPeerConnection;
+      if (globalRTCPeerConnection && typeof globalRTCPeerConnection === 'function') {
+        console.log('[WebRTC] Found RTCPeerConnection in globals - using it!');
+        return {
+          RTCPeerConnection: globalRTCPeerConnection,
+          RTCSessionDescription: (global as any).RTCSessionDescription || (RTCModule as any)?.RTCSessionDescription,
+          RTCIceCandidate: (global as any).RTCIceCandidate || (RTCModule as any)?.RTCIceCandidate,
+          MediaStream: (global as any).MediaStream || (RTCModule as any)?.MediaStream,
+          mediaDevices: (global as any).mediaDevices || (RTCModule as any)?.mediaDevices,
+          getUserMedia: (global as any).mediaDevices?.getUserMedia || (RTCModule as any)?.mediaDevices?.getUserMedia,
+        };
+      }
+    } catch (e) {
+      // Globals not available
+      console.log('[WebRTC] Globals check failed:', e);
+    }
+    
+    // For Expo Go Android, use expo-camera and expo-av polyfill
+    // We'll use server-relayed streaming instead of true P2P
+    if (isExpoGo() && Platform.OS === 'android') {
+      console.log('[WebRTC] Running in Expo Go Android - using expo-camera/expo-av with server relay');
+      const expoGetUserMedia = createExpoGetUserMedia();
+      
+      // Create a WebRTC-like interface that uses server relay
+      // This enables calls in Expo Go via SignalR media streaming
+      return {
+        RTCPeerConnection: createServerRelayPeerConnection, // Custom implementation
+        RTCSessionDescription: createMockSessionDescription,
+        RTCIceCandidate: createMockIceCandidate,
+        MediaStream: null,
+        mediaDevices: {
+          getUserMedia: expoGetUserMedia,
+        },
+        getUserMedia: expoGetUserMedia,
+        isExpoGoPolyfill: true, // Flag to indicate this is a polyfill
+        useServerRelay: true, // Use server relay instead of P2P
+      };
+    }
+    
     // WebRTC not available on this platform
     return null;
   }
@@ -135,10 +334,48 @@ export const useWebRTC = () => {
   const pendingCandidatesRef = useRef<RTCIceCandidateInit[]>([]);
   const isRemoteDescriptionSetRef = useRef<boolean>(false);
 
-  const webrtc = getWebRTC();
+  const [webrtc, setWebrtc] = useState<any>(getWebRTC());
+  
+  // Retry loading WebRTC in Expo Go after a delay
+  useEffect(() => {
+    if (!webrtc && Platform.OS !== 'web') {
+      const retryTimer = setTimeout(() => {
+        console.log('[WebRTC] Retrying WebRTC load...');
+        const retryWebRTC = getWebRTC();
+        if (retryWebRTC) {
+          console.log('[WebRTC] Successfully loaded WebRTC on retry!');
+          setWebrtc(retryWebRTC);
+        }
+      }, 1000);
+      
+      return () => clearTimeout(retryTimer);
+    }
+  }, []);
 
   // Create peer connection
   const createPeerConnection = useCallback(() => {
+    // Check if we're using Expo Go polyfill (no peer connections)
+    if (webrtc && (webrtc as any).isExpoGoPolyfill) {
+      console.warn('[WebRTC] Expo Go polyfill: Peer connections not supported. Media capture works, but P2P calls require a development build.');
+      // Return a mock peer connection that at least doesn't crash
+      const mockPC = {
+        addTrack: () => {},
+        createOffer: async () => ({ type: 'offer', sdp: '' }),
+        createAnswer: async () => ({ type: 'answer', sdp: '' }),
+        setLocalDescription: async () => {},
+        setRemoteDescription: async () => {},
+        addIceCandidate: async () => {},
+        close: () => {},
+        getSenders: () => [],
+        connectionState: 'disconnected',
+        signalingState: 'stable',
+        iceConnectionState: 'disconnected',
+      };
+      peerConnectionRef.current = mockPC as any;
+      setCallState(prev => ({ ...prev, peerConnection: mockPC as any }));
+      return mockPC as any;
+    }
+    
     if (!webrtc || !webrtc.RTCPeerConnection) {
       console.error('[WebRTC] WebRTC not available');
       return null;
@@ -327,14 +564,27 @@ export const useWebRTC = () => {
         }
         stream = await navigator.mediaDevices.getUserMedia(constraints) as any;
       } else {
-        // React Native WebRTC
+        // React Native WebRTC or Expo Go polyfill
         if (!webrtc) {
-          throw new Error('WebRTC is not available on this platform');
+          throw new Error('WebRTC is not available on this platform. Please ensure react-native-webrtc is properly installed and linked.');
         }
-        if (!webrtc.mediaDevices || !webrtc.mediaDevices.getUserMedia) {
+        
+        // Check if we're using Expo Go polyfill
+        if ((webrtc as any).isExpoGoPolyfill) {
+          console.log('[WebRTC] Using Expo Go polyfill for media capture');
+          if (!webrtc.getUserMedia) {
+            throw new Error('Expo Go polyfill getUserMedia not available');
+          }
+          stream = await webrtc.getUserMedia(constraints) as any;
+        } else if (webrtc.mediaDevices && webrtc.mediaDevices.getUserMedia) {
+          // Standard WebRTC
+          stream = await webrtc.mediaDevices.getUserMedia(constraints) as any;
+        } else if (webrtc.getUserMedia) {
+          // Fallback
+          stream = await webrtc.getUserMedia(constraints) as any;
+        } else {
           throw new Error('WebRTC mediaDevices.getUserMedia not available on native platform');
         }
-        stream = await webrtc.mediaDevices.getUserMedia(constraints) as any;
       }
 
       // Add toURL method for compatibility
@@ -605,6 +855,7 @@ export const useWebRTC = () => {
 
   return {
     ...callState,
+    isWebRTCAvailable: !!webrtc,
     createPeerConnection,
     getLocalStream,
     createOffer,

@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { api, userApi, endpoints, authServiceUrl } from '../api/client';
+import { api, userApi, endpoints, authServiceUrl, setUnauthorizedHandler } from '../api/client';
 import * as WebBrowser from 'expo-web-browser';
 import * as Linking from 'expo-linking';
 import { Platform } from 'react-native';
@@ -60,7 +60,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
         if (Platform.OS === 'web') {
           errorMessage = 'Cannot connect to backend. Make sure:\n1. Backend services are running\n2. CORS is enabled (see WEB_CORS_SETUP.md)';
         } else {
-          errorMessage = 'Cannot connect to backend. Make sure backend services are running on ports 5219, 5001, 5003, 5002';
+          // Check if using local backend by inspecting authServiceUrl
+          const isUsingLocalBackend = authServiceUrl.includes('localhost') || authServiceUrl.includes('10.0.2.2') || authServiceUrl.match(/^http:\/\/\d+\.\d+\.\d+\.\d+/);
+          if (isUsingLocalBackend) {
+            errorMessage = 'Cannot connect to backend.\n\nIf using local backend:\n1. Make sure backend services are running\n2. For physical devices, ensure your computer and phone are on the same WiFi network\n3. Check the API URL in console logs (should show your computer\'s IP, not localhost)\n\nOr switch to production API in src/api/client.ts';
+          } else {
+            errorMessage = 'Cannot connect to backend. Make sure backend services are running on ports 5219, 5001, 5003, 5002';
+          }
         }
       } else if (e?.response?.data?.message) {
         errorMessage = e.response.data.message;
@@ -318,5 +324,13 @@ export const useAuthStore = create<AuthState>((set, get) => ({
     }
   },
 }));
+
+// Register logout callback to avoid circular dependency
+setUnauthorizedHandler(async () => {
+  const logout = useAuthStore.getState().logout;
+  if (logout) {
+    await logout();
+  }
+});
 
 

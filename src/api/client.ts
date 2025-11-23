@@ -3,15 +3,12 @@ import Constants from 'expo-constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 
-// Import auth store to clear user state on 401
-let authStore: any = null;
-try {
-  // Dynamic import to avoid circular dependency
-  const authModule = require('../state/auth');
-  authStore = authModule.useAuthStore;
-} catch (e) {
-  console.log('Could not import auth store for 401 handling:', e);
-}
+// Callback to clear auth state on 401 - set by auth store to avoid circular dependency
+let onUnauthorized: (() => Promise<void>) | null = null;
+
+export const setUnauthorizedHandler = (handler: () => Promise<void>) => {
+  onUnauthorized = handler;
+};
 
 // USE_LOCAL_BACKEND flag to control whether to use localhost or production
 // Set to false to always use production API Gateway (recommended for mobile testing)
@@ -31,22 +28,69 @@ const getBaseUrl = () => {
       return 'http://localhost';
     }
 
-    // Prefer packager host IP for physical devices on LAN
-    const hostUri = (Constants as any)?.expoConfig?.hostUri || (Constants as any)?.manifest?.debuggerHost || '';
-    const packagerHost = typeof hostUri === 'string' ? hostUri.split(':')[0] : '';
+    // Try multiple sources to get the packager host IP for physical devices
+    const getPackagerHost = (): string | null => {
+      // Try Constants.expoConfig.hostUri first (newer Expo SDK)
+      let hostUri = (Constants as any)?.expoConfig?.hostUri;
+      
+      // Try Constants.manifest.debuggerHost (older Expo SDK)
+      if (!hostUri) {
+        hostUri = (Constants as any)?.manifest?.debuggerHost;
+      }
+      
+      // Try Constants.manifest.hostUri (alternative)
+      if (!hostUri) {
+        hostUri = (Constants as any)?.manifest?.hostUri;
+      }
+      
+      // Try Constants.manifest2?.extra?.expoGo?.debuggerHost (Expo Go)
+      if (!hostUri) {
+        hostUri = (Constants as any)?.manifest2?.extra?.expoGo?.debuggerHost;
+      }
 
-    // Android emulator maps host to 10.0.2.2
+      if (hostUri && typeof hostUri === 'string') {
+        const host = hostUri.split(':')[0];
+        // Only return if it's not localhost (physical devices need actual IP)
+        if (host && host !== 'localhost' && host !== '127.0.0.1') {
+          return host;
+        }
+      }
+      
+      return null;
+    };
+
+    const packagerHost = getPackagerHost();
+
+    // Android: Check if we're on emulator (10.0.2.2) or physical device (packager host)
     if (Platform.OS === 'android') {
+      // If we have a packager host that's not localhost, use it (physical device)
+      if (packagerHost) {
+        console.log('[API Config] Using packager host for Android physical device:', packagerHost);
+        return `http://${packagerHost}`;
+      }
+      // Otherwise assume emulator
+      console.log('[API Config] Using 10.0.2.2 for Android emulator');
       return 'http://10.0.2.2';
     }
 
-    // iOS simulator can use localhost; physical device must use LAN IP
+    // iOS: Use packager host if available (physical device), otherwise localhost (simulator)
     if (Platform.OS === 'ios') {
-      return packagerHost && packagerHost !== 'localhost' ? `http://${packagerHost}` : 'http://localhost';
+      if (packagerHost) {
+        console.log('[API Config] Using packager host for iOS physical device:', packagerHost);
+        return `http://${packagerHost}`;
+      }
+      console.log('[API Config] Using localhost for iOS simulator');
+      return 'http://localhost';
     }
 
     // Fallback for other platforms
-    return packagerHost ? `http://${packagerHost}` : 'http://localhost';
+    if (packagerHost) {
+      console.log('[API Config] Using packager host:', packagerHost);
+      return `http://${packagerHost}`;
+    }
+    
+    console.warn('[API Config] Could not detect packager host, falling back to localhost. This may not work on physical devices.');
+    return 'http://localhost';
   }
 
   // Fallback to production
@@ -141,12 +185,9 @@ wishlistApi.interceptors.response.use(
         await AsyncStorage.removeItem('auth_token');
         console.log('Cleared invalid auth token');
         // Clear auth store state if available
-        if (authStore) {
-          const logout = authStore.getState()?.logout;
-          if (logout) {
-            await logout();
-            console.log('Cleared auth store state');
-          }
+        if (onUnauthorized) {
+          await onUnauthorized();
+          console.log('Cleared auth store state');
         }
       } catch (e) {
         console.error('Error clearing token:', e);

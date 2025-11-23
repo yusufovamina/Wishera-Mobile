@@ -735,6 +735,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     endCall: endWebRTCCall,
     isMuted,
     isVideoEnabled,
+    isWebRTCAvailable,
   } = useWebRTC();
 
   // Video components for web and native
@@ -1026,10 +1027,23 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         setError('Failed to start call');
         setTimeout(() => setError(null), 3000);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('[ChatScreen] Error starting call:', error);
       endWebRTCCall();
-      setError('Failed to start call. Please try again.');
+      
+      // Show user-friendly error message
+      const errorMessage = error?.message || 'Unknown error';
+      if (errorMessage.includes('WebRTC is not available') || errorMessage.includes('not available on this platform')) {
+        // Check if we're in Expo Go - if so, media capture should work but peer connections won't
+        Alert.alert(
+          'Calling Limitations',
+          'In Expo Go, media capture works but peer-to-peer calls require a development build.\n\nFor full calling support:\n1. Run: npx expo run:android\n2. Install the generated app\n3. Calls will work fully in the dev build',
+          [{ text: 'OK' }]
+        );
+      } else {
+        setError('Failed to start call. Please try again.');
+        setTimeout(() => setError(null), 3000);
+      }
     }
   };
 
@@ -1040,6 +1054,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       const callToAccept = { ...incomingCall };
 
       await getLocalStream(callToAccept.callType === 'video');
+
       createPeerConnection();
 
       setIceCandidateCallback(async (candidate) => {
@@ -1083,15 +1098,27 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       startCallDurationTimer();
 
       await acceptCall(callToAccept.callerUserId, callToAccept.callId);
-    } catch (error) {
+    } catch (error: any) {
       console.error('[ChatScreen] Error accepting call:', error);
       endWebRTCCall();
       setActiveCall(null);
       activeCallRef.current = null;
       setIncomingCall(null);
       incomingCallRef.current = null;
-      setError('Failed to accept call');
-      setTimeout(() => setError(null), 3000);
+      
+      // Show user-friendly error message
+      const errorMessage = error?.message || 'Unknown error';
+      if (errorMessage.includes('WebRTC is not available') || errorMessage.includes('not available on this platform')) {
+        // Check if we're in Expo Go - if so, media capture should work but peer connections won't
+        Alert.alert(
+          'Calling Limitations',
+          'In Expo Go, media capture works but peer-to-peer calls require a development build.\n\nFor full calling support:\n1. Run: npx expo run:android\n2. Install the generated app\n3. Calls will work fully in the dev build',
+          [{ text: 'OK' }]
+        );
+      } else {
+        setError('Failed to accept call');
+        setTimeout(() => setError(null), 3000);
+      }
     }
   };
 
@@ -3116,9 +3143,16 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       const recordingResult = await stopRecording();
       console.log('[ChatScreen] Recording stopped:', recordingResult);
 
-      if (recordingResult && recordingResult.uri && recordingResult.duration > 0) {
+      // Wait a bit for state to update after stopping
+      await new Promise(resolve => setTimeout(resolve, 100));
+
+      // Check both the result and the state (state might be updated even if result is null)
+      const uriToSend = recordingResult?.uri || recordedUri;
+      const durationToSend = recordingResult?.duration || recordedDuration;
+
+      if (uriToSend && durationToSend > 0) {
         // Minimum recording duration (like Telegram - 1 second)
-        if (recordingResult.duration < 1) {
+        if (durationToSend < 1) {
           console.log('[ChatScreen] Recording too short');
           Alert.alert('Too Short', 'Voice message must be at least 1 second long.');
           await cancelRecording();
@@ -3128,15 +3162,21 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         }
 
         // Send voice message
-        console.log('[ChatScreen] Sending voice message...');
-        await sendVoiceMessage(recordingResult.uri, recordingResult.duration);
+        console.log('[ChatScreen] Sending voice message...', { uri: uriToSend, duration: durationToSend });
+        await sendVoiceMessage(uriToSend, durationToSend);
+        clearRecording();
         setIsRecordingMode(false);
         setRecordingCanceled(false);
         recordingStartedRef.current = false;
         recordButtonPressInRef.current = false;
       } else {
-        console.log('[ChatScreen] No valid recording to send');
-        Alert.alert('Error', 'No recording to send.');
+        console.log('[ChatScreen] No valid recording to send', { 
+          recordingResult, 
+          recordedUri, 
+          recordedDuration,
+          uriToSend,
+          durationToSend
+        });
         setIsRecordingMode(false);
         setRecordingCanceled(false);
         recordingStartedRef.current = false;
@@ -3153,7 +3193,6 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       recordButtonPressInRef.current = false;
     } else {
       console.log('[ChatScreen] No recording available to send', { isRecording, recordedUri, recordedDuration });
-      Alert.alert('Error', 'No recording to send.');
       setIsRecordingMode(false);
       setRecordingCanceled(false);
       recordingStartedRef.current = false;
@@ -3519,7 +3558,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
               player={thumbnailPlayer}
               style={styles.replyPreviewVideo}
               nativeControls={false}
-              allowsFullscreen={false}
+              fullscreenOptions={{ allowed: false }}
               allowsPictureInPicture={false}
               contentFit="cover"
             />
@@ -3550,7 +3589,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             player={thumbnailPlayer}
             style={styles.replyPreviewVideoInline}
             nativeControls={false}
-            allowsFullscreen={false}
+            fullscreenOptions={{ allowed: false }}
             allowsPictureInPicture={false}
             contentFit="cover"
           />
@@ -3680,7 +3719,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             player={player}
             style={styles.videoModalPlayer}
             nativeControls={true}
-            allowsFullscreen={true}
+            fullscreenOptions={{ allowed: true }}
             allowsPictureInPicture={false}
             contentFit="contain"
           />
@@ -3727,7 +3766,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           player={player}
           style={styles.messageVideoPlayer}
           nativeControls={false}
-          allowsFullscreen={false}
+          fullscreenOptions={{ allowed: false }}
           allowsPictureInPicture={false}
         />
 
