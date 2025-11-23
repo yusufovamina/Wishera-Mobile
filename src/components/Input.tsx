@@ -4,6 +4,18 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { getColors } from '../theme/colors';
 import { usePreferences } from '../state/preferences';
 
+// Helper to convert hex to rgba
+const hexToRgba = (hex: string, opacity: number): string => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+  return hex;
+};
+
 type InputProps = {
   label?: string;
   value: string;
@@ -72,10 +84,7 @@ const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create
   },
   inputWrapperFocused: {
     borderColor: colors.primary,
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    boxShadow: `0px 0px 12px ${hexToRgba(colors.primary, 0.3)}`,
     elevation: 4,
   },
   inputGradient: {

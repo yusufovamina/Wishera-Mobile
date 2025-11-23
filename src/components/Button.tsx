@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useMemo } from 'react';
-import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, Animated, Easing } from 'react-native';
+import { TouchableOpacity, Text, ActivityIndicator, StyleSheet, ViewStyle, Animated, Easing, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { getColors } from '../theme/colors';
 import { usePreferences } from '../state/preferences';
@@ -20,6 +20,8 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
   const isOutline = variant === 'outline';
   const pulseAnim = useRef(new Animated.Value(0)).current;
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  // Use native driver only on native platforms, not on web
+  const useNative = Platform.OS !== 'web';
 
   useEffect(() => {
     if (!isGhost && !isOutline && !loading) {
@@ -29,18 +31,18 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
             toValue: 1, 
             duration: 2000, 
             easing: Easing.inOut(Easing.quad), 
-            useNativeDriver: true 
+            useNativeDriver: useNative 
           }),
           Animated.timing(pulseAnim, { 
             toValue: 0, 
             duration: 2000, 
             easing: Easing.inOut(Easing.quad), 
-            useNativeDriver: true 
+            useNativeDriver: useNative 
           }),
         ])
       ).start();
     }
-  }, [isGhost, isOutline, loading, pulseAnim]);
+  }, [isGhost, isOutline, loading, pulseAnim, useNative]);
 
   const glowOpacity = pulseAnim.interpolate({ 
     inputRange: [0, 1], 
@@ -50,14 +52,14 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
   const handlePressIn = () => {
     Animated.spring(scaleAnim, {
       toValue: 0.95,
-      useNativeDriver: true,
+      useNativeDriver: useNative,
     }).start();
   };
 
   const handlePressOut = () => {
     Animated.spring(scaleAnim, {
       toValue: 1,
-      useNativeDriver: true,
+      useNativeDriver: useNative,
     }).start();
   };
 
@@ -106,6 +108,18 @@ export const Button: React.FC<ButtonProps> = ({ title, onPress, loading, style, 
   );
 };
 
+// Helper to convert hex to rgba
+const hexToRgba = (hex: string, opacity: number): string => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+  return hex;
+};
+
 const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
   button: {
     paddingVertical: 16,
@@ -114,10 +128,7 @@ const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create
     alignItems: 'center',
     position: 'relative',
     overflow: 'hidden',
-    shadowColor: colors.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
+    boxShadow: `0px 4px 12px ${hexToRgba(colors.primary, 0.3)}`,
     elevation: 8,
   },
   buttonGlow: {

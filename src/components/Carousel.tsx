@@ -1,17 +1,13 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { View, ScrollView, Dimensions, StyleSheet, NativeScrollEvent, NativeSyntheticEvent, Animated, TouchableOpacity } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Ionicons } from '@expo/vector-icons';
+import { View, ScrollView, Dimensions, StyleSheet, NativeScrollEvent, NativeSyntheticEvent, Animated } from 'react-native';
 import { colors } from '../theme/colors';
 
 const { width, height } = Dimensions.get('window');
 const CARD_WIDTH = width * 0.82;
 const CARD_SPACING = 16;
-const NAV_BUTTON_SIZE = width < 400 ? 44 : 48;
-const NAV_BUTTON_OFFSET = width < 400 ? 6 : 10;
 
 interface CarouselProps {
-  children: React.ReactNode[];
+  children: React.ReactNode;
   autoPlay?: boolean;
   autoPlayInterval?: number;
   showDots?: boolean;
@@ -31,14 +27,34 @@ export const Carousel: React.FC<CarouselProps> = ({
   const carouselWrapperRef = useRef<View>(null);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isScrolling, setIsScrolling] = useState(false);
-  const [carouselHeight, setCarouselHeight] = useState(350);
   const scrollX = useRef(new Animated.Value(0)).current;
+  
+  // Convert children to array if needed and ensure we have valid children
+  const childrenArray = React.Children.toArray(children).filter(child => child != null);
+  
+  // Don't render if no children
+  if (childrenArray.length === 0) {
+    return null;
+  }
+
+  // Initialize scroll position on mount
+  useEffect(() => {
+    if (childrenArray.length > 0 && scrollViewRef.current) {
+      const sidePadding = (width - CARD_WIDTH) / 2;
+      setTimeout(() => {
+        scrollViewRef.current?.scrollTo({
+          x: sidePadding,
+          animated: false,
+        });
+      }, 100);
+    }
+  }, []);
 
   useEffect(() => {
-    if (autoPlay && !isScrolling && children.length > 1) {
+    if (autoPlay && !isScrolling && childrenArray.length > 1) {
       const interval = setInterval(() => {
         setCurrentIndex((prevIndex) => {
-          const nextIndex = (prevIndex + 1) % children.length;
+          const nextIndex = (prevIndex + 1) % childrenArray.length;
           const sidePadding = (width - CARD_WIDTH) / 2;
           const scrollToX = sidePadding + nextIndex * (CARD_WIDTH + CARD_SPACING);
           scrollViewRef.current?.scrollTo({
@@ -51,7 +67,7 @@ export const Carousel: React.FC<CarouselProps> = ({
 
       return () => clearInterval(interval);
     }
-  }, [autoPlay, autoPlayInterval, children.length, isScrolling, width]);
+  }, [autoPlay, autoPlayInterval, childrenArray.length, isScrolling, width]);
 
   const handleScroll = Animated.event(
     [{ nativeEvent: { contentOffset: { x: scrollX } } }],
@@ -62,8 +78,8 @@ export const Carousel: React.FC<CarouselProps> = ({
         const sidePadding = (width - CARD_WIDTH) / 2;
         const adjustedOffset = contentOffsetX - sidePadding;
         const index = Math.round(adjustedOffset / (CARD_WIDTH + CARD_SPACING));
-        const clampedIndex = Math.max(0, Math.min(index, children.length - 1));
-        if (clampedIndex >= 0 && clampedIndex < children.length) {
+        const clampedIndex = Math.max(0, Math.min(index, childrenArray.length - 1));
+        if (clampedIndex >= 0 && clampedIndex < childrenArray.length) {
           setCurrentIndex(clampedIndex);
         }
       },
@@ -83,7 +99,7 @@ export const Carousel: React.FC<CarouselProps> = ({
     const sidePadding = (width - CARD_WIDTH) / 2;
     const adjustedOffset = Math.max(0, contentOffsetX - sidePadding);
     const index = Math.round(adjustedOffset / (CARD_WIDTH + CARD_SPACING));
-    const clampedIndex = Math.max(0, Math.min(index, children.length - 1));
+    const clampedIndex = Math.max(0, Math.min(index, childrenArray.length - 1));
     const snapToX = sidePadding + clampedIndex * (CARD_WIDTH + CARD_SPACING);
     
     scrollViewRef.current?.scrollTo({
@@ -94,52 +110,14 @@ export const Carousel: React.FC<CarouselProps> = ({
     setCurrentIndex(clampedIndex);
   };
 
-  const scrollToIndex = (index: number) => {
-    const sidePadding = (width - CARD_WIDTH) / 2;
-    const scrollToX = sidePadding + index * (CARD_WIDTH + CARD_SPACING);
-    scrollViewRef.current?.scrollTo({
-      x: scrollToX,
-      animated: true,
-    });
-    setCurrentIndex(index);
-    setIsScrolling(true);
-    setTimeout(() => setIsScrolling(false), autoPlayInterval);
-  };
-
-  const goToPrevious = () => {
-    if (currentIndex > 0) {
-      scrollToIndex(currentIndex - 1);
-    } else {
-      scrollToIndex(children.length - 1);
-    }
-  };
-
-  const goToNext = () => {
-    if (currentIndex < children.length - 1) {
-      scrollToIndex(currentIndex + 1);
-    } else {
-      scrollToIndex(0);
-    }
-  };
 
   const sidePadding = (width - CARD_WIDTH) / 2;
-  const totalContentWidth = sidePadding * 2 + children.length * CARD_WIDTH + (children.length - 1) * CARD_SPACING;
-
-  const onCarouselLayout = (event: any) => {
-    const { height } = event.nativeEvent.layout;
-    if (height > 0) {
-      setCarouselHeight(height);
-    }
-  };
-
-  const buttonTop = carouselHeight / 2 - NAV_BUTTON_SIZE / 2;
 
   return (
     <View style={styles.container}>
       <View 
         ref={carouselWrapperRef}
         style={styles.carouselWrapper}
-        onLayout={onCarouselLayout}
       >
         <ScrollView
           ref={scrollViewRef}
@@ -159,7 +137,6 @@ export const Carousel: React.FC<CarouselProps> = ({
             { 
               paddingLeft: sidePadding,
               paddingRight: sidePadding,
-              minWidth: totalContentWidth,
             },
           ]}
           nestedScrollEnabled={true}
@@ -167,7 +144,7 @@ export const Carousel: React.FC<CarouselProps> = ({
           removeClippedSubviews={false}
           style={styles.scrollView}
         >
-          {children.map((child, index) => {
+          {childrenArray.map((child, index) => {
             const sidePadding = (width - CARD_WIDTH) / 2;
             const inputRange = [
               sidePadding + (index - 1) * (CARD_WIDTH + CARD_SPACING),
@@ -194,7 +171,7 @@ export const Carousel: React.FC<CarouselProps> = ({
                   styles.slideContainer,
                   {
                     width: CARD_WIDTH,
-                    marginRight: index < children.length - 1 ? CARD_SPACING : 0,
+                    marginRight: index < childrenArray.length - 1 ? CARD_SPACING : sidePadding,
                     transform: [{ scale }],
                     opacity,
                   },
@@ -205,55 +182,11 @@ export const Carousel: React.FC<CarouselProps> = ({
             );
           })}
         </ScrollView>
-        
-        {children.length > 1 && (
-          <>
-            <TouchableOpacity
-              style={[
-                styles.navButton, 
-                styles.navButtonLeft,
-                { top: buttonTop }
-              ]}
-              onPress={goToPrevious}
-              activeOpacity={0.8}
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-            >
-              <LinearGradient
-                colors={[colors.gradientStart, colors.gradientMid]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.navButtonGradient}
-              >
-                <Ionicons name="chevron-back" size={width < 400 ? 22 : 24} color="#FFFFFF" />
-              </LinearGradient>
-            </TouchableOpacity>
-            
-            <TouchableOpacity
-              style={[
-                styles.navButton, 
-                styles.navButtonRight,
-                { top: buttonTop }
-              ]}
-              onPress={goToNext}
-              activeOpacity={0.8}
-              hitSlop={{ top: 15, bottom: 15, left: 15, right: 15 }}
-            >
-              <LinearGradient
-                colors={[colors.gradientStart, colors.gradientMid]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 1 }}
-                style={styles.navButtonGradient}
-              >
-                <Ionicons name="chevron-forward" size={width < 400 ? 22 : 24} color="#FFFFFF" />
-              </LinearGradient>
-            </TouchableOpacity>
-          </>
-        )}
       </View>
       
-      {showDots && children.length > 1 && (
+      {showDots && childrenArray.length > 1 && (
         <View style={styles.dotsContainer}>
-          {children.map((_, index) => {
+          {childrenArray.map((_, index) => {
             const sidePadding = (width - CARD_WIDTH) / 2;
             const inputRange = [
               sidePadding + (index - 1) * (CARD_WIDTH + CARD_SPACING),
@@ -278,7 +211,7 @@ export const Carousel: React.FC<CarouselProps> = ({
                 key={index}
                 style={[
                   styles.dot,
-                  index < children.length - 1 && { marginRight: 8 },
+                  index < childrenArray.length - 1 && { marginRight: 8 },
                   {
                     width: dotWidth,
                     opacity: dotOpacity,
@@ -307,42 +240,19 @@ const styles = StyleSheet.create({
   },
   scrollView: {
     width: '100%',
-    height: '100%',
+    flexGrow: 1,
   },
   contentContainer: {
     alignItems: 'center',
     paddingVertical: 16,
     flexDirection: 'row',
+    flexGrow: 1,
+    justifyContent: 'flex-start',
   },
   slideContainer: {
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  navButton: {
-    position: 'absolute',
-    width: NAV_BUTTON_SIZE,
-    height: NAV_BUTTON_SIZE,
-    borderRadius: NAV_BUTTON_SIZE / 2,
-    boxShadow: `0 4px 16px ${colors.primary}`,
-    elevation: 30,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
-    zIndex: 1000,
-  },
-  navButtonGradient: {
-    width: '100%',
-    height: '100%',
-    borderRadius: NAV_BUTTON_SIZE / 2,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 1)',
-  },
-  navButtonLeft: {
-    left: NAV_BUTTON_OFFSET,
-  },
-  navButtonRight: {
-    right: NAV_BUTTON_OFFSET,
+    flexShrink: 0,
   },
   dotsContainer: {
     flexDirection: 'row',

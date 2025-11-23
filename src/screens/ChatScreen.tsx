@@ -27,9 +27,14 @@ let RTCView: any = null;
 if (Platform.OS !== 'web') {
   try {
     const RTCModule = require('react-native-webrtc');
-    RTCView = RTCModule.RTCView;
-  } catch (e) {
-    console.warn('[ChatScreen] react-native-webrtc RTCView not available:', e);
+    if (RTCModule && RTCModule.RTCView && typeof RTCModule.RTCView === 'function') {
+      RTCView = RTCModule.RTCView;
+    }
+  } catch (e: any) {
+    // Silently handle all errors - WebRTC is optional
+    // The "Super expression" error indicates a module loading issue,
+    // which is expected if react-native-webrtc isn't properly linked
+    RTCView = null;
   }
 }
 
@@ -3358,7 +3363,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       // If SignalR deletion failed or not connected, try HTTP endpoint as fallback
       console.log('[ChatScreen] Trying HTTP endpoint for deletion');
       try {
-        const response = await chatApi.post(endpoints.deleteChatMessage, { messageId });
+        // Backend expects MessageId (capital M) not messageId
+        const response = await chatApi.post(endpoints.deleteChatMessage, { MessageId: messageId });
         console.log('[ChatScreen] HTTP deletion response:', response.data);
         console.log('[ChatScreen] Message deleted via HTTP endpoint');
       } catch (httpError: any) {
@@ -3393,6 +3399,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   };
 
   // Handler for swipe action on own messages (edit/delete)
+  // Note: This is kept for compatibility but we now use direct onEditMessage/onDeleteMessage callbacks
+  // We don't call onComplete here to allow the buttons to stay visible
   const handleSwipeAction = (message: ChatMessage, onComplete?: () => void) => {
     // Only allow swipe action on own messages
     const isOwnMessage = message.userId === user?.id || message.senderId === user?.id;
@@ -3401,60 +3409,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       return;
     }
 
-    // Prevent action menu for call messages, voice messages, images, or videos
-    const messageType = message.messageType || 'text';
-    const isImage = messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
-    const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
-    const isVoice = messageType === 'voice';
-    const isCall = messageType === 'call';
-
-    if (isCall || isVoice || isImage || isVideo) {
-      onComplete?.();
-      return; // Don't show menu for media/call messages
-    }
-
-    // Show action menu with Edit and Delete options
-    Alert.alert(
-      t('chat.messageOptions', 'Message Options'),
-      '',
-      [
-        {
-          text: t('common.edit', 'Edit'),
-          onPress: () => {
-            setEditingId(message.id);
-            setInputText(message.text || '');
-            // Small delay to ensure Alert is fully dismissed before resetting animation
-            setTimeout(() => {
-              onComplete?.();
-            }, 200);
-          },
-        },
-        {
-          text: t('common.delete', 'Delete'),
-          style: 'destructive',
-          onPress: () => {
-            handleDeleteMessage(message.id);
-            // Small delay to ensure Alert is fully dismissed before resetting animation
-            setTimeout(() => {
-              onComplete?.();
-            }, 200);
-          },
-        },
-        {
-          text: t('common.cancel', 'Cancel'),
-          style: 'cancel',
-          onPress: () => {
-            // Small delay to ensure Alert is fully dismissed before resetting animation
-            setTimeout(() => {
-              onComplete?.();
-            }, 200);
-          },
-        },
-      ],
-      { 
-        cancelable: true
-      }
-    );
+    // Don't call onComplete - let the buttons stay visible
+    // The MessageBubble component handles showing/hiding buttons based on message type
+    // The buttons will auto-hide after 5 seconds or when clicked
   };
 
   // Helper function to format timestamp for display
@@ -3835,6 +3792,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         onSwipeReply={handleSwipeReply}
         onSwipeAction={handleSwipeAction}
         onEditMessage={(message) => {
+          // Only allow editing text messages
           const messageType = message.messageType || 'text';
           const isImage = messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
           const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
@@ -3847,15 +3805,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           }
         }}
         onDeleteMessage={(message) => {
-          const messageType = message.messageType || 'text';
-          const isImage = messageType === 'image' || (message.text && looksLikeImageUrl(message.text));
-          const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
-          const isVoice = messageType === 'voice';
-          const isCall = messageType === 'call';
-
-          if (!isCall && !isVoice && !isImage && !isVideo) {
-            handleDeleteMessage(message.id);
-          }
+          // Allow deleting all message types
+          handleDeleteMessage(message.id);
         }}
         onLongPress={handleLongPressReaction}
         onReactionPress={handleReactToMessage}

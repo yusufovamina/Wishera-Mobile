@@ -1,67 +1,18 @@
-import React, { useEffect, useRef } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Animated, Easing, Dimensions, StatusBar, ScrollView } from 'react-native';
+import React, { useMemo } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, KeyboardAvoidingView, Platform, Dimensions } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import { colors } from '../theme/colors';
-import { useI18n } from '../i18n';
+import { colors, getColors } from '../theme/colors';
 import { usePreferences } from '../state/preferences';
-import { Carousel } from '../components/Carousel';
+import { useI18n } from '../i18n';
+import { Button } from '../components/Button';
 import { WisheraLogo } from '../components/WisheraLogo';
+import { Carousel } from '../components/Carousel';
 
-const { width, height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
+const CARD_WIDTH = width * 0.82;
 
-// Mock screenshot data
-const appScreenshots = [
-  {
-    id: 1,
-    title: 'Wishlist Creation',
-    description: 'Create and manage your wishlists easily',
-    iconName: 'document-text' as const,
-    color: colors.primary,
-  },
-  {
-    id: 2,
-    title: 'Social Feed',
-    description: 'Browse wishlists from friends and family',
-    iconName: 'people' as const,
-    color: colors.accent,
-  },
-  {
-    id: 3,
-    title: 'Chat Interface',
-    description: 'Real-time messaging with SignalR',
-    iconName: 'chatbubble' as const,
-    color: colors.info,
-  },
-  {
-    id: 4,
-    title: 'Event Management',
-    description: 'Track birthdays and special occasions',
-    iconName: 'calendar' as const,
-    color: colors.warning,
-  },
-  {
-    id: 5,
-    title: 'Profile & Privacy',
-    description: 'Control your privacy settings',
-    iconName: 'person' as const,
-    color: colors.success,
-  },
-];
-
-const howItWorksSteps = [
-  { step: 1, title: 'Create', description: 'Build your wishlist', iconName: 'sparkles' as const, color: colors.primary },
-  { step: 2, title: 'Share', description: 'Connect with friends', iconName: 'share-social' as const, color: colors.accent },
-  { step: 3, title: 'Gift', description: 'Receive perfect gifts', iconName: 'gift' as const, color: colors.warning },
-];
-
-const useCases = [
-  { title: 'Birthday Wishlists', iconName: 'gift' as const, description: 'Share your birthday wishes', color: colors.primary },
-  { title: 'Wedding Registries', iconName: 'heart' as const, description: 'Create your dream registry', color: colors.accent },
-  { title: 'Holiday Gifts', iconName: 'star' as const, description: 'Plan holiday gift exchanges', color: colors.warning },
-];
-
-// Helper function to convert hex to rgba
+// Helper to convert hex to rgba
 const hexToRgba = (hex: string, opacity: number): string => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
   if (result) {
@@ -70,1190 +21,548 @@ const hexToRgba = (hex: string, opacity: number): string => {
     const b = parseInt(result[3], 16);
     return `rgba(${r}, ${g}, ${b}, ${opacity})`;
   }
-  // Fallback for rgba or other formats
-  return hex.includes('rgba') ? hex : `rgba(99, 102, 241, ${opacity})`;
+  return hex;
 };
 
-// Animated Button Component with Press Effect
-const AnimatedButton: React.FC<{
-  onPress: () => void;
-  text: string;
-  gradientColors: string[];
-  style?: any;
-}> = ({ onPress, text, gradientColors, style }) => {
-  const scaleAnim = useRef(new Animated.Value(1)).current;
+// Feature showcase items
+const features = [
+  {
+    icon: 'list' as const,
+    title: 'Create Wishlists',
+    description: 'Build your perfect wishlist with photos, links, and details. Organize by occasion or category.',
+    color: colors.primary,
+  },
+  {
+    icon: 'share-social' as const,
+    title: 'Share with Friends',
+    description: 'Connect with friends and family. Share your wishlists or browse theirs to find the perfect gift.',
+    color: colors.accent,
+  },
+  {
+    icon: 'gift' as const,
+    title: 'Reserve Gifts',
+    description: 'See what others want and reserve gifts to avoid duplicates. Track what you\'ve given and received.',
+    color: colors.warning,
+  },
+  {
+    icon: 'calendar' as const,
+    title: 'Track Events',
+    description: 'Never miss a birthday or special occasion. Get reminders and see upcoming events from your network.',
+    color: colors.info,
+  },
+  {
+    icon: 'chatbubble' as const,
+    title: 'Stay Connected',
+    description: 'Chat with friends about gifts, share ideas, and celebrate special moments together.',
+    color: colors.success,
+  },
+];
 
-  const handlePressIn = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 0.95,
-      useNativeDriver: true,
-    }).start();
-  };
+// How it works steps
+const howItWorks = [
+  {
+    step: 1,
+    title: 'Sign Up',
+    description: 'Create your free account in seconds. No credit card needed.',
+    icon: 'person-add' as const,
+  },
+  {
+    step: 2,
+    title: 'Create Your Wishlist',
+    description: 'Add items you want with photos, links, and notes.',
+    icon: 'add-circle' as const,
+  },
+  {
+    step: 3,
+    title: 'Share & Connect',
+    description: 'Follow friends, share wishlists, and discover what they want.',
+    icon: 'people' as const,
+  },
+  {
+    step: 4,
+    title: 'Give & Receive',
+    description: 'Reserve gifts, get notified about events, and celebrate together.',
+    icon: 'gift' as const,
+  },
+];
 
-  const handlePressOut = () => {
-    Animated.spring(scaleAnim, {
-      toValue: 1,
-      friction: 3,
-      tension: 40,
-      useNativeDriver: true,
-    }).start();
-  };
-
-  return (
-    <TouchableOpacity
-      onPress={onPress}
-      onPressIn={handlePressIn}
-      onPressOut={handlePressOut}
-      activeOpacity={0.9}
-      style={[{ marginTop: 24 }, style]}
-    >
-      <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 0 }}
-          style={{
-            paddingVertical: width < 400 ? 14 : 18,
-            paddingHorizontal: width < 400 ? 32 : 48,
-            borderRadius: width < 400 ? 12 : 16,
-            elevation: 8,
-            shadowColor: gradientColors[0],
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-          }}
-        >
-          <Text
-            style={{
-              color: '#FFFFFF',
-              fontSize: width < 400 ? 16 : 18,
-              fontWeight: '700',
-              textAlign: 'center',
-            }}
-          >
-            {text}
-          </Text>
-        </LinearGradient>
-      </Animated.View>
-    </TouchableOpacity>
-  );
-};
-
-// Particle Background Component
-const ParticleBackground: React.FC = () => {
-  const particles = Array.from({ length: 30 }, (_, i) => ({
-    id: i,
-    size: Math.random() * 3 + 1,
-    x: Math.random() * width,
-    y: Math.random() * height,
-    duration: Math.random() * 10000 + 15000,
-    delay: Math.random() * 5000,
-  }));
-
-  return (
-    <View style={{ position: 'absolute', width, height, pointerEvents: 'none' }}>
-      {particles.map((particle) => {
-        const animatedValue = useRef(new Animated.Value(0)).current;
-
-        useEffect(() => {
-          Animated.loop(
-            Animated.sequence([
-              Animated.delay(particle.delay),
-              Animated.timing(animatedValue, {
-                toValue: 1,
-                duration: particle.duration,
-                easing: Easing.linear,
-                useNativeDriver: true,
-              }),
-            ])
-          ).start();
-        }, []);
-
-        const translateY = animatedValue.interpolate({
-          inputRange: [0, 1],
-          outputRange: [particle.y, -50],
-        });
-
-        const opacity = animatedValue.interpolate({
-          inputRange: [0, 0.1, 0.9, 1],
-          outputRange: [0, 0.6, 0.6, 0],
-        });
-
-        return (
-          <Animated.View
-            key={particle.id}
-            style={{
-              position: 'absolute',
-              left: particle.x,
-              width: particle.size,
-              height: particle.size,
-              borderRadius: particle.size / 2,
-              backgroundColor: '#FFFFFF',
-              opacity,
-              transform: [{ translateY }],
-            }}
-          />
-        );
-      })}
-    </View>
-  );
-};
-
-
-// Enhanced Icon Component with Gradient and Glow
-const GradientIcon: React.FC<{
-  name: keyof typeof Ionicons.glyphMap;
-  size: number;
-  gradientColors: string[];
-  style?: any;
-}> = ({ name, size, gradientColors, style }) => {
-  const pulse = useRef(new Animated.Value(0)).current;
-  const glow = useRef(new Animated.Value(0)).current;
-
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 2000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 2000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(glow, {
-          toValue: 1,
-          duration: 1500,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false,
-        }),
-        Animated.timing(glow, {
-          toValue: 0,
-          duration: 1500,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: false,
-        }),
-      ])
-    ).start();
-  }, [pulse, glow]);
-
-  const scale = pulse.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 1.03],
-  });
-
-  const glowOpacity = glow.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0.2, 0.4],
-  });
-
-  const iconSize = size * 1.5;
-  const borderRadius = size * 0.75;
-
-  return (
-    <View style={[{ alignItems: 'center', justifyContent: 'center' }, style]}>
-      {/* Glow Effect */}
-      <Animated.View
-        style={[
-          {
-            position: 'absolute',
-            width: iconSize * 1.2,
-            height: iconSize * 1.2,
-            borderRadius: borderRadius * 1.2,
-            backgroundColor: gradientColors[0],
-            opacity: glowOpacity,
-            elevation: 8,
-          },
-        ]}
-      />
-      {/* Main Icon with Gradient */}
-      <Animated.View style={{ transform: [{ scale }] }}>
-        <LinearGradient
-          colors={gradientColors}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={{
-            width: iconSize,
-            height: iconSize,
-            borderRadius: borderRadius,
-            justifyContent: 'center',
-            alignItems: 'center',
-            elevation: 12,
-            shadowColor: gradientColors[0],
-            shadowOffset: { width: 0, height: 4 },
-            shadowOpacity: 0.3,
-            shadowRadius: 8,
-          }}
-        >
-          <Ionicons name={name} size={size} color="#FFFFFF" />
-        </LinearGradient>
-      </Animated.View>
-    </View>
-  );
-};
+// Use cases
+const useCases = [
+  {
+    title: 'Birthday Wishlists',
+    description: 'Share your birthday wishes with friends and family.',
+    icon: 'gift' as const,
+    color: colors.primary,
+  },
+  {
+    title: 'Holiday Gifts',
+    description: 'Plan holiday gift exchanges and keep track of what everyone wants.',
+    icon: 'star' as const,
+    color: colors.info,
+  },
+  {
+    title: 'Wedding Registry',
+    description: 'Create a registry for your special day and let guests know what you need.',
+    icon: 'heart' as const,
+    color: colors.warning,
+  },
+  {
+    title: 'Special Occasions',
+    description: 'Anniversaries, graduations, or any celebration - organize it all.',
+    icon: 'star' as const,
+    color: colors.accent,
+  },
+];
 
 export const LandingScreen: React.FC<any> = ({ navigation }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
-  const styles = React.useMemo(() => createStyles(), [theme]);
-  const floatY = useRef(new Animated.Value(0)).current;
-  const pulse = useRef(new Animated.Value(0)).current;
+  const colorScheme = useMemo(() => getColors(), [theme]);
+  const styles = useMemo(() => createStyles(colorScheme), [colorScheme]);
 
-  useEffect(() => {
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(floatY, {
-          toValue: 20,
-          duration: 6000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(floatY, {
-          toValue: -20,
-          duration: 6000,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-
-    Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 2500,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-        Animated.timing(pulse, {
-          toValue: 0,
-          duration: 2500,
-          easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
-        }),
-      ])
-    ).start();
-  }, [floatY, pulse]);
-
-  const getGradientColors = (color: string): string[] => {
-    const colorMap: { [key: string]: string[] } = {
-      [colors.primary]: ['#6366F1', '#8B5CF6'],
-      [colors.accent]: ['#8B5CF6', '#A78BFA'],
-      [colors.info]: ['#3B82F6', '#60A5FA'],
-      [colors.warning]: ['#F59E0B', '#FBBF24'],
-      [colors.success]: ['#10B981', '#34D399'],
-    };
-    return colorMap[color] || ['#6366F1', '#8B5CF6'];
-  };
-
-  const renderScreenshotSlide = (item: typeof appScreenshots[0]) => (
-    <View style={styles.screenshotCardWrapper}>
-      <View style={styles.screenshotCard}>
-        <View style={styles.phoneFrame}>
-          <View style={styles.phoneNotch} />
-          <LinearGradient
-            colors={getGradientColors(item.color)}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.phoneScreen}
-          >
-            <View style={styles.statusBar}>
-              <View style={styles.statusBarLeft}>
-                <View style={styles.signalBars}>
-                  <View style={[styles.signalBar, styles.signalBar1]} />
-                  <View style={[styles.signalBar, styles.signalBar2]} />
-                  <View style={[styles.signalBar, styles.signalBar3]} />
-                  <View style={[styles.signalBar, styles.signalBar4]} />
-                </View>
-                <Text style={styles.statusBarText}>9:41</Text>
-              </View>
-              <View style={styles.statusBarRight}>
-                <Text style={styles.statusBarText}>100%</Text>
-                <View style={styles.battery}>
-                  <View style={styles.batteryFill} />
-                </View>
-              </View>
-            </View>
-            <View style={styles.appContent}>
-              <View style={{ marginBottom: 20 }}>
-                <GradientIcon
-                  name={item.iconName}
-                  size={50}
-                  gradientColors={['rgba(255, 255, 255, 0.9)', 'rgba(255, 255, 255, 0.7)']}
-                />
-              </View>
-              <Text style={styles.featureTitleLarge}>{item.title}</Text>
-              <Text style={styles.featureDescriptionLarge}>{item.description}</Text>
-            </View>
-          </LinearGradient>
+  const renderFeatureCard = (feature: typeof features[0], index: number) => (
+    <View key={index} style={styles.featureCard}>
+      <LinearGradient
+        colors={[hexToRgba(feature.color, 0.08), hexToRgba(feature.color, 0.03)]}
+        style={styles.featureCardGradient}
+      >
+        <View style={[styles.featureIconContainer, { backgroundColor: hexToRgba(feature.color, 0.12) }]}>
+          <Ionicons name={feature.icon} size={40} color={feature.color} />
         </View>
-        <View style={styles.cardLabel}>
-          <Text style={styles.cardLabelText}>{item.title}</Text>
-        </View>
-      </View>
+        <Text style={styles.featureCardTitle}>{feature.title}</Text>
+        <Text style={styles.featureCardDescription}>{feature.description}</Text>
+      </LinearGradient>
     </View>
   );
 
-  // Section 1: Hero
-  const HeroSlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.heroSection}>
-        <View style={styles.titleContainer}>
-          <View style={styles.logoContainer}>
-            <WisheraLogo size={width < 400 ? "md" : width < 600 ? "lg" : "xl"} showText={false} />
-            <View style={styles.logoTextContainer}>
-              <LinearGradient
-                colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.titleGradientWrapper}
-              >
-                <Text style={styles.title}>{t('landing.title', 'WISHERA')}</Text>
-              </LinearGradient>
-            </View>
-          </View>
-          <Text style={styles.headline}>{t('landing.headline', 'Create, Share, and Gift')}</Text>
-          <Text style={styles.tagline}>
-            {t('landing.tagline', 'Your Wishlist, Your Dreams, Your Way')}
-          </Text>
-          <View style={styles.titleUnderline} />
-        </View>
-        <View style={styles.glassCard}>
-          <LinearGradient
-            colors={['rgba(99, 102, 241, 0.95)', 'rgba(139, 92, 246, 0.95)']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={styles.giftCard}
-          >
-            <View style={{ marginBottom: width < 400 ? 12 : 16 }}>
-              <GradientIcon
-                name="gift"
-                size={width < 400 ? 32 : 40}
-                gradientColors={['#FFD700', '#FFA500']}
-              />
-            </View>
-            <Text style={styles.cardTitle}>{t('landing.cardTitle', 'Your Wishlist')}</Text>
-            <Text style={styles.cardSubtitle}>
-              {t('landing.cardSubtitle', 'Share your dreams with loved ones')}
-            </Text>
-            <AnimatedButton
-              onPress={() => navigation.navigate('Login')}
-              text={t('landing.getStarted', 'Get Started')}
-              gradientColors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
-            />
-
-          </LinearGradient>
-        </View>
+  const renderStepCard = (step: typeof howItWorks[0], index: number) => (
+    <View key={index} style={styles.stepCard}>
+      <View style={styles.stepNumberBadge}>
+        <Text style={styles.stepNumber}>{step.step}</Text>
       </View>
+      <View style={styles.stepIconContainer}>
+        <Ionicons name={step.icon} size={32} color={colorScheme.primary} />
+      </View>
+      <Text style={styles.stepTitle}>{step.title}</Text>
+      <Text style={styles.stepDescription}>{step.description}</Text>
     </View>
   );
 
-  // Section 2: Features
-  const FeaturesSlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>{t('landing.featuresTitle', 'Key Features')}</Text>
-        <Text style={styles.sectionSubtitle}>
-          {t('landing.featuresSubtitle', 'Everything you need to manage your wishlists')}
-        </Text>
-        <Carousel autoPlay={true} autoPlayInterval={4000} showDots={true}>
-          <View style={[styles.featureCardCarousel, styles.glassCard]}>
-            <GradientIcon
-              name="checkmark-circle"
-              size={width < 400 ? 42 : 50}
-              gradientColors={[colors.success, '#34D399']}
-            />
-            <Text style={styles.featureTitle}>{t('landing.featureEasy', 'Easy to Use')}</Text>
-            <Text style={styles.featureDescription}>
-              {t('landing.featureEasyDesc', 'Intuitive interface for creating wishlists')}
-            </Text>
-          </View>
-          <View style={[styles.featureCardCarousel, styles.glassCard]}>
-            <GradientIcon
-              name="lock-closed"
-              size={width < 400 ? 42 : 50}
-              gradientColors={[colors.primary, colors.accent]}
-            />
-            <Text style={styles.featureTitle}>
-              {t('landing.featureSecure', 'Secure & Private')}
-            </Text>
-            <Text style={styles.featureDescription}>
-              {t('landing.featureSecureDesc', 'Control your privacy settings')}
-            </Text>
-          </View>
-          <View style={[styles.featureCardCarousel, styles.glassCard]}>
-            <GradientIcon
-              name="share-social"
-              size={width < 400 ? 42 : 50}
-              gradientColors={[colors.warning, '#FBBF24']}
-            />
-            <Text style={styles.featureTitle}>
-              {t('landing.featureShare', 'Share Instantly')}
-            </Text>
-            <Text style={styles.featureDescription}>
-              {t('landing.featureShareDesc', 'Connect with friends seamlessly')}
-            </Text>
-          </View>
-        </Carousel>
-      </View>
-    </View>
-  );
-
-  // Section 3: Screenshots Carousel
-  const ScreenshotsSlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          {t('landing.screenshotsTitle', 'See Wishera in Action')}
-        </Text>
-        <Text style={styles.sectionSubtitle}>
-          {t('landing.screenshotsSubtitle', 'Explore our key features')}
-        </Text>
-        <Carousel autoPlay={true} autoPlayInterval={4000} showDots={true}>
-          {appScreenshots.map((item) => (
-            <React.Fragment key={item.id}>
-              {renderScreenshotSlide(item)}
-            </React.Fragment>
-          ))}
-        </Carousel>
-      </View>
-    </View>
-  );
-
-  // Section 4: How It Works
-  const HowItWorksSlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          {t('landing.howItWorksTitle', 'How It Works')}
-        </Text>
-        <Text style={styles.sectionSubtitle}>
-          {t('landing.howItWorksSubtitle', 'Get started in three simple steps')}
-        </Text>
-        <Carousel autoPlay={true} autoPlayInterval={4000} showDots={true}>
-          {howItWorksSteps.map((step) => (
-            <View key={step.step} style={styles.stepCardCarousel}>
-              <View style={styles.stepNumberContainer}>
-                <LinearGradient
-                  colors={getGradientColors(step.color)}
-                  style={styles.stepNumber}
-                >
-                  <Text style={styles.stepNumberText}>{step.step}</Text>
-                </LinearGradient>
-              </View>
-              <GradientIcon
-                name={step.iconName}
-                size={width < 400 ? 48 : 56}
-                gradientColors={getGradientColors(step.color)}
-              />
-              <Text style={styles.stepTitle}>{step.title}</Text>
-              <Text style={styles.stepDescription}>{step.description}</Text>
-            </View>
-          ))}
-        </Carousel>
-      </View>
-    </View>
-  );
-
-  // Section 5: Use Cases
-  const UseCasesSlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.section}>
-        <Text style={styles.sectionTitle}>
-          {t('landing.useCasesTitle', 'Perfect For Every Occasion')}
-        </Text>
-        <Text style={styles.sectionSubtitle}>
-          {t('landing.useCasesSubtitle', 'Create wishlists for any event')}
-        </Text>
-        <Carousel autoPlay={true} autoPlayInterval={4000} showDots={true}>
-          {useCases.map((useCase, index) => (
-            <View key={index} style={styles.useCaseCardCarousel}>
-              <GradientIcon
-                name={useCase.iconName}
-                size={width < 400 ? 56 : 64}
-                gradientColors={getGradientColors(useCase.color)}
-              />
-              <Text style={styles.useCaseTitle}>{useCase.title}</Text>
-              <Text style={styles.useCaseDescription}>{useCase.description}</Text>
-            </View>
-          ))}
-        </Carousel>
-      </View>
-    </View>
-  );
-
-  // Section 6: Social Features
-  const SocialFeaturesSlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.section}>
-        <View style={styles.socialFeaturesCard}>
-          <LinearGradient
-            colors={['rgba(99, 102, 241, 0.1)', 'rgba(139, 92, 246, 0.1)']}
-            style={styles.socialFeaturesGradient}
-          >
-            <GradientIcon
-              name="chatbubble"
-              size={64}
-              gradientColors={[colors.primary, colors.accent]}
-            />
-            <Text style={styles.socialFeaturesTitle}>
-              {t('landing.socialFeaturesTitle', 'Stay Connected')}
-            </Text>
-            <Text style={styles.socialFeaturesDescription}>
-              {t(
-                'landing.socialFeaturesDesc',
-                'Chat with friends, follow wishlists, and get notifications for special events'
-              )}
-            </Text>
-            <View style={styles.socialFeaturesList}>
-              <View style={styles.socialFeatureItem}>
-                <GradientIcon
-                  name="chatbubble"
-                  size={32}
-                  gradientColors={[colors.primary, colors.accent]}
-                />
-                <Text style={styles.socialFeatureText}>
-                  {t('landing.socialFeatureChat', 'Real-time Chat')}
-                </Text>
-              </View>
-              <View style={styles.socialFeatureItem}>
-                <GradientIcon
-                  name="people"
-                  size={32}
-                  gradientColors={[colors.info, '#60A5FA']}
-                />
-                <Text style={styles.socialFeatureText}>
-                  {t('landing.socialFeatureFollow', 'Follow & Connect')}
-                </Text>
-              </View>
-              <View style={styles.socialFeatureItem}>
-                <GradientIcon
-                  name="notifications"
-                  size={32}
-                  gradientColors={[colors.warning, '#FBBF24']}
-                />
-                <Text style={styles.socialFeatureText}>
-                  {t('landing.socialFeatureNotify', 'Smart Notifications')}
-                </Text>
-              </View>
-            </View>
-          </LinearGradient>
-        </View>
-      </View>
-    </View>
-  );
-
-  // Section 7: Privacy & CTA
-  const PrivacyCTASlide = () => (
-    <View style={[styles.slideContent, styles.sectionContainer]}>
-      <View style={styles.section}>
-        <View style={styles.privacyCard}>
-          <GradientIcon
-            name="shield-checkmark"
-            size={64}
-            gradientColors={[colors.success, '#34D399']}
-          />
-          <Text style={styles.privacyTitle}>
-            {t('landing.privacyTitle', 'Privacy & Security')}
-          </Text>
-          <Text style={styles.privacyDescription}>
-            {t(
-              'landing.privacyDesc',
-              'Your data is encrypted and secure. Control who sees your wishlists and profile information.'
-            )}
-          </Text>
-        </View>
-        <View style={styles.finalCTA}>
-          <Text style={styles.finalCTATitle}>
-            {t('landing.finalCTATitle', 'Ready to Get Started?')}
-          </Text>
-          <Text style={styles.finalCTADescription}>
-            {t('landing.finalCTADescription', 'Join thousands of users sharing their dreams')}
-          </Text>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Login')}
-            activeOpacity={0.9}
-            style={styles.buttonContainer}
-          >
-            <LinearGradient
-              colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.button}
-            >
-              <Text style={styles.buttonText}>
-                {t('landing.getStarted', 'Get Started')}
-              </Text>
-            </LinearGradient>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => navigation.navigate('Register')}
-            style={styles.secondaryButton}
-          >
-            <Text style={styles.secondaryButtonText}>
-              {t('landing.signUp', 'Sign Up Free')}
-            </Text>
-          </TouchableOpacity>
-        </View>
-      </View>
+  const renderUseCaseCard = (useCase: typeof useCases[0], index: number) => (
+    <View key={index} style={styles.useCaseCard}>
+      <LinearGradient
+        colors={[hexToRgba(useCase.color, 0.08), hexToRgba(useCase.color, 0.02)]}
+        style={styles.useCaseGradient}
+      >
+        <Ionicons name={useCase.icon} size={36} color={useCase.color} />
+        <Text style={styles.useCaseTitle}>{useCase.title}</Text>
+        <Text style={styles.useCaseDescription}>{useCase.description}</Text>
+      </LinearGradient>
     </View>
   );
 
   return (
-    <View style={styles.container}>
-      <StatusBar barStyle={theme === 'dark' ? 'light-content' : 'dark-content'} backgroundColor="transparent" translucent />
-
-      <View style={[styles.blobContainer, { pointerEvents: 'none' }]}>
-        <Animated.View
-          style={[
-            styles.blob,
-            styles.blob1,
-            {
-              transform: [{ translateY: floatY }],
-              opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.35] }),
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.blob,
-            styles.blob2,
-            {
-              transform: [
-                { translateY: floatY.interpolate({ inputRange: [-20, 20], outputRange: [10, -10] }) },
-              ],
-              opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.15, 0.25] }),
-            },
-          ]}
-        />
-        <Animated.View
-          style={[
-            styles.blob,
-            styles.blob3,
-            {
-              transform: [
-                { translateY: floatY.interpolate({ inputRange: [-20, 20], outputRange: [-15, 15] }) },
-              ],
-              opacity: pulse.interpolate({ inputRange: [0, 1], outputRange: [0.1, 0.2] }),
-            },
-          ]}
-        />
-      </View>
-
-      {/* Particle Background */}
-      <ParticleBackground />
-
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    >
       <ScrollView
-        showsVerticalScrollIndicator={false}
+        style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+        bounces={true}
       >
-        <HeroSlide />
-        <FeaturesSlide />
-        <ScreenshotsSlide />
-        <HowItWorksSlide />
-        <UseCasesSlide />
-        <SocialFeaturesSlide />
-        <PrivacyCTASlide />
+        {/* Hero Section - What is Wishera? */}
+        <View style={styles.heroSection}>
+          <WisheraLogo size="lg" showText={false} style={styles.logo} />
+          <Text style={styles.heroTitle}>
+            {t('landing.whatIsWishera', 'What is Wishera?')}
+          </Text>
+          <Text style={styles.heroDescription}>
+            {t('landing.heroDescription', 'Wishera is a social wishlist platform that helps you create, share, and manage wishlists with friends and family. Never forget what someone wants, and always give the perfect gift.')}
+          </Text>
+        </View>
+
+        {/* Features Carousel */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {t('landing.featuresTitle', 'What You Can Do')}
+          </Text>
+          <Carousel autoPlay={true} autoPlayInterval={5000} showDots={true}>
+            {features.map((feature, index) => renderFeatureCard(feature, index))}
+          </Carousel>
+        </View>
+
+        {/* How It Works */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {t('landing.howItWorksTitle', 'How It Works')}
+          </Text>
+          <Text style={styles.sectionSubtitle}>
+            {t('landing.howItWorksSubtitle', 'Getting started is simple')}
+          </Text>
+          <Carousel autoPlay={true} autoPlayInterval={4500} showDots={true}>
+            {howItWorks.map((step, index) => renderStepCard(step, index))}
+          </Carousel>
+        </View>
+
+        {/* Use Cases Carousel */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>
+            {t('landing.useCasesTitle', 'Perfect For Every Occasion')}
+          </Text>
+          <Carousel autoPlay={true} autoPlayInterval={5000} showDots={true}>
+            {useCases.map((useCase, index) => renderUseCaseCard(useCase, index))}
+          </Carousel>
+        </View>
+
+        {/* Why Choose Wishera */}
+        <View style={styles.benefitsSection}>
+          <Text style={styles.sectionTitle}>
+            {t('landing.whyChooseTitle', 'Why Choose Wishera?')}
+          </Text>
+          <View style={styles.benefitsGrid}>
+            <View style={styles.benefitBox}>
+              <Ionicons name="shield-checkmark" size={28} color={colorScheme.success} />
+              <Text style={styles.benefitTitle}>
+                {t('landing.benefitSecure', 'Private & Secure')}
+              </Text>
+              <Text style={styles.benefitText}>
+                {t('landing.benefitSecureText', 'You control who sees your wishlists')}
+              </Text>
+            </View>
+            <View style={styles.benefitBox}>
+              <Ionicons name="flash" size={28} color={colorScheme.warning} />
+              <Text style={styles.benefitTitle}>
+                {t('landing.benefitFast', 'Fast & Easy')}
+              </Text>
+              <Text style={styles.benefitText}>
+                {t('landing.benefitFastText', 'Create wishlists in minutes')}
+              </Text>
+            </View>
+            <View style={styles.benefitBox}>
+              <Ionicons name="people" size={28} color={colorScheme.primary} />
+              <Text style={styles.benefitTitle}>
+                {t('landing.benefitSocial', 'Stay Connected')}
+              </Text>
+              <Text style={styles.benefitText}>
+                {t('landing.benefitSocialText', 'Share with friends instantly')}
+              </Text>
+            </View>
+            <View style={styles.benefitBox}>
+              <Ionicons name="gift" size={28} color={colorScheme.accent} />
+              <Text style={styles.benefitTitle}>
+                {t('landing.benefitFree', 'Free Forever')}
+              </Text>
+              <Text style={styles.benefitText}>
+                {t('landing.benefitFreeText', 'No hidden fees or subscriptions')}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Social Proof - Simple Stats */}
+        <View style={styles.statsSection}>
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>10K+</Text>
+            <Text style={styles.statLabel}>
+              {t('landing.statUsers', 'Active Users')}
+            </Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>50K+</Text>
+            <Text style={styles.statLabel}>
+              {t('landing.statWishlists', 'Wishlists')}
+            </Text>
+          </View>
+          <View style={styles.statDivider} />
+          <View style={styles.statItem}>
+            <Text style={styles.statValue}>100K+</Text>
+            <Text style={styles.statLabel}>
+              {t('landing.statGifts', 'Gifts Shared')}
+            </Text>
+          </View>
+        </View>
+
+        {/* Final CTA - Only at the end */}
+        <View style={styles.ctaSection}>
+          <Text style={styles.ctaTitle}>
+            {t('landing.readyToStart', 'Ready to Get Started?')}
+          </Text>
+          <Text style={styles.ctaSubtitle}>
+            {t('landing.ctaSubtitleNew', 'Join thousands of users sharing their wishlists')}
+          </Text>
+          <Button
+            title={t('landing.getStarted', 'Get Started Free')}
+            onPress={() => navigation.navigate('Register')}
+            style={styles.ctaButton}
+          />
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Login')}
+            style={styles.loginLink}
+          >
+            <Text style={styles.loginLinkText}>
+              {t('landing.alreadyHaveAccount', 'Already have an account? Sign in')}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </ScrollView>
-    </View>
+    </KeyboardAvoidingView>
   );
 };
 
-const createStyles = () =>
-  StyleSheet.create({
-    container: {
-      flex: 1,
-      backgroundColor: colors.background,
-    },
-    blobContainer: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      zIndex: 0,
-    },
-    blob: {
-      position: 'absolute',
-      borderRadius: 999,
-    },
-    blob1: {
-      width: width * 1.2,
-      height: width * 1.2,
-      backgroundColor: colors.primary,
-      top: -width * 0.4,
-      right: -width * 0.3,
-    },
-    blob2: {
-      width: width * 0.9,
-      height: width * 0.9,
-      backgroundColor: colors.accent,
-      top: height * 0.15,
-      left: -width * 0.2,
-    },
-    blob3: {
-      width: width * 1,
-      height: width * 1,
-      backgroundColor: '#9333EA',
-      bottom: -width * 0.4,
-      right: -width * 0.2,
-    },
-    scrollContent: {
-      flexGrow: 1,
-    },
-    sectionContainer: {
-      minHeight: height * 0.8,
-      justifyContent: 'center',
-    },
-    slideContent: {
-      justifyContent: 'center',
-      alignItems: 'center',
-      paddingHorizontal: width < 400 ? 16 : 24,
-      paddingVertical: width < 400 ? 40 : 60,
-      zIndex: 10,
-      overflow: 'visible',
-    },
-    heroSection: {
-      alignItems: 'center',
-      width: '100%',
-      justifyContent: 'center',
-    },
-    titleContainer: {
-      alignItems: 'center',
-      marginBottom: width < 400 ? 16 : 24,
-      width: '100%',
-    },
-    logoContainer: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      justifyContent: 'center',
-      marginBottom: width < 400 ? 8 : 16,
-    },
-    logoTextContainer: {
-      marginLeft: width < 400 ? 8 : 12,
-    },
-    titleGradientWrapper: {
-      paddingHorizontal: 2,
-    },
-    title: {
-      fontSize: width < 400 ? 32 : width < 600 ? 44 : 56,
-      fontWeight: '900',
-      letterSpacing: width < 400 ? 0.5 : 1,
-      color: '#FFFFFF',
-    },
-    headline: {
-      fontSize: width < 400 ? 18 : width < 600 ? 22 : 28,
-      fontWeight: '700',
-      color: colors.text,
-      marginBottom: width < 400 ? 6 : 10,
-      textAlign: 'center',
-      paddingHorizontal: width < 400 ? 12 : 0,
-    },
-    tagline: {
-      fontSize: width < 400 ? 12 : width < 600 ? 14 : 18,
-      color: colors.textSecondary,
-      fontWeight: '500',
-      marginBottom: width < 400 ? 8 : 12,
-      textAlign: 'center',
-      paddingHorizontal: width < 400 ? 16 : 0,
-      lineHeight: width < 400 ? 16 : 22,
-    },
-    titleUnderline: {
-      width: width < 400 ? 50 : 80,
-      height: width < 400 ? 2 : 3,
-      backgroundColor: colors.gradientMid,
-      borderRadius: 2,
-      marginBottom: width < 400 ? 12 : 16,
-    },
-    glassCard: {
-      borderRadius: width < 400 ? 16 : 24,
-      overflow: 'hidden',
-      boxShadow: width < 400
-        ? `0 6px 12px 0 rgba(99, 102, 241, 0.3)`
-        : `0 12px 20px 0 rgba(99, 102, 241, 0.3)`,
-      elevation: width < 400 ? 10 : 16,
-      width: '100%',
-      maxWidth: width < 400 ? width - 32 : 400,
-    },
-    giftCard: {
-      padding: width < 400 ? 24 : width < 600 ? 36 : 48,
-      alignItems: 'center',
-    },
-    cardTitle: {
-      fontSize: width < 400 ? 20 : width < 600 ? 28 : 36,
-      fontWeight: '800',
-      color: '#FFFFFF',
-      marginBottom: width < 400 ? 6 : 10,
-      textAlign: 'center',
-    },
-    cardSubtitle: {
-      fontSize: width < 400 ? 12 : width < 600 ? 14 : 18,
-      color: 'rgba(255, 255, 255, 0.95)',
-      fontWeight: '500',
-      textAlign: 'center',
-      lineHeight: width < 400 ? 16 : 22,
-    },
-    section: {
-      width: '100%',
-      alignItems: 'center',
-    },
-    sectionTitle: {
-      fontSize: 36,
-      fontWeight: '800',
-      color: colors.text,
-      marginBottom: 16,
-      textAlign: 'center',
-    },
-    sectionSubtitle: {
-      fontSize: 18,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      marginBottom: 32,
-    },
-    featureCardCarousel: {
-      width: '100%',
-      backgroundColor: colors.surface,
-      borderRadius: 24,
-      padding: width < 400 ? 32 : 48,
-      alignItems: 'center',
-      justifyContent: 'center',
-      boxShadow: '0 8px 16px 0 rgba(99, 102, 241, 0.2)',
-      elevation: 8,
-      minHeight: width < 400 ? 280 : 300,
-    },
-    featureTitle: {
-      fontSize: width < 400 ? 20 : 24,
-      fontWeight: '700',
-      color: colors.text,
-      marginTop: width < 400 ? 24 : 32,
-      marginBottom: width < 400 ? 12 : 16,
-      textAlign: 'center',
-    },
-    featureDescription: {
-      fontSize: width < 400 ? 14 : 16,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      lineHeight: width < 400 ? 20 : 24,
-      paddingHorizontal: width < 400 ? 12 : 16,
-    },
-    screenshotCardWrapper: {
-      width: '100%',
-      alignItems: 'center',
-      justifyContent: 'center',
-    },
-    screenshotCard: {
-      width: '100%',
-      alignItems: 'center',
-    },
-    phoneFrame: {
-      width: 260,
-      height: 520,
-      backgroundColor: '#1a1a1a',
-      borderRadius: 28,
-      padding: 6,
-      boxShadow: '0 20px 35px 0 rgba(0, 0, 0, 0.5)',
-      elevation: 25,
-      alignSelf: 'center',
-    },
-    phoneNotch: {
-      position: 'absolute',
-      top: 0,
-      left: '50%',
-      marginLeft: -35,
-      width: 70,
-      height: 18,
-      backgroundColor: '#1a1a1a',
-      borderBottomLeftRadius: 10,
-      borderBottomRightRadius: 10,
-      zIndex: 10,
-    },
-    phoneScreen: {
-      flex: 1,
-      borderRadius: 22,
-      overflow: 'hidden',
-      backgroundColor: colors.primary,
-    },
-    statusBar: {
-      flexDirection: 'row',
-      justifyContent: 'space-between',
-      alignItems: 'center',
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: 8,
-      backgroundColor: 'rgba(0, 0, 0, 0.1)',
-    },
-    statusBarLeft: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    signalBars: {
-      flexDirection: 'row',
-      alignItems: 'flex-end',
-      height: 12,
-      marginRight: 6,
-    },
-    signalBar: {
-      width: 3,
-      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-      borderRadius: 1,
-      marginRight: 2,
-    },
-    signalBar1: { height: 4 },
-    signalBar2: { height: 6 },
-    signalBar3: { height: 8 },
-    signalBar4: { height: 10 },
-    statusBarText: {
-      fontSize: 11,
-      fontWeight: '600',
-      color: 'rgba(255, 255, 255, 0.9)',
-    },
-    statusBarRight: {
-      flexDirection: 'row',
-      alignItems: 'center',
-    },
-    battery: {
-      width: 22,
-      height: 11,
-      borderWidth: 1.5,
-      borderColor: 'rgba(255, 255, 255, 0.9)',
-      borderRadius: 2.5,
-      marginLeft: 4,
-      padding: 1.5,
-    },
-    batteryFill: {
-      width: '100%',
-      height: '100%',
-      backgroundColor: 'rgba(255, 255, 255, 0.9)',
-      borderRadius: 1,
-    },
-    appContent: {
-      flex: 1,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: 24,
-    },
-    featureTitleLarge: {
-      fontSize: 24,
-      fontWeight: '800',
-      color: '#FFFFFF',
-      marginBottom: 10,
-      textAlign: 'center',
-    },
-    featureDescriptionLarge: {
-      fontSize: 14,
-      color: 'rgba(255, 255, 255, 0.95)',
-      textAlign: 'center',
-      lineHeight: 20,
-      paddingHorizontal: 16,
-    },
-    cardLabel: {
-      marginTop: 24,
-      paddingHorizontal: 24,
-      paddingVertical: 12,
-      backgroundColor: colors.surface,
-      borderRadius: 24,
-      boxShadow: '0 4px 12px 0 rgba(99, 102, 241, 0.1)',
-      elevation: 6,
-    },
-    cardLabelText: {
-      fontSize: 18,
-      fontWeight: '700',
-      color: colors.text,
-      textAlign: 'center',
-    },
-    stepCardCarousel: {
-      width: '100%',
-      backgroundColor: colors.surface,
-      borderRadius: 24,
-      padding: width < 400 ? 32 : 48,
-      alignItems: 'center',
-      justifyContent: 'center',
-      boxShadow: '0 8px 16px 0 rgba(99, 102, 241, 0.2)',
-      elevation: 8,
-      minHeight: width < 400 ? 320 : 350,
-    },
-    stepNumberContainer: {
-      marginBottom: 24,
-    },
-    stepNumber: {
-      width: width < 400 ? 60 : 72,
-      height: width < 400 ? 60 : 72,
-      borderRadius: width < 400 ? 30 : 36,
-      justifyContent: 'center',
-      alignItems: 'center',
-      boxShadow: '0 6px 12px 0 rgba(99, 102, 241, 0.4)',
-      elevation: 10,
-    },
-    stepNumberText: {
-      fontSize: width < 400 ? 28 : 32,
-      fontWeight: '800',
-      color: '#FFFFFF',
-    },
-    stepTitle: {
-      fontSize: width < 400 ? 22 : 26,
-      fontWeight: '700',
-      color: colors.text,
-      marginTop: width < 400 ? 20 : 24,
-      marginBottom: width < 400 ? 10 : 12,
-      textAlign: 'center',
-    },
-    stepDescription: {
-      fontSize: width < 400 ? 14 : 16,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      lineHeight: width < 400 ? 20 : 24,
-      paddingHorizontal: width < 400 ? 12 : 16,
-    },
-    useCaseCardCarousel: {
-      width: '100%',
-      backgroundColor: colors.surface,
-      borderRadius: 24,
-      padding: width < 400 ? 32 : 48,
-      alignItems: 'center',
-      justifyContent: 'center',
-      boxShadow: '0 8px 16px 0 rgba(99, 102, 241, 0.2)',
-      elevation: 8,
-      minHeight: width < 400 ? 320 : 350,
-    },
-    useCaseTitle: {
-      fontSize: width < 400 ? 22 : 26,
-      fontWeight: '700',
-      color: colors.text,
-      marginTop: width < 400 ? 24 : 32,
-      marginBottom: width < 400 ? 12 : 16,
-      textAlign: 'center',
-    },
-    useCaseDescription: {
-      fontSize: width < 400 ? 14 : 16,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      lineHeight: width < 400 ? 20 : 24,
-      paddingHorizontal: width < 400 ? 12 : 16,
-    },
-    socialFeaturesCard: {
-      borderRadius: 28,
-      overflow: 'hidden',
-      boxShadow: '0 12px 20px 0 rgba(99, 102, 241, 0.2)',
-      elevation: 12,
-      width: '100%',
-      maxWidth: 500,
-    },
-    socialFeaturesGradient: {
-      padding: 40,
-      alignItems: 'center',
-    },
-    socialFeaturesTitle: {
-      fontSize: 32,
-      fontWeight: '800',
-      color: colors.text,
-      marginTop: 28,
-      marginBottom: 16,
-      textAlign: 'center',
-    },
-    socialFeaturesDescription: {
-      fontSize: 16,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      marginBottom: 32,
-      lineHeight: 24,
-    },
-    socialFeaturesList: {
-      width: '100%',
-    },
-    socialFeatureItem: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      backgroundColor: colors.surface,
-      padding: 20,
-      borderRadius: 16,
-      marginBottom: 16,
-      boxShadow: '0 4px 8px 0 rgba(99, 102, 241, 0.1)',
-      elevation: 4,
-    },
-    socialFeatureText: {
-      fontSize: 18,
-      fontWeight: '600',
-      color: colors.text,
-      marginLeft: 16,
-    },
-    privacyCard: {
-      backgroundColor: colors.surface,
-      borderRadius: 28,
-      padding: 48,
-      alignItems: 'center',
-      boxShadow: '0 12px 20px 0 rgba(99, 102, 241, 0.15)',
-      elevation: 12,
-      width: '100%',
-      maxWidth: 500,
-      marginBottom: 40,
-    },
-    privacyTitle: {
-      fontSize: 32,
-      fontWeight: '800',
-      color: colors.text,
-      marginTop: 28,
-      marginBottom: 16,
-      textAlign: 'center',
-    },
-    privacyDescription: {
-      fontSize: 16,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      lineHeight: 24,
-    },
-    finalCTA: {
-      alignItems: 'center',
-      width: '100%',
-    },
-    finalCTATitle: {
-      fontSize: 36,
-      fontWeight: '800',
-      color: colors.text,
-      marginBottom: 16,
-      textAlign: 'center',
-    },
-    finalCTADescription: {
-      fontSize: 18,
-      color: colors.textSecondary,
-      textAlign: 'center',
-      marginBottom: 40,
-    },
-    buttonContainer: {
-      borderRadius: 20,
-      overflow: 'hidden',
-      boxShadow: '0 12px 20px 0 rgba(99, 102, 241, 0.4)',
-      elevation: 15,
-      marginBottom: 20,
-      width: '100%',
-      maxWidth: 400,
-    },
-    button: {
-      paddingVertical: 20,
-      paddingHorizontal: 40,
-      alignItems: 'center',
-    },
-    buttonText: {
-      color: '#FFFFFF',
-      fontSize: 20,
-      fontWeight: '700',
-      letterSpacing: 0.5,
-    },
-    secondaryButton: {
-      paddingVertical: 16,
-      paddingHorizontal: 32,
-    },
-    secondaryButtonText: {
-      color: colors.primary,
-      fontSize: 18,
-      fontWeight: '600',
-    },
-  });
+const createStyles = (colors: ReturnType<typeof getColors>) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: 20,
+    paddingTop: 60,
+    paddingBottom: 40,
+  },
+  heroSection: {
+    alignItems: 'center',
+    marginBottom: 48,
+    paddingTop: 20,
+  },
+  logo: {
+    marginBottom: 24,
+  },
+  heroTitle: {
+    fontSize: width < 400 ? 32 : 36,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 16,
+    lineHeight: width < 400 ? 38 : 44,
+  },
+  heroDescription: {
+    fontSize: width < 400 ? 16 : 18,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: width < 400 ? 24 : 28,
+    paddingHorizontal: 8,
+  },
+  section: {
+    marginBottom: 48,
+  },
+  sectionTitle: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  sectionSubtitle: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 24,
+  },
+  featureCard: {
+    width: CARD_WIDTH,
+    minHeight: 280,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  featureCardGradient: {
+    padding: 24,
+    alignItems: 'center',
+    minHeight: 280,
+    width: '100%',
+  },
+  featureIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  featureCardTitle: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  featureCardDescription: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  stepCard: {
+    width: CARD_WIDTH,
+    minHeight: 320,
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  stepNumberBadge: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  stepNumber: {
+    fontSize: 20,
+    fontWeight: '800',
+    color: '#FFFFFF',
+  },
+  stepIconContainer: {
+    marginBottom: 16,
+  },
+  stepTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  stepDescription: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  useCaseCard: {
+    width: CARD_WIDTH,
+    minHeight: 280,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  useCaseGradient: {
+    padding: 28,
+    alignItems: 'center',
+    minHeight: 280,
+    width: '100%',
+  },
+  useCaseTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 16,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  useCaseDescription: {
+    fontSize: 15,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+  },
+  benefitsSection: {
+    marginBottom: 48,
+  },
+  benefitsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    marginTop: 24,
+  },
+  benefitBox: {
+    width: (width - 40 - 16) / 2,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 16,
+  },
+  benefitTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: colors.text,
+    marginTop: 12,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  benefitText: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  statsSection: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 20,
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+    marginBottom: 48,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  statItem: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  statValue: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: colors.primary,
+    marginBottom: 6,
+  },
+  statLabel: {
+    fontSize: 13,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
+  statDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: colors.border,
+    marginHorizontal: 16,
+  },
+  ctaSection: {
+    alignItems: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
+  },
+  ctaTitle: {
+    fontSize: 28,
+    fontWeight: '800',
+    color: colors.text,
+    textAlign: 'center',
+    marginBottom: 12,
+  },
+  ctaSubtitle: {
+    fontSize: 16,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    marginBottom: 28,
+    lineHeight: 22,
+  },
+  ctaButton: {
+    width: '100%',
+    maxWidth: 320,
+    marginBottom: 20,
+  },
+  loginLink: {
+    marginTop: 8,
+  },
+  loginLinkText: {
+    fontSize: 15,
+    color: colors.primary,
+    fontWeight: '600',
+  },
+});

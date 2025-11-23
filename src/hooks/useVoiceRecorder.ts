@@ -65,7 +65,7 @@ export function useVoiceRecorder() {
         durationIntervalRef.current = null;
       }
 
-      // Start recording
+      // Start recording with expo-audio
       const { recording: newRecording } = await Audio.Recording.createAsync(
         Audio.RecordingOptionsPresets.HIGH_QUALITY,
         undefined,
@@ -370,4 +370,3 @@ export function useVoiceRecorder() {
     clearRecording,
   };
 }
-

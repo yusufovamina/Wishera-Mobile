@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { View, StyleSheet, Text, TouchableOpacity, Animated } from 'react-native';
-import { Audio } from 'expo-av';
+import { useAudioPlayer, useAudioPlayerStatus, AudioSource } from 'expo-audio';
 import { colors } from '../theme/colors';
 import { TimeIcon, PlayIcon, PauseIcon } from './Icon';
 
@@ -8,7 +8,7 @@ interface VoiceMessagePlayerProps {
   audioUrl: string;
   duration: number;
   isOwnMessage?: boolean;
-  onPlaybackStatusUpdate?: (status: Audio.SoundStatus) => void;
+  onPlaybackStatusUpdate?: (status: { isPlaying: boolean; positionMillis: number; durationMillis: number }) => void;
 }
 
 export const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({
@@ -17,28 +17,28 @@ export const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({
   isOwnMessage = false,
   onPlaybackStatusUpdate,
 }) => {
-  const [sound, setSound] = useState<Audio.Sound | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentPosition, setCurrentPosition] = useState(0);
-  const [isLoading, setIsLoading] = useState(false);
   const [waveformHeights, setWaveformHeights] = useState<number[]>(Array(20).fill(8));
   const waveformAnimationInterval = useRef<NodeJS.Timeout | null>(null);
-  const positionUpdateInterval = useRef<NodeJS.Timeout | null>(null);
 
+  // Use expo-audio's useAudioPlayer hook
+  const player = useAudioPlayer(audioUrl as AudioSource, { updateInterval: 100 });
+  const status = useAudioPlayerStatus(player);
+
+  const isPlaying = status.isPlaying || false;
+  const currentPosition = status.currentTime * 1000; // Convert to milliseconds
+  const isLoading = status.playbackState === 'loading' || status.timeControlStatus === 'waitingToPlayAtSpecifiedRate';
+  const audioDuration = status.duration > 0 ? status.duration * 1000 : duration * 1000; // Use status duration or fallback to prop
+
+  // Update parent component with status
   useEffect(() => {
-    return () => {
-      // Cleanup on unmount
-      if (sound) {
-        sound.unloadAsync();
-      }
-      if (positionUpdateInterval.current) {
-        clearInterval(positionUpdateInterval.current);
-      }
-      if (waveformAnimationInterval.current) {
-        clearInterval(waveformAnimationInterval.current);
-      }
-    };
-  }, [sound]);
+    if (onPlaybackStatusUpdate) {
+      onPlaybackStatusUpdate({
+        isPlaying,
+        positionMillis: currentPosition,
+        durationMillis: audioDuration,
+      });
+    }
+  }, [isPlaying, currentPosition, audioDuration, onPlaybackStatusUpdate]);
 
   // Animate waveform while playing
   useEffect(() => {
@@ -63,114 +63,26 @@ export const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({
     };
   }, [isPlaying]);
 
-  const loadSound = async () => {
-    if (sound) {
-      return sound;
-    }
-
-    try {
-      setIsLoading(true);
-      const { sound: newSound } = await Audio.Sound.createAsync(
-        { uri: audioUrl },
-        { shouldPlay: false },
-        (status) => {
-          if (status.isLoaded) {
-            setCurrentPosition(status.positionMillis || 0);
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setCurrentPosition(0);
-              if (positionUpdateInterval.current) {
-                clearInterval(positionUpdateInterval.current);
-                positionUpdateInterval.current = null;
-              }
-            }
-            if (onPlaybackStatusUpdate) {
-              onPlaybackStatusUpdate(status);
-            }
-          }
-        }
-      );
-
-      setSound(newSound);
-      setIsLoading(false);
-      return newSound;
-    } catch (error) {
-      console.error('Failed to load sound:', error);
-      setIsLoading(false);
-      return null;
-    }
-  };
-
-  const playSound = async () => {
-    try {
-      const soundToPlay = await loadSound();
-      if (!soundToPlay) {
-        return;
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (waveformAnimationInterval.current) {
+        clearInterval(waveformAnimationInterval.current);
       }
-
-      await soundToPlay.playAsync();
-      setIsPlaying(true);
-
-      // Update position every 100ms
-      positionUpdateInterval.current = setInterval(async () => {
-        if (soundToPlay) {
-          const status = await soundToPlay.getStatusAsync();
-          if (status.isLoaded) {
-            setCurrentPosition(status.positionMillis || 0);
-            if (status.didJustFinish) {
-              setIsPlaying(false);
-              setCurrentPosition(0);
-              if (positionUpdateInterval.current) {
-                clearInterval(positionUpdateInterval.current);
-                positionUpdateInterval.current = null;
-              }
-            }
-          }
-        }
-      }, 100);
-    } catch (error) {
-      console.error('Failed to play sound:', error);
-      setIsPlaying(false);
-    }
-  };
-
-  const pauseSound = async () => {
-    try {
-      if (sound) {
-        await sound.pauseAsync();
-        setIsPlaying(false);
-        if (positionUpdateInterval.current) {
-          clearInterval(positionUpdateInterval.current);
-          positionUpdateInterval.current = null;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to pause sound:', error);
-    }
-  };
-
-  const stopSound = async () => {
-    try {
-      if (sound) {
-        await sound.stopAsync();
-        await sound.setPositionAsync(0);
-        setIsPlaying(false);
-        setCurrentPosition(0);
-        if (positionUpdateInterval.current) {
-          clearInterval(positionUpdateInterval.current);
-          positionUpdateInterval.current = null;
-        }
-      }
-    } catch (error) {
-      console.error('Failed to stop sound:', error);
-    }
-  };
+    };
+  }, []);
 
   const togglePlayback = async () => {
-    if (isPlaying) {
-      await pauseSound();
-    } else {
-      await playSound();
+    if (!player) return;
+
+    try {
+      if (isPlaying) {
+        player.pause();
+      } else {
+        await player.play();
+      }
+    } catch (error) {
+      console.error('Failed to toggle playback:', error);
     }
   };
 
@@ -180,14 +92,15 @@ export const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  const progress = duration > 0 ? currentPosition / (duration * 1000) : 0;
+  const progress = audioDuration > 0 ? currentPosition / audioDuration : 0;
+  const displayDuration = isPlaying ? currentPosition / 1000 : duration;
 
   return (
     <View style={[styles.container, isOwnMessage && styles.ownContainer]}>
       <TouchableOpacity
         style={[styles.playButton, isOwnMessage && styles.ownPlayButton]}
         onPress={togglePlayback}
-        disabled={isLoading}
+        disabled={isLoading || !player}
       >
         {isLoading ? (
           <TimeIcon size={20} color={isOwnMessage ? 'white' : colors.primary} />
@@ -239,7 +152,7 @@ export const VoiceMessagePlayer: React.FC<VoiceMessagePlayerProps> = ({
       </View>
 
       <Text style={[styles.duration, isOwnMessage && styles.ownDuration]}>
-        {formatDuration(isPlaying ? currentPosition / 1000 : duration)}
+        {formatDuration(displayDuration)}
       </Text>
     </View>
   );
@@ -307,4 +220,3 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.8)',
   },
 });
-

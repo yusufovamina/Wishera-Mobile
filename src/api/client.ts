@@ -7,7 +7,7 @@ import { Platform } from 'react-native';
 let authStore: any = null;
 try {
   // Dynamic import to avoid circular dependency
-  const authModule = require('./state/auth');
+  const authModule = require('../state/auth');
   authStore = authModule.useAuthStore;
 } catch (e) {
   console.log('Could not import auth store for 401 handling:', e);

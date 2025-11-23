@@ -9,6 +9,8 @@ export default ({ config }: any) => {
     plugins: [
       ...(config.plugins || []),
       'expo-video',
+      'expo-web-browser',
+      'expo-audio',
     ],
     extra: {
       apiBaseUrl: process.env.API_BASE_URL || 'http://localhost:5219',

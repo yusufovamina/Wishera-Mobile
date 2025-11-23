@@ -1,10 +1,22 @@
 import React from 'react';
-import { View, Text, StyleSheet, ViewStyle } from 'react-native';
+import { View, Text, StyleSheet, ViewStyle, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { Animated } from 'react-native';
 import { getColors } from '../theme/colors';
 import { usePreferences } from '../state/preferences';
+
+// Helper to convert hex to rgba
+const hexToRgba = (hex: string, opacity: number): string => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  if (result) {
+    const r = parseInt(result[1], 16);
+    const g = parseInt(result[2], 16);
+    const b = parseInt(result[3], 16);
+    return `rgba(${r}, ${g}, ${b}, ${opacity})`;
+  }
+  return hex;
+};
 
 interface WisheraLogoProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
@@ -24,24 +36,27 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
 
   React.useEffect(() => {
     // Rotating sparkle animation
+    // Use native driver only on native platforms, not on web
+    const useNative = Platform.OS !== 'web';
+    
     Animated.loop(
       Animated.sequence([
         Animated.parallel([
           Animated.timing(rotateAnim, {
             toValue: 1,
             duration: 3000,
-            useNativeDriver: true,
+            useNativeDriver: useNative,
           }),
           Animated.sequence([
             Animated.timing(scaleAnim, {
               toValue: 1.2,
               duration: 1500,
-              useNativeDriver: true,
+              useNativeDriver: useNative,
             }),
             Animated.timing(scaleAnim, {
               toValue: 0.8,
               duration: 1500,
-              useNativeDriver: true,
+              useNativeDriver: useNative,
             }),
           ]),
         ]),
@@ -110,10 +125,7 @@ export const WisheraLogo: React.FC<WisheraLogoProps> = ({
               width: logoSize,
               height: logoSize,
               borderRadius: logoSize * 0.25,
-              shadowColor: colors.gradientStart,
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.5,
-              shadowRadius: 16,
+              boxShadow: `0px 8px 16px ${hexToRgba(colors.gradientStart, 0.5)}`,
               elevation: 12,
             }
           ]}

@@ -5,9 +5,21 @@ import { Platform } from 'react-native';
 let RTCModule: any = null;
 if (Platform.OS !== 'web') {
   try {
-    RTCModule = require('react-native-webrtc');
-  } catch (e) {
-    console.warn('[WebRTC] react-native-webrtc not available:', e);
+    // Use dynamic import to avoid module load errors
+    // Wrap in try-catch to handle any module loading issues
+    const webrtcModule = require('react-native-webrtc');
+    if (webrtcModule && typeof webrtcModule === 'object') {
+      // Validate that the module has the required exports
+      if (webrtcModule.RTCPeerConnection || webrtcModule.RTCSessionDescription) {
+        RTCModule = webrtcModule;
+      }
+    }
+  } catch (e: any) {
+    // Silently handle all errors - WebRTC is optional
+    // The "Super expression" error indicates a module loading issue,
+    // which is expected if react-native-webrtc isn't properly linked
+    // or if there's a compatibility issue
+    RTCModule = null;
   }
 }
 
@@ -75,16 +87,30 @@ const getWebRTC = () => {
     };
   } else {
     // For native platforms, use react-native-webrtc
-    if (RTCModule) {
-      return {
-        RTCPeerConnection: RTCModule.RTCPeerConnection,
-        RTCSessionDescription: RTCModule.RTCSessionDescription,
-        RTCIceCandidate: RTCModule.RTCIceCandidate,
-        MediaStream: RTCModule.MediaStream,
-        mediaDevices: RTCModule.mediaDevices,
-        getUserMedia: RTCModule.mediaDevices?.getUserMedia,
-      };
+    if (RTCModule && typeof RTCModule === 'object') {
+      try {
+        // Validate that required exports exist and are functions/constructors
+        const hasRTCPeerConnection = RTCModule.RTCPeerConnection && typeof RTCModule.RTCPeerConnection === 'function';
+        const hasRTCSessionDescription = RTCModule.RTCSessionDescription && typeof RTCModule.RTCSessionDescription === 'function';
+        const hasRTCIceCandidate = RTCModule.RTCIceCandidate && typeof RTCModule.RTCIceCandidate === 'function';
+        
+        if (hasRTCPeerConnection && hasRTCSessionDescription && hasRTCIceCandidate) {
+          return {
+            RTCPeerConnection: RTCModule.RTCPeerConnection,
+            RTCSessionDescription: RTCModule.RTCSessionDescription,
+            RTCIceCandidate: RTCModule.RTCIceCandidate,
+            MediaStream: RTCModule.MediaStream,
+            mediaDevices: RTCModule.mediaDevices,
+            getUserMedia: RTCModule.mediaDevices?.getUserMedia,
+          };
+        }
+      } catch (e: any) {
+        // Silently handle all errors - module may be partially loaded or incompatible
+        // The "Super expression" error indicates a module loading/initialization issue
+        RTCModule = null;
+      }
     }
+    // WebRTC not available on this platform
     return null;
   }
 };

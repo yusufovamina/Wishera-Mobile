@@ -8,6 +8,7 @@
     "userInterfaceStyle": "light",
     "newArchEnabled": true,
     "scheme": "wishera",
+    "sdkVersion": "54.0.0",
     "extra": {
       "apiBaseUrl": "http://localhost:5219"
     },

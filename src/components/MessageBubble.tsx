@@ -153,8 +153,18 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 // Swipe left - edit/delete (only for own messages)
                 else if (gestureState.dx < -SWIPE_THRESHOLD && isOwnMessage && (onSwipeAction || onEditMessage || onDeleteMessage)) {
                     // Keep message swiped left to show icons
-                    const swipeAmount = Math.max(Math.abs(gestureState.dx), SWIPE_THRESHOLD);
-                    swipeActionTranslateX.setValue(swipeAmount);
+                    // Use a fixed amount to ensure consistent positioning
+                    const swipeAmount = 80; // Fixed swipe distance to show buttons clearly
+                    
+                    // Stop any ongoing animations first
+                    swipeActionTranslateX.stopAnimation();
+                    
+                    // Animate to the swipe position to keep it there
+                    Animated.timing(swipeActionTranslateX, {
+                        toValue: swipeAmount,
+                        duration: 200,
+                        useNativeDriver: true,
+                    }).start();
                     
                     // Show action icons and keep them visible
                     setShowActionIcons(true);
@@ -181,6 +191,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     }, 5000);
                     
                     // If using Alert approach (onSwipeAction), show it
+                    // Note: We now use direct onEditMessage/onDeleteMessage callbacks, so this is kept for compatibility
+                    // We call onSwipeAction but don't let it reset the animation - buttons stay visible
                     if (onSwipeAction) {
                         const resetAnimation = () => {
                             actionMenuVisibleRef.current = false;
@@ -194,6 +206,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                             });
                         };
                         
+                        // Call onSwipeAction - it won't reset unless explicitly called via resetAnimation
                         onSwipeAction(message, resetAnimation);
                     }
                 }
@@ -280,15 +293,35 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         }
     };
 
+    // Check if message can be edited (only text messages, not voice/image/video/call)
+    const canEditMessage = () => {
+        const messageType = message.messageType || 'text';
+        const isImage = messageType === 'image' || (message.text && looksLikeImageUrl?.(message.text));
+        const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl?.(message.text) || isYouTubeUrl?.(message.text)));
+        const isVoice = messageType === 'voice';
+        const isCall = messageType === 'call';
+        return !isCall && !isVoice && !isImage && !isVideo;
+    };
+
     const renderMessageContent = () => {
-        if (message.messageType === 'voice' && message.audioUrl) {
-            return (
-                <VoiceMessagePlayer
-                    audioUrl={message.audioUrl}
-                    duration={message.audioDuration || 0}
-                    isOwnMessage={isOwnMessage}
-                />
-            );
+        if (message.messageType === 'voice') {
+            // Show voice message player if audioUrl exists, otherwise show placeholder
+            if (message.audioUrl) {
+                return (
+                    <VoiceMessagePlayer
+                        audioUrl={message.audioUrl}
+                        duration={message.audioDuration || 0}
+                        isOwnMessage={isOwnMessage}
+                    />
+                );
+            } else {
+                // Fallback: show text placeholder if audioUrl is missing (shouldn't happen but prevents message from disappearing)
+                return (
+                    <Text style={[styles.messageText, isOwnMessage && styles.ownMessageText, !isOwnMessage && theme === 'dark' && styles.darkMessageText]}>
+                        {message.text || 'Voice message'}
+                    </Text>
+                );
+            }
         }
 
         if (message.messageType === 'video' || (message.text && looksLikeVideoUrl?.(message.text))) {
@@ -332,6 +365,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 },
             ]}
             {...panResponder.panHandlers}
+            collapsable={false}
         >
             {/* Swipe right indicator (reply) */}
             <Animated.View
@@ -367,7 +401,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                     pointerEvents={showActionIcons ? 'auto' : 'none'}
                 >
                     <View style={styles.swipeActionIcons}>
-                        {onEditMessage && (
+                        {/* Only show edit button for text messages (not voice, image, video, or call) */}
+                        {onEditMessage && canEditMessage() && (
                             <TouchableOpacity
                                 style={styles.swipeActionButton}
                                 onPress={() => {
@@ -417,6 +452,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
                 onPressIn={handleLongPressIn}
                 onPressOut={handleLongPressOut}
                 style={styles.touchableWrapper}
+                delayPressIn={0}
+                delayPressOut={0}
             >
                 <View style={[styles.messageBubble, isOwnMessage && styles.ownMessageBubble, !isOwnMessage && theme === 'dark' && styles.darkMessageBubble]}>
                     {repliedToMessage && renderReplyPreview?.(repliedToMessage, isOwnMessage)}
