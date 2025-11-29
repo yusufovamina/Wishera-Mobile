@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
-import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated as RNAnimated, Easing, Dimensions, StatusBar, TextInput, Platform } from 'react-native';
+import { View, StyleSheet, Text, FlatList, Image, RefreshControl, TouchableOpacity, ScrollView, Animated as RNAnimated, Easing, Dimensions, StatusBar, TextInput, Platform, Alert } from 'react-native';
 import { GestureDetector, Gesture } from 'react-native-gesture-handler';
 import Animated, { useSharedValue, useAnimatedStyle, withSpring, withTiming, runOnJS } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -10,10 +10,12 @@ import { Card } from '../components/Card';
 import { Button } from '../components/Button';
 import { CreateWishlistModal } from '../components/CreateWishlistModal';
 import { EditWishlistModal } from '../components/EditWishlistModal';
+import { GiftModal } from '../components/GiftModal';
+import { EventModal } from '../components/EventModal';
 import { SafeImage } from '../components/SafeImage';
 import { BirthdayCalendar } from '../components/BirthdayCalendar';
 import { BirthdayCountdownBanner } from '../components/BirthdayCountdownBanner';
-import { CalendarIcon, SearchIcon, CloseIcon, HeartIcon, EditIcon, DeleteIcon } from '../components/Icon';
+import { CalendarIcon, SearchIcon, CloseIcon, HeartIcon, EditIcon, DeleteIcon, GiftIcon, ListIcon } from '../components/Icon';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuthStore } from '../state/auth';
 import { api, wishlistApi, userApi, endpoints } from '../api/client';
@@ -263,6 +265,11 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
   const [searchingUsers, setSearchingUsers] = useState(false);
   const [createLoading, setCreateLoading] = useState(false);
   const [editLoading, setEditLoading] = useState(false);
+  const [showCreateMenu, setShowCreateMenu] = useState(false);
+  const [showGiftModal, setShowGiftModal] = useState(false);
+  const [showEventModal, setShowEventModal] = useState(false);
+  const [giftLoading, setGiftLoading] = useState(false);
+  const [eventLoading, setEventLoading] = useState(false);
   const [showBirthdayNotification, setShowBirthdayNotification] = useState(true);
   const [showCalendar, setShowCalendar] = useState(false);
   const [menuWishlistId, setMenuWishlistId] = useState<string | null>(null);
@@ -1051,6 +1058,130 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
     }
   };
 
+  const handleCreateGift = async (data: any) => {
+    try {
+      setGiftLoading(true);
+      
+      // Gifts need to be added to a wishlist, so we'll create a default wishlist first if needed
+      // Or we can show an alert that gifts should be added to a wishlist
+      // For now, let's create a temporary wishlist or use the first available one
+      
+      // First, try to get user's wishlists
+      let wishlistId: string | null = null;
+      try {
+        const wishlistsResponse = await wishlistApi.get(endpoints.userWishlists(String(user?.id || ''), 1, 1));
+        const wishlists = Array.isArray(wishlistsResponse.data)
+          ? wishlistsResponse.data
+          : (wishlistsResponse.data?.items || wishlistsResponse.data?.data || []);
+        
+        if (wishlists.length > 0) {
+          wishlistId = wishlists[0].id;
+        } else {
+          // Create a default wishlist for gifts
+          const newWishlist = await wishlistApi.post('/api/Wishlists', {
+            title: 'My Gifts',
+            description: 'Default wishlist for gifts',
+            category: 'Other',
+            isPublic: false,
+          });
+          wishlistId = newWishlist.data.id;
+        }
+      } catch (error) {
+        console.error('Error getting/creating wishlist for gift:', error);
+        Alert.alert('Error', 'Please create a wishlist first, then add gifts to it.');
+        setGiftLoading(false);
+        setShowGiftModal(false);
+        return;
+      }
+      
+      if (!wishlistId) {
+        Alert.alert('Error', 'Could not find or create a wishlist for the gift.');
+        setGiftLoading(false);
+        setShowGiftModal(false);
+        return;
+      }
+      
+      // Create gift with wishlistId
+      const form = new FormData();
+      form.append('name', data.name);
+      form.append('price', String(parseFloat(data.price)));
+      form.append('category', data.category);
+      form.append('wishlistId', wishlistId);
+      if (data.description) form.append('description', data.description);
+      if (data.fileUri) {
+        form.append('imageFile', {
+          uri: data.fileUri,
+          name: 'gift.jpg',
+          type: 'image/jpeg',
+        } as any);
+      }
+      
+      const response = await wishlistApi.post('/api/gift', form, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
+      
+      console.log('Gift created successfully:', response.data);
+      setShowGiftModal(false);
+      Alert.alert('Success', 'Gift created successfully!');
+      
+      // Refresh wishlists to show new gift
+      await fetchFeed();
+    } catch (error: any) {
+      console.error('Error creating gift:', error);
+      const errorMessage = error?.response?.data?.message || 
+                          error?.response?.data?.error || 
+                          error?.message || 
+                          'Failed to create gift';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setGiftLoading(false);
+    }
+  };
+
+  const handleCreateEvent = async (data: any) => {
+    try {
+      setEventLoading(true);
+      
+      // Convert event data to API format (same as MyEventsScreen)
+      const eventDate = new Date(data.eventDate);
+      eventDate.setHours(0, 0, 0, 0);
+      
+      let eventTime: string | undefined = undefined;
+      if (data.eventTime) {
+        const timeDate = new Date(data.eventTime);
+        const hours = timeDate.getHours();
+        const minutes = timeDate.getMinutes();
+        eventTime = `${hours.toString().padStart(2, '0')}:${minutes.toString().padStart(2, '0')}:00`;
+      }
+      
+      const eventData = {
+        title: data.title,
+        description: data.description || '',
+        eventDate: eventDate.toISOString().split('T')[0], // YYYY-MM-DD format
+        eventTime: eventTime,
+        location: data.location || '',
+        additionalNotes: data.additionalNotes || '',
+        inviteeIds: data.inviteeIds || [],
+        eventType: data.eventType || 'General',
+      };
+      
+      const response = await userApi.post(endpoints.createEvent, eventData);
+      console.log('Event created successfully:', response.data);
+      
+      setShowEventModal(false);
+      Alert.alert('Success', 'Event created successfully!');
+    } catch (error: any) {
+      console.error('Error creating event:', error);
+      const errorMessage = error?.response?.data?.message || 
+                          error?.response?.data?.error || 
+                          error?.message || 
+                          'Failed to create event';
+      Alert.alert('Error', errorMessage);
+    } finally {
+      setEventLoading(false);
+    }
+  };
+
   const handleCreateWishlist = async (data: any) => {
     try {
       setCreateLoading(true);
@@ -1534,10 +1665,67 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         }
       />
 
+      {/* Create Menu Overlay */}
+      {showCreateMenu && (
+        <>
+          <TouchableOpacity
+            style={styles.menuOverlay}
+            activeOpacity={1}
+            onPress={() => setShowCreateMenu(false)}
+          />
+          <View style={styles.createMenu}>
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => {
+                setShowCreateMenu(false);
+                // Use requestAnimationFrame to ensure menu closes before modal opens
+                requestAnimationFrame(() => {
+                  setShowCreateModal(true);
+                });
+              }}
+            >
+              <ListIcon size={20} color={colors.text} />
+              <Text style={styles.menuItemText}>{t('home.createWishlist', 'Wishlist')}</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => {
+                setShowCreateMenu(false);
+                // Use requestAnimationFrame to ensure menu closes before modal opens
+                requestAnimationFrame(() => {
+                  setShowGiftModal(true);
+                });
+              }}
+            >
+              <GiftIcon size={20} color={colors.text} />
+              <Text style={styles.menuItemText}>{t('home.createGift', 'Gift')}</Text>
+            </TouchableOpacity>
+            <View style={styles.menuDivider} />
+            <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => {
+                setShowCreateMenu(false);
+                // Use requestAnimationFrame to ensure menu closes before modal opens
+                requestAnimationFrame(() => {
+                  setShowEventModal(true);
+                });
+              }}
+            >
+              <CalendarIcon size={20} color={colors.text} />
+              <Text style={styles.menuItemText}>{t('home.createEvent', 'Event')}</Text>
+            </TouchableOpacity>
+          </View>
+        </>
+      )}
+
       {/* Floating Action Button */}
       <TouchableOpacity 
         style={styles.fab}
-        onPress={() => setShowCreateModal(true)}
+        onPress={() => setShowCreateMenu(!showCreateMenu)}
       >
         <LinearGradient
           colors={[colors.gradientStart, colors.gradientMid, colors.gradientEnd]}
@@ -1565,6 +1753,24 @@ export const HomeScreen: React.FC<any> = ({ navigation }) => {
         onSubmit={handleUpdateWishlist}
         wishlist={editingWishlist}
         loading={editLoading}
+      />
+
+      {/* Create Gift Modal */}
+      <GiftModal
+        visible={showGiftModal}
+        onClose={() => setShowGiftModal(false)}
+        onSubmit={handleCreateGift}
+        loading={giftLoading}
+        mode="create"
+      />
+
+      {/* Create Event Modal */}
+      <EventModal
+        visible={showEventModal}
+        onClose={() => setShowEventModal(false)}
+        onSubmit={handleCreateEvent}
+        loading={eventLoading}
+        mode="create"
       />
 
       {/* Birthday Calendar Slide-out Panel */}
@@ -2112,6 +2318,51 @@ const createStyles = () => StyleSheet.create({
     color: colors.danger,
   },
 
+  // Create Menu
+  menuOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    zIndex: 999,
+  },
+  createMenu: {
+    position: 'absolute',
+    bottom: 170,
+    right: 20,
+    backgroundColor: colors.surface,
+    borderRadius: 16,
+    paddingVertical: 8,
+    minWidth: 180,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 10,
+    zIndex: 1000,
+    borderWidth: 1,
+    borderColor: colors.muted,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    gap: 12,
+  },
+  menuItemText: {
+    fontSize: 15,
+    fontWeight: '500',
+    color: colors.text,
+    flex: 1,
+  },
+  menuDivider: {
+    height: 1,
+    backgroundColor: colors.muted,
+    marginHorizontal: 12,
+  },
   // Floating Action Button
   fab: {
     position: 'absolute',
