@@ -802,7 +802,18 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
                     {profile.isFollowing ? t('profile.following', 'Following') : t('profile.follow', 'Follow')}
                   </Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={[styles.actionButton, styles.actionButtonMessage]}>
+                <TouchableOpacity 
+                  style={[styles.actionButton, styles.actionButtonMessage]}
+                  onPress={() => {
+                    if (profile?.id) {
+                      // Navigate to Tabs first, then to Chats tab with userId param
+                      navigation.navigate('Tabs', {
+                        screen: 'Chats',
+                        params: { userId: profile.id }
+                      });
+                    }
+                  }}
+                >
                   <ChatIcon size={18} color={colors.text} />
                   <Text style={styles.actionButtonText}>{t('profile.message', 'Message')}</Text>
                 </TouchableOpacity>

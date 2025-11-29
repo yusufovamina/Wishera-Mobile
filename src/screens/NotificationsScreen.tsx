@@ -160,9 +160,14 @@ export const NotificationsScreen: React.FC<any> = ({ navigation }) => {
       case 'message':
         // Navigate to chat
         if (notification.userId) {
-          navigation.navigate('Chats', { userId: notification.userId });
+          navigation.navigate('Tabs', {
+            screen: 'Chats',
+            params: { userId: notification.userId }
+          });
         } else {
-          navigation.navigate('Chats');
+          navigation.navigate('Tabs', {
+            screen: 'Chats'
+          });
         }
         break;
       case 'event':

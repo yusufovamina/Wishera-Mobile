@@ -67,7 +67,7 @@ interface ChatMessage {
   read?: boolean;
 }
 
-export const ChatScreen: React.FC<any> = ({ navigation }) => {
+export const ChatScreen: React.FC<any> = ({ navigation, route }) => {
   const { t } = useI18n();
   const { theme } = usePreferences();
   const styles = React.useMemo(() => createStyles(theme), [theme]);
@@ -137,6 +137,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   const restoredOnceRef = useRef(false);
   const lastConversationIdRef = useRef<string | null>(null);
   const hasScrolledToEndRef = useRef<Record<string, boolean>>({});
+  const processedUserIdRef = useRef<string | null>(null);
 
   // Get current conversation messages (exactly like front-end)
   const currentMessages = currentConversationId ? conversations[currentConversationId] || [] : [];
@@ -1261,6 +1262,84 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     return `${minutes}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Format date for date dividers (Today, Yesterday, or date like "20 November")
+  const formatDateDivider = (date: Date): string => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const messageDate = new Date(date);
+    messageDate.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    if (messageDate.getTime() === today.getTime()) {
+      return t('chat.today', 'Today');
+    } else if (messageDate.getTime() === yesterday.getTime()) {
+      return t('chat.yesterday', 'Yesterday');
+    } else {
+      // Format as "20 November" or similar
+      const months = [
+        t('chat.month.january', 'January'),
+        t('chat.month.february', 'February'),
+        t('chat.month.march', 'March'),
+        t('chat.month.april', 'April'),
+        t('chat.month.may', 'May'),
+        t('chat.month.june', 'June'),
+        t('chat.month.july', 'July'),
+        t('chat.month.august', 'August'),
+        t('chat.month.september', 'September'),
+        t('chat.month.october', 'October'),
+        t('chat.month.november', 'November'),
+        t('chat.month.december', 'December'),
+      ];
+      return `${messageDate.getDate()} ${months[messageDate.getMonth()]}`;
+    }
+  };
+
+  // Get date key for grouping messages by day
+  const getDateKey = (timestamp: string): string => {
+    if (!timestamp) return '';
+    try {
+      const date = new Date(timestamp);
+      if (isNaN(date.getTime())) return '';
+      date.setHours(0, 0, 0, 0);
+      return date.toISOString().split('T')[0]; // Returns YYYY-MM-DD
+    } catch {
+      return '';
+    }
+  };
+
+  // Group messages by date and insert date dividers
+  const getMessagesWithDateDividers = (messages: ChatMessage[]): Array<ChatMessage | { type: 'dateDivider'; date: string; id: string }> => {
+    if (!messages || messages.length === 0) return [];
+    
+    const result: Array<ChatMessage | { type: 'dateDivider'; date: string; id: string }> = [];
+    let lastDateKey = '';
+    
+    messages.forEach((message, index) => {
+      const timestamp = message.sentAt || message.createdAt || '';
+      const dateKey = getDateKey(timestamp);
+      
+      // Insert date divider if this is a new day
+      if (dateKey && dateKey !== lastDateKey) {
+        const date = new Date(timestamp);
+        if (!isNaN(date.getTime())) {
+          result.push({
+            type: 'dateDivider',
+            date: formatDateDivider(date),
+            id: `date-divider-${dateKey}-${index}`,
+          });
+        }
+        lastDateKey = dateKey;
+      }
+      
+      result.push(message);
+    });
+    
+    return result;
+  };
+
   const handleRejectCall = async () => {
     if (!incomingCall) return;
     try {
@@ -1703,6 +1782,69 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     
     return unsubscribe;
   }, [navigation, selectedContact?.id, user?.id]);
+
+  // Handle navigation with userId parameter (e.g., from profile page)
+  useEffect(() => {
+    const userId = route?.params?.userId;
+    if (userId && user?.id && userId !== user.id) {
+      // Check if we've already processed this userId
+      if (processedUserIdRef.current === userId && selectedContact?.id === userId) {
+        return; // Already processed and viewing this chat
+      }
+      
+      // Check if we're already viewing this user's chat
+      if (selectedContact?.id === userId) {
+        processedUserIdRef.current = userId;
+        return; // Already viewing this chat, no need to do anything
+      }
+      
+      console.log('[ChatScreen] Opening chat with user from route params:', userId);
+      processedUserIdRef.current = userId;
+      
+      // Check if contact already exists in contacts list
+      const existingContact = contacts.find(c => c.id === userId);
+      if (existingContact) {
+        handleContactSelect(existingContact);
+        return;
+      }
+
+      // If contact doesn't exist, fetch user info and create contact
+      const loadUserAndOpenChat = async () => {
+        try {
+          const userResponse = await userApi.get(`/api/users/${userId}`);
+          const userData = userResponse.data;
+          
+          const newContact: ChatContact = {
+            id: String(userData.id),
+            name: userData.name || userData.username || 'Unknown',
+            avatar: userData.avatarUrl || userData.profileImageUrl || `https://api.dicebear.com/7.x/avataaars/svg?seed=${encodeURIComponent(userData.username || userId)}`,
+            isOnline: false,
+            isFollowing: false,
+          };
+          
+          // Add to contacts list if not already there
+          setContacts(prev => {
+            const exists = prev.find(c => c.id === newContact.id);
+            if (!exists) {
+              return sortContactsByTime([...prev, newContact]);
+            }
+            return prev;
+          });
+          
+          // Select the contact to open chat
+          handleContactSelect(newContact);
+        } catch (error) {
+          console.error('[ChatScreen] Failed to load user for chat:', error);
+          processedUserIdRef.current = null; // Reset on error so we can retry
+        }
+      };
+      
+      loadUserAndOpenChat();
+    } else if (!route?.params?.userId) {
+      // Reset the ref when userId param is cleared
+      processedUserIdRef.current = null;
+    }
+  }, [route?.params?.userId, user?.id, contacts, selectedContact?.id]);
 
   const fetchContacts = async () => {
     if (!user?.id) return;
@@ -3780,13 +3922,24 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     );
   };
 
-  const renderMessage = ({ item }: { item: ChatMessage }) => {
-    const isOwnMessage = item.userId === user?.id || item.senderId === user?.id;
+  const renderMessage = ({ item }: { item: ChatMessage | { type: 'dateDivider'; date: string; id: string } }) => {
+    // Handle date divider
+    if ('type' in item && item.type === 'dateDivider') {
+      return (
+        <View style={styles.dateDividerContainer}>
+          <Text style={styles.dateDividerText}>{item.date}</Text>
+        </View>
+      );
+    }
+    
+    // Handle regular message
+    const message = item as ChatMessage;
+    const isOwnMessage = message.userId === user?.id || message.senderId === user?.id;
 
-    if (item.messageType === 'call') {
-      const callType = (item as any).callType || 'audio';
-      const callStatus = (item as any).callStatus || 'ended';
-      const callDuration = (item as any).callDuration || 0;
+    if (message.messageType === 'call') {
+      const callType = (message as any).callType || 'audio';
+      const callStatus = (message as any).callStatus || 'ended';
+      const callDuration = (message as any).callDuration || 0;
 
       const isVideoCall = callType === 'video';
       const callIcon = isVideoCall ? '📹' : '📞';
@@ -3813,17 +3966,17 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
             <Text style={[styles.callMessageText, { color: statusColor }]}>{statusText}</Text>
           </View>
           <Text style={styles.callMessageTime}>
-            {new Date(item.sentAt || item.createdAt || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            {new Date(message.sentAt || message.createdAt || '').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
           </Text>
         </View>
       );
     }
 
-    const repliedToMessage = item.replyToMessageId ? currentMessages.find(m => m.id === item.replyToMessageId) || null : null;
+    const repliedToMessage = message.replyToMessageId ? currentMessages.find(m => m.id === message.replyToMessageId) || null : null;
 
     return (
       <MessageBubble
-        message={item}
+        message={message}
         isOwnMessage={isOwnMessage}
         currentUserId={user?.id || ''}
         repliedToMessage={repliedToMessage}
@@ -4155,8 +4308,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         )}
         <FlatList
           ref={flatListRef}
-          data={currentMessages}
-          keyExtractor={(item) => item.id}
+          data={getMessagesWithDateDividers(currentMessages)}
+          keyExtractor={(item) => ('type' in item && item.type === 'dateDivider') ? item.id : (item as ChatMessage).id}
           renderItem={renderMessage}
           contentContainerStyle={styles.messagesList}
           showsVerticalScrollIndicator={false}
@@ -5717,6 +5870,21 @@ const createStyles = (theme: 'light' | 'dark') => StyleSheet.create({
     fontSize: 12,
     color: colors.textMuted,
     marginTop: 4,
+  },
+  dateDividerContainer: {
+    alignItems: 'center',
+    marginVertical: 16,
+    paddingHorizontal: 16,
+  },
+  dateDividerText: {
+    fontSize: 12,
+    color: colors.textMuted,
+    fontWeight: '500',
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 12,
+    overflow: 'hidden',
   },
   wallpaperButtonText: {
     fontSize: 18,
