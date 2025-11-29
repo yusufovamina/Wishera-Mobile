@@ -13,6 +13,7 @@ import { useChatNotifications } from '../hooks/useChatNotifications';
 import { VoiceMessagePlayer } from '../components/VoiceMessagePlayer';
 import { SafeImage } from '../components/SafeImage';
 import { MessageBubble } from '../components/MessageBubble';
+import { EmojiGifPickerModal } from '../components/EmojiGifPickerModal';
 import * as FileSystem from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
 import { VideoView, useVideoPlayer } from 'expo-video';
@@ -236,6 +237,12 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     return /youtube\.com\/watch\?v=|youtu\.be\//.test(lower);
   }, []);
 
+  const looksLikeGifMessage = useCallback((text: string): boolean => {
+    if (!text || typeof text !== 'string') return false;
+    // Check for GIF format: ![GIF](url)
+    return /!\[GIF\]\(/i.test(text);
+  }, []);
+
   const getYouTubeThumbnail = useCallback((url: string): string | null => {
     if (!isYouTubeUrl(url)) return null;
     const match = url.match(/(?:youtube\.com\/watch\?v=|youtu\.be\/)([^&\s]+)/);
@@ -367,6 +374,8 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
   // Media attachment state
   const [pendingAttachment, setPendingAttachment] = useState<{ url: string; mediaType: 'image' | 'video'; name?: string } | null>(null);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showEmojiGifPicker, setShowEmojiGifPicker] = useState(false);
+  const [emojiGifPickerTab, setEmojiGifPickerTab] = useState<'emoji' | 'gif'>('emoji');
 
   // Full-screen image viewer state
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -2566,15 +2575,16 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
       }
 
       if (editingId) {
-        // Prevent editing images, videos, or voice messages
+        // Prevent editing images, videos, voice messages, or GIF messages
         const messageToEdit = currentMessages.find(m => m.id === editingId);
         if (messageToEdit) {
           const isImage = messageToEdit.messageType === 'image' || (messageToEdit.text && looksLikeImageUrl(messageToEdit.text));
           const isVideo = messageToEdit.messageType === 'video' || (messageToEdit.text && (looksLikeVideoUrl(messageToEdit.text) || isYouTubeUrl(messageToEdit.text)));
           const isVoice = messageToEdit.messageType === 'voice';
+          const isGif = messageToEdit.text && looksLikeGifMessage(messageToEdit.text);
 
-          if (isImage || isVideo || isVoice) {
-            setError('Cannot edit images, videos, or voice messages.');
+          if (isImage || isVideo || isVoice || isGif) {
+            setError('Cannot edit images, videos, voice messages, or GIF messages.');
             setEditingId(null);
             setInputText("");
             return;
@@ -2650,6 +2660,63 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
     } catch (e: any) {
       console.error('Send message error:', e);
       setError(e?.message || 'Failed to send message');
+    }
+  };
+
+  const handleEmojiSelect = (emoji: string) => {
+    // Append emoji to input text (don't close picker for multiple selections)
+    setInputText(prev => prev + emoji);
+  };
+
+  const handleGifSelect = async (gifUrl: string, gifTitle: string) => {
+    try {
+      if (!user?.id || !selectedContact?.id) {
+        setError('Missing user or contact ID');
+        return;
+      }
+
+      if (!connected) {
+        setError('Connection lost. Please wait for reconnection...');
+        return;
+      }
+
+      // Format GIF message same as web: ![GIF](url)
+      const gifMessage = `![GIF](${gifUrl})`;
+
+      const id = Date.now().toString();
+      const serverTimestamp = new Date().toISOString();
+      const newMessage: ChatMessage = {
+        id,
+        text: gifMessage,
+        userId: user.id,
+        username: user.username || 'You',
+        createdAt: serverTimestamp,
+        messageType: 'text',
+      };
+
+      if (currentConversationId) {
+        addMessageToConversation(currentConversationId, newMessage);
+      }
+
+      // Update contact list
+      if (selectedContact) {
+        setContacts(prev => {
+          const updated = prev.map(contact =>
+            contact.id === selectedContact.id
+              ? { ...contact, lastMessage: 'GIF', lastMessageTime: serverTimestamp }
+              : contact
+          );
+          return sortContactsByTime(updated);
+        });
+      }
+
+      // Send the GIF message
+      await sendToUserWithMeta(selectedContact.id, gifMessage, undefined, id);
+      setShowEmojiGifPicker(false);
+    } catch (error) {
+      console.error('Failed to send GIF:', error);
+      setError('Failed to send GIF. Please try again.');
+      setShowEmojiGifPicker(false);
     }
   };
 
@@ -3837,8 +3904,9 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
           const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl(message.text) || isYouTubeUrl(message.text)));
           const isVoice = messageType === 'voice';
           const isCall = messageType === 'call';
+          const isGif = message.text && looksLikeGifMessage(message.text);
 
-          if (!isCall && !isVoice && !isImage && !isVideo) {
+          if (!isCall && !isVoice && !isImage && !isVideo && !isGif) {
             setEditingId(message.id);
             setInputText(message.text || '');
           }
@@ -3861,6 +3929,7 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         looksLikeVideoUrl={looksLikeVideoUrl}
         isYouTubeUrl={isYouTubeUrl}
         getYouTubeThumbnail={getYouTubeThumbnail}
+        looksLikeGifMessage={looksLikeGifMessage}
       />
     );
   };
@@ -4406,6 +4475,15 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
         />
       )}
 
+      {/* Emoji/GIF Picker Modal */}
+      <EmojiGifPickerModal
+        isOpen={showEmojiGifPicker}
+        initialTab={emojiGifPickerTab}
+        onEmojiSelect={handleEmojiSelect}
+        onGifSelect={handleGifSelect}
+        onClose={() => setShowEmojiGifPicker(false)}
+      />
+
       {/* Connection Status */}
       {!connected && (
         <View style={styles.connectionStatus}>
@@ -4611,6 +4689,28 @@ export const ChatScreen: React.FC<any> = ({ navigation }) => {
                   >
                     <Text style={styles.attachMenuIcon}>🎬</Text>
                     <Text style={styles.attachMenuText}>Video</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.attachMenuItem}
+                    onPress={() => {
+                      setShowAttachMenu(false);
+                      setEmojiGifPickerTab('gif');
+                      setShowEmojiGifPicker(true);
+                    }}
+                  >
+                    <Text style={styles.attachMenuIcon}>🎞️</Text>
+                    <Text style={styles.attachMenuText}>GIF</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.attachMenuItem}
+                    onPress={() => {
+                      setShowAttachMenu(false);
+                      setEmojiGifPickerTab('emoji');
+                      setShowEmojiGifPicker(true);
+                    }}
+                  >
+                    <EmojiIcon size={24} color={colors.text} />
+                    <Text style={styles.attachMenuText}>Emoji</Text>
                   </TouchableOpacity>
                 </View>
               )}

@@ -64,6 +64,7 @@ interface MessageBubbleProps {
     looksLikeVideoUrl?: (url: string) => boolean;
     isYouTubeUrl?: (url: string) => boolean;
     getYouTubeThumbnail?: (url: string) => string | null;
+    looksLikeGifMessage?: (text: string) => boolean;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
@@ -86,6 +87,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     looksLikeVideoUrl,
     isYouTubeUrl,
     getYouTubeThumbnail,
+    looksLikeGifMessage,
 }) => {
     const { theme } = usePreferences();
     const themeColors = theme === 'dark' ? darkColors : lightColors;
@@ -293,14 +295,15 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
         }
     };
 
-    // Check if message can be edited (only text messages, not voice/image/video/call)
+    // Check if message can be edited (only text messages, not voice/image/video/call/gif)
     const canEditMessage = () => {
         const messageType = message.messageType || 'text';
         const isImage = messageType === 'image' || (message.text && looksLikeImageUrl?.(message.text));
         const isVideo = messageType === 'video' || (message.text && (looksLikeVideoUrl?.(message.text) || isYouTubeUrl?.(message.text)));
         const isVoice = messageType === 'voice';
         const isCall = messageType === 'call';
-        return !isCall && !isVoice && !isImage && !isVideo;
+        const isGif = message.text && looksLikeGifMessage?.(message.text);
+        return !isCall && !isVoice && !isImage && !isVideo && !isGif;
     };
 
     const renderMessageContent = () => {
@@ -326,6 +329,32 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
         if (message.messageType === 'video' || (message.text && looksLikeVideoUrl?.(message.text))) {
             return renderVideoPlayer?.(message.videoUrl || message.text || '', message.id);
+        }
+
+        // Check for GIF format: ![GIF](url)
+        if (message.text && looksLikeGifMessage?.(message.text)) {
+            const gifMatch = message.text.match(/!\[GIF\]\((https?:[^)\s]+)\)/i);
+            if (gifMatch && gifMatch[1]) {
+                const gifUrl = gifMatch[1];
+                return (
+                    <TouchableOpacity
+                        style={styles.messageImageContainer}
+                        onPress={() => onImagePress?.(gifUrl)}
+                        activeOpacity={0.9}
+                    >
+                        <SafeImage
+                            source={{ uri: gifUrl }}
+                            style={styles.messageImage}
+                            resizeMode="cover"
+                            placeholder=""
+                            fallbackUri={`https://api.dicebear.com/7.x/initials/svg?seed=GIF`}
+                        />
+                        <View style={styles.gifIndicator}>
+                            <Text style={styles.gifIndicatorText}>GIF</Text>
+                        </View>
+                    </TouchableOpacity>
+                );
+            }
         }
 
         if (message.messageType === 'image' || (message.text && looksLikeImageUrl?.(message.text))) {
@@ -595,6 +624,21 @@ const createStyles = (theme: string, themeColors: typeof lightColors) => StyleSh
     messageImageContainer: {
         borderRadius: 12,
         overflow: 'hidden',
+    },
+    gifIndicator: {
+        position: 'absolute',
+        bottom: 8,
+        right: 8,
+        backgroundColor: 'rgba(0, 0, 0, 0.7)',
+        borderRadius: 4,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+    },
+    gifIndicatorText: {
+        color: '#fff',
+        fontSize: 10,
+        fontWeight: '600',
+        letterSpacing: 0.5,
     },
     messageImage: {
         width: 200,
