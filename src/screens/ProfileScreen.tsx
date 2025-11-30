@@ -1,10 +1,11 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert, Linking, Modal, FlatList, TextInput } from 'react-native';
+import { View, StyleSheet, Text, ScrollView, TouchableOpacity, Image, Animated, Easing, Dimensions, StatusBar, Alert, Linking, Modal, FlatList, TextInput, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors } from '../theme/colors';
 import { useI18n } from '../i18n';
 import { Button } from '../components/Button';
 import { ProfileEditModal } from '../components/ProfileEditModal';
+import { GiftModal } from '../components/GiftModal';
 import { useAuthStore } from '../state/auth';
 import { api, userApi, wishlistApi, endpoints } from '../api/client';
 import { usePreferences } from '../state/preferences';
@@ -62,11 +63,15 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
   const [loadingWishlists, setLoadingWishlists] = useState(false);
   const [loadingGifts, setLoadingGifts] = useState(false);
   const [loadingEvents, setLoadingEvents] = useState(false);
+  const [showGiftModal, setShowGiftModal] = useState(false);
+  const [editingGift, setEditingGift] = useState<any | null>(null);
+  const [giftModalMode, setGiftModalMode] = useState<'create' | 'edit'>('create');
+  const [giftLoading, setGiftLoading] = useState(false);
   const { user, logout } = useAuthStore();
   
   // Get userId from route params (for viewing other users) or use current user
   const targetUserId = route?.params?.userId || user?.id;
-  const isViewingOtherUser = route?.params?.userId && route?.params?.userId !== user?.id;
+  const isViewingOtherUser = Boolean(route?.params?.userId && route?.params?.userId !== user?.id);
 
   useEffect(() => {
     fetchProfile();
@@ -378,7 +383,7 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({ 
-        mediaTypes: ImagePicker.MediaTypeOptions.Images, 
+        mediaTypes: ['images'], 
         allowsEditing: true, 
         quality: 0.8, 
         aspect: [1, 1] 
@@ -534,6 +539,145 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     );
   };
 
+  const handleEditGift = async (data: any) => {
+    if (!editingGift) return;
+    
+    console.log('handleEditGift called with data:', {
+      name: data.name,
+      price: data.price,
+      category: data.category,
+      description: data.description,
+      fileUri: data.fileUri,
+      imageUrl: data.imageUrl,
+    });
+    
+    try {
+      setGiftLoading(true);
+      
+      // Update gift details (matching web version: updateGift API)
+      await wishlistApi.put(`/api/gift/${editingGift.id}`, {
+        name: data.name,
+        price: parseFloat(data.price),
+        category: data.category,
+        description: data.description || null,
+      });
+      console.log('Gift details updated successfully');
+
+      // Update image if provided (separate upload like web version)
+      let updatedImageUrl: string | null = null;
+      if (data.fileUri) {
+        console.log('Uploading image for gift:', editingGift.id, 'fileUri:', data.fileUri);
+        try {
+          const form = new FormData();
+          
+          // Handle FormData differently for web vs mobile
+          if (Platform.OS === 'web') {
+            // For web, convert URI to File/Blob
+            try {
+              const response = await fetch(data.fileUri);
+              const blob = await response.blob();
+              form.append('imageFile', blob, 'gift.jpg');
+              console.log('Created blob for web upload');
+            } catch (fetchError) {
+              console.error('Error converting image to blob:', fetchError);
+              form.append('imageFile', data.fileUri);
+            }
+          } else {
+            // Mobile platforms - use React Native FormData format
+            const fileUri = data.fileUri;
+            const fileName = fileUri.split('/').pop() || 'gift.jpg';
+            const fileType = 'image/jpeg';
+            
+            form.append('imageFile', {
+              uri: fileUri,
+              name: fileName,
+              type: fileType,
+            } as any);
+            console.log('Created FormData for mobile upload, fileName:', fileName);
+          }
+          
+          // Upload image (matching web version: uploadGiftImage API)
+          const headers = Platform.OS === 'web'
+            ? {}
+            : { 'Content-Type': 'multipart/form-data' };
+          
+          console.log('Calling upload-image API...');
+          const uploadResponse = await wishlistApi.post(`/api/gift/${editingGift.id}/upload-image`, form, { headers });
+          console.log('Image upload successful:', uploadResponse.data);
+          
+          // Get the updated image URL from the response
+          updatedImageUrl = uploadResponse.data?.imageUrl || uploadResponse.data?.ImageUrl || null;
+          console.log('Updated image URL from response:', updatedImageUrl);
+        } catch (uploadError: any) {
+          console.error('Error uploading image:', uploadError);
+          console.error('Upload error response:', uploadError?.response?.data);
+          console.error('Upload error status:', uploadError?.response?.status);
+          // Show error to user since image upload failed
+          Alert.alert('Error', uploadError?.response?.data?.message || uploadError?.message || 'Failed to upload image');
+        }
+      }
+      
+      // Refresh to get the latest data from backend
+      await fetchGifts();
+      
+      // After refresh, ensure the image URL is set if we just uploaded one
+      // This is needed because fetchGifts might not immediately return the updated image
+      if (updatedImageUrl) {
+        console.log('Updating state with image URL after refresh:', updatedImageUrl);
+        // Use setTimeout to ensure state update happens after fetchGifts completes
+        setTimeout(() => {
+          setGifts(prev => {
+            const updated = prev.map(g => 
+              g.id === editingGift.id 
+                ? { 
+                    ...g, 
+                    imageUrl: updatedImageUrl,
+                  } 
+                : g
+            );
+            console.log('State updated with image URL, gift found:', updated.find(g => g.id === editingGift.id));
+            return updated;
+          });
+        }, 100);
+      }
+      setShowGiftModal(false);
+      setEditingGift(null);
+    } catch (error: any) {
+      console.error('Error editing gift:', error);
+      // Silent error handling like web version
+    } finally {
+      setGiftLoading(false);
+    }
+  };
+
+  const handleDeleteGift = async (gift: any) => {
+    console.log('handleDeleteGift called with gift:', gift.id, gift.name);
+    try {
+      console.log('Calling delete API for gift:', gift.id);
+      // Delete gift (matching web version: deleteGift API)
+      await wishlistApi.delete(`/api/gift/${gift.id}`);
+      console.log('Delete API call successful');
+      
+      // Update state directly by filtering (like web version)
+      setGifts(prev => {
+        const filtered = prev.filter(g => g.id !== gift.id);
+        console.log('Updated gifts list, new count:', filtered.length);
+        return filtered;
+      });
+    } catch (error: any) {
+      console.error('Error deleting gift:', error);
+      console.error('Error response:', error?.response?.data);
+      // Show error to user since delete failed
+      Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to delete gift');
+    }
+  };
+
+  const openGiftEditModal = (gift: any) => {
+    setEditingGift(gift);
+    setGiftModalMode('edit');
+    setShowGiftModal(true);
+  };
+
   const renderGiftsGrid = () => {
     if (loadingGifts) {
       return (
@@ -552,33 +696,109 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
     }
 
     return (
-      <View style={styles.gridContainer}>
-        {gifts.map((gift: any, index: number) => (
-          <TouchableOpacity
-            key={gift.id || `gift-${index}`}
-            style={styles.gridItem}
-            onPress={() => {
-              // Navigate to wishlist detail if we have wishlistId
-              if (gift.wishlistId) {
-                navigation.navigate('WishlistDetail', { id: gift.wishlistId });
-              }
-            }}
-          >
-            {gift.imageUrl ? (
-              <Image source={{ uri: gift.imageUrl }} style={styles.gridImage} />
-            ) : (
-              <View style={styles.gridImagePlaceholder}>
-                <GiftIcon size={32} color={colors.textSecondary} />
-              </View>
-            )}
-            <View style={styles.gridOverlay}>
-              <Text style={styles.gridTitle} numberOfLines={2}>{gift.name || gift.title || t('gift.defaultName', 'Gift')}</Text>
-              {gift.price !== undefined && gift.price !== null && (
-                <Text style={styles.gridPrice}>${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}</Text>
+      <View style={styles.giftsListContainer}>
+        {gifts.map((gift: any, index: number) => {
+          const hasWishlistId = gift.wishlistId && typeof gift.wishlistId === 'string' && gift.wishlistId.trim() !== '';
+          const shouldShowButtons = !isViewingOtherUser && !hasWishlistId;
+          
+          if (shouldShowButtons) {
+            console.log('Should show buttons for gift:', gift.id, gift.name, 'isViewingOtherUser:', isViewingOtherUser, 'hasWishlistId:', hasWishlistId);
+          }
+          
+          return (
+            <View key={gift.id || `gift-${index}`} style={styles.giftCardContainer}>
+              <TouchableOpacity
+                style={styles.giftCard}
+                activeOpacity={0.7}
+                onPress={() => {
+                  // If gift is attached to a wishlist, navigate to wishlist detail
+                  if (hasWishlistId) {
+                    navigation.navigate('WishlistDetail', { 
+                      id: gift.wishlistId,
+                      wishlistId: gift.wishlistId 
+                    });
+                  }
+                }}
+              >
+                {gift.imageUrl ? (
+                  <Image 
+                    key={gift.imageUrl}
+                    source={{ uri: gift.imageUrl }} 
+                    style={styles.giftCardImage}
+                  />
+                ) : (
+                  <View style={styles.giftCardImagePlaceholder}>
+                    <GiftIcon size={32} color={colors.textSecondary} />
+                  </View>
+                )}
+                <View style={styles.giftCardInfo}>
+                  <Text style={styles.giftCardName} numberOfLines={2}>
+                    {gift.name || gift.title || t('gift.defaultName', 'Gift')}
+                  </Text>
+                  {gift.price !== undefined && gift.price !== null && (
+                    <Text style={styles.giftCardPrice}>
+                      ${typeof gift.price === 'number' ? gift.price.toFixed(2) : String(gift.price)}
+                    </Text>
+                  )}
+                </View>
+              </TouchableOpacity>
+              
+              {/* Edit and Delete buttons for own profile standalone gifts */}
+              {!isViewingOtherUser && !hasWishlistId && (
+                <View style={styles.giftCardActions}>
+                  <TouchableOpacity
+                    style={styles.giftActionButton}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      console.log('Edit button pressed for gift:', gift.id);
+                      openGiftEditModal(gift);
+                    }}
+                  >
+                    <Text style={styles.giftActionButtonText}>Edit</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.giftActionButton, styles.giftActionButtonDelete]}
+                    activeOpacity={0.7}
+                    onPress={() => {
+                      console.log('Delete button pressed for gift:', gift.id, gift.name);
+                      
+                      // Use window.confirm on web, Alert.alert on native
+                      if (Platform.OS === 'web') {
+                        const confirmed = window.confirm('Delete this gift?');
+                        if (confirmed) {
+                          console.log('Delete confirmed via window.confirm, calling handleDeleteGift');
+                          handleDeleteGift(gift);
+                        } else {
+                          console.log('Delete cancelled via window.confirm');
+                        }
+                      } else {
+                        // Native platforms
+                        Alert.alert(
+                          'Delete Gift',
+                          'Delete this gift?',
+                          [
+                            { text: 'Cancel', style: 'cancel', onPress: () => console.log('Delete cancelled') },
+                            {
+                              text: 'Delete',
+                              style: 'destructive',
+                              onPress: () => {
+                                console.log('Delete confirmed, calling handleDeleteGift');
+                                handleDeleteGift(gift);
+                              },
+                            },
+                          ],
+                          { cancelable: true }
+                        );
+                      }
+                    }}
+                  >
+                    <Text style={[styles.giftActionButtonText, styles.giftActionButtonTextDelete]}>Delete</Text>
+                  </TouchableOpacity>
+                </View>
               )}
             </View>
-          </TouchableOpacity>
-        ))}
+          );
+        })}
       </View>
     );
   };
@@ -911,6 +1131,27 @@ export const ProfileScreen: React.FC<any> = ({ navigation, route }) => {
           setProfile(prev => prev ? { ...prev, avatarUrl } : null);
         }}
       />
+
+      {/* Gift Edit Modal */}
+      {!isViewingOtherUser && (
+        <GiftModal
+          visible={showGiftModal}
+          onClose={() => {
+            setShowGiftModal(false);
+            setEditingGift(null);
+          }}
+          onSubmit={handleEditGift}
+          loading={giftLoading}
+          gift={editingGift ? {
+            name: editingGift.name || editingGift.title || '',
+            price: String(editingGift.price || ''),
+            category: editingGift.category || '',
+            description: editingGift.description || '',
+            imageUrl: editingGift.imageUrl || '',
+          } : null}
+          mode={giftModalMode}
+        />
+      )}
 
       {/* Delete Account Confirmation Modal */}
       <Modal
@@ -1295,6 +1536,7 @@ const createStyles = () => StyleSheet.create({
     overflow: 'hidden',
     backgroundColor: colors.surface,
     position: 'relative',
+    zIndex: 1,
   },
   gridImage: {
     width: '100%',
@@ -1317,6 +1559,7 @@ const createStyles = () => StyleSheet.create({
     right: 0,
     backgroundColor: 'rgba(0, 0, 0, 0.6)',
     padding: 8,
+    pointerEvents: 'none', // Allow touches to pass through to parent
   },
   gridTitle: {
     fontSize: 12,
@@ -1336,6 +1579,82 @@ const createStyles = () => StyleSheet.create({
   gridDate: {
     fontSize: 10,
     color: 'white',
+  },
+  // Gift card styles (for gifts tab)
+  giftsListContainer: {
+    marginTop: 8,
+  },
+  giftCardContainer: {
+    marginBottom: 16,
+    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    overflow: 'hidden',
+    zIndex: 1,
+  },
+  giftCard: {
+    flexDirection: 'row',
+    padding: 12,
+  },
+  giftCardImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: colors.muted,
+  },
+  giftCardImagePlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 8,
+    backgroundColor: colors.muted,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  giftCardInfo: {
+    flex: 1,
+    marginLeft: 12,
+    justifyContent: 'center',
+  },
+  giftCardName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: colors.text,
+    marginBottom: 4,
+  },
+  giftCardPrice: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: colors.primary,
+  },
+  giftCardActions: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+  },
+  giftActionButton: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+    borderRadius: 8,
+    backgroundColor: colors.muted,
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 10,
+  },
+  giftActionButtonDelete: {
+    backgroundColor: colors.dangerLight,
+  },
+  giftActionButtonText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: colors.text,
+  },
+  giftActionButtonTextDelete: {
+    color: colors.danger,
   },
   loadingContainer: {
     flex: 1,

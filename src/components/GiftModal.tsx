@@ -115,9 +115,18 @@ export const GiftModal: React.FC<GiftModalProps> = ({
   const handleSubmit = async () => {
     if (!validateForm()) return;
     
+    console.log('GiftModal handleSubmit called with formData:', {
+      name: formData.name,
+      price: formData.price,
+      category: formData.category,
+      description: formData.description,
+      fileUri: formData.fileUri,
+      imageUrl: formData.imageUrl,
+    });
+    
     try {
       await onSubmit(formData);
-      setFormData({ name: '', price: '', category: '', description: '', imageUrl: '' });
+      setFormData({ name: '', price: '', category: '', description: '', imageUrl: '', fileUri: undefined });
       setErrors({});
     } catch (error) {
       console.log('Error submitting gift:', error);
@@ -138,7 +147,7 @@ export const GiftModal: React.FC<GiftModalProps> = ({
         return;
       }
       const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ['images'],
         allowsEditing: true,
         quality: 0.9,
         aspect: [1, 1],

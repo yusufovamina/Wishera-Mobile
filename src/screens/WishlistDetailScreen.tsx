@@ -184,7 +184,25 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
       const response = await wishlistApi.post(`/api/gift`, form, { headers: { 'Content-Type': 'multipart/form-data' } });
       console.log('Gift created successfully:', response.data);
       
-      // Refresh gifts from backend to get the new gift
+      // If image was uploaded but response doesn't include imageUrl, upload it separately
+      if (data.fileUri && response.data && response.data.id && !response.data.imageUrl) {
+        try {
+          const imageForm = new FormData();
+          imageForm.append('imageFile', {
+            uri: data.fileUri,
+            name: 'gift.jpg',
+            type: 'image/jpeg',
+          } as any);
+          await wishlistApi.post(`/api/gift/${response.data.id}/upload-image`, imageForm, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+          });
+          console.log('Gift image uploaded successfully');
+        } catch (imageError) {
+          console.log('Gift image upload failed (non-fatal):', imageError);
+        }
+      }
+      
+      // Refresh gifts from backend to get the new gift with image
       await fetchGifts();
       setShowGiftModal(false);
       Alert.alert('Success', 'Gift added successfully!');
@@ -270,6 +288,47 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
         },
       ]
     );
+  };
+
+  const handleRemoveGiftFromWishlist = async (gift: Gift) => {
+    Alert.alert(
+      'Remove Gift',
+      `Are you sure you want to remove "${gift.name}" from this wishlist?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              console.log('Removing gift from wishlist:', gift.id);
+              await wishlistApi.post(`/api/gift/${gift.id}/remove-from-wishlist`);
+              console.log('Gift removed from wishlist successfully');
+              // Refresh gifts from backend
+              await fetchGifts();
+              Alert.alert('Success', 'Gift removed from wishlist successfully!');
+            } catch (error: any) {
+              console.error('Error removing gift from wishlist:', error);
+              Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to remove gift from wishlist');
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleAddExistingGiftToWishlist = async (giftId: string) => {
+    try {
+      console.log('Adding gift to wishlist:', giftId, wishlistId);
+      await wishlistApi.post(`/api/gift/${giftId}/assign-to-wishlist`, { wishlistId });
+      console.log('Gift added to wishlist successfully');
+      // Refresh gifts from backend
+      await fetchGifts();
+      Alert.alert('Success', 'Gift added to wishlist successfully!');
+    } catch (error: any) {
+      console.error('Error adding gift to wishlist:', error);
+      Alert.alert('Error', error?.response?.data?.message || error?.message || 'Failed to add gift to wishlist');
+    }
   };
 
   const handleReserveGift = async (gift: Gift) => {
@@ -468,6 +527,13 @@ export const WishlistDetailScreen: React.FC<WishlistDetailScreenProps> = ({ rout
                         onPress={() => openEditModal(gift)}
                       >
                         <Text style={styles.actionButtonText}>Edit</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.actionButton, styles.removeButton]}
+                        onPress={() => handleRemoveGiftFromWishlist(gift)}
+                      >
+                        <Text style={[styles.actionButtonText, styles.removeButtonText]}>Remove</Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
@@ -698,6 +764,12 @@ const createStyles = () => StyleSheet.create({
   },
   actionButtonDisabled: {
     opacity: 0.5,
+  },
+  removeButton: {
+    backgroundColor: colors.warningLight,
+  },
+  removeButtonText: {
+    color: colors.warning,
   },
   deleteButton: {
     backgroundColor: colors.dangerLight,
